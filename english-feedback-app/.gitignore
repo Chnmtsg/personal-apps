@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dev.vars
+.dev.vars
+.wrangler/
+*.local
+
+# Deploy-specific, and may carry VITE_APP_KEY. Commit the .example instead.
+app/.env.production

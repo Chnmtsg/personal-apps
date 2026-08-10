@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node tools/smoke.js)",
+      "Bash(node tools/render.js)",
+      "Bash(node \"C:/Users/Asus/AppData/Local/Temp/claude/D--3-Claude-Apps/6c1696a5-b227-486a-aa93-fb833b5850a8/scratchpad/wraptest.js\")"
+    ]
+  }
+}

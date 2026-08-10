@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "arise",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8123", "--directory", "arise"],
+      "port": 8123
+    },
+    {
+      "name": "english-feedback-app",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "english-feedback-app", "run", "dev:app"],
+      "port": 5173
+    }
+  ]
+}

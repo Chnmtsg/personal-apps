@@ -1,0 +1,858 @@
+/* ============ Arise — design tokens ============ */
+:root {
+  /* Warm, near-black and high contrast: the palette reads as paper-on-charcoal
+     rather than glass-on-navy, which is what makes a card-led layout legible at
+     a glance. Cream text rather than white keeps it off the harsh end. */
+  --bg: #0e0d0c;
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-2: rgba(255, 255, 255, 0.085);
+  --stroke: rgba(255, 255, 255, 0.1);
+  --stroke-strong: rgba(255, 255, 255, 0.19);
+  --text: #f4efe7;
+  --muted: #b0a79b;
+  /* WCAG AA (4.5:1) is measured against --surface-2, the lightest card a faint
+     label ever sits on — not against --bg, which flatters the ratio. */
+  --faint: #948b80;
+
+  --accent: #ff7a18;
+  --accent-2: #ffa53d;
+  --accent-grad: linear-gradient(135deg, #ff7a18 0%, #ffb020 100%);
+  --flame: #ff7a18;
+  --gold: #ffc24d;
+  --good: #4fd18b;
+  --warn: #ffb020;
+  --bad: #ff6b5f;
+  --cream: #f0e6d8;   /* the "done"/active surface, borrowed from the reference */
+
+  /* Type scale. Every piece of TEXT picks a rung — there were 21 sizes before
+     this, with 11.5 and 12 sitting next to each other in one card, so no two
+     screens could agree. Emoji and medals are sized literally and on purpose:
+     they are iconography, and forcing glyphs onto a text scale is a category
+     error. --fs-xs is the floor for anything carrying meaning. */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-base: 14px;
+  --fs-lg: 15px;
+  --fs-xl: 17px;
+  --fs-2xl: 20px;
+  --fs-3xl: 26px;
+
+  /* Spacing, on a 4px sub-grid of the 8px system the guidelines ask for. Applied
+     at container level — card, row and section padding — which is what carries
+     the visible rhythm; optical nudges inside chips stay literal. */
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 12px;
+  --sp-lg: 16px;
+  --sp-xl: 24px;
+
+  --r-xs: 12px;   /* controls: buttons, inputs, small chrome */
+  --r-sm: 10px;
+  --r: 16px;      /* the standard row and card */
+  --r-lg: 22px;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.28);
+  /* Foreground colours for the two filled backgrounds, so a theme change cannot
+     leave black text stranded on a repainted accent. */
+  --on-accent: #1a0d02;
+  --on-good: #052a19;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  /* viewport-fit=cover plus a translucent iOS status bar puts content under the
+     clock and battery, so anything pinned to the top owes this inset. */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --tab-h: 62px;
+
+  /* native controls (time pickers, scrollbars, spinners) follow the app, not the OS */
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #faf6f0;
+    --surface: rgba(40, 28, 18, 0.045);
+    --surface-2: rgba(40, 28, 18, 0.08);
+    --stroke: rgba(40, 28, 18, 0.11);
+    --stroke-strong: rgba(40, 28, 18, 0.2);
+    --text: #241c14;
+    /* --muted darkens with --faint so the two stay a visible step apart once
+       --faint is dark enough to clear AA on --surface-2. */
+    --muted: #5c5145;
+    --faint: #6b6055;
+    --cream: #2a2118;
+    --shadow: 0 10px 30px rgba(60, 40, 20, 0.14);
+    color-scheme: light;
+  }
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) input[type="time"]::-webkit-calendar-picker-indicator { filter: none; }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+  padding-bottom: calc(var(--tab-h) + var(--safe-b));
+}
+
+h1, h2, h3, h4 { margin: 0; line-height: 1.25; letter-spacing: -0.01em; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+/* Any class selector outranks the UA's [hidden] rule, so `hidden` silently does
+   nothing on a styled element. Restore it once, globally, rather than per rule. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; border-radius: 6px; }
+
+/* ============ ambient background ============ */
+.aurora { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.aurora span {
+  position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%;
+  filter: blur(90px); opacity: 0.22;
+}
+.aurora span:nth-child(1) { background: #ff7a18; top: -22vmax; left: -18vmax; }
+.aurora span:nth-child(2) { background: #ffb020; bottom: -26vmax; right: -20vmax; opacity: 0.16; }
+.aurora span:nth-child(3) { background: #8a4b1f; top: 30vmax; left: 30vmax; opacity: 0.1; }
+
+/* ============ chrome ============ */
+.topbar {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: calc(14px + var(--safe-t)) 16px 10px;
+  background: linear-gradient(to bottom, var(--bg) 55%, transparent);
+  backdrop-filter: blur(8px);
+}
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 800; letter-spacing: 0.02em; }
+.brand-mark {
+  width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 9px; background: var(--accent-grad); color: var(--on-accent); font-weight: 900;
+  box-shadow: var(--shadow-sm);
+}
+.brand-text { font-size: var(--fs-xl); }
+.topbar-right { display: flex; gap: 8px; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 44px; padding: 6px 13px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--stroke);
+  font-size: var(--fs-md); font-weight: 700;
+}
+.chip b { font-weight: 800; }
+.streak-chip b { color: var(--flame); }
+.kept-chip b { color: var(--good); }
+
+.view { max-width: 720px; margin: 0 auto; padding: 4px 16px 28px; }
+.view:focus { outline: none; }
+
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  display: grid; grid-template-columns: repeat(6, 1fr);
+  height: calc(var(--tab-h) + var(--safe-b)); padding-bottom: var(--safe-b);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid var(--stroke);
+}
+.tab {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: none; border: 0; color: var(--faint); padding: 0;
+}
+.tab span { font-size: 19px; line-height: 1; filter: grayscale(0.6); transition: transform 0.18s, filter 0.18s; }
+.tab i { font-style: normal; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.02em; }
+.tab.active { color: var(--text); }
+.tab.active span { filter: none; transform: translateY(-1px) scale(1.12); }
+
+/* ============ building blocks ============ */
+.card {
+  background: var(--surface); border: 1px solid var(--stroke);
+  border-radius: var(--r); padding: var(--sp-lg); margin-bottom: var(--sp-md);
+}
+.card.flush { padding: 0; overflow: hidden; }
+.section-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin: var(--sp-xl) 2px var(--sp-sm);
+}
+.section-head h2 { font-size: var(--fs-lg); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+
+/* Base text-button. Standalone .link is a call to action in an empty state, so it
+   carries the 44px minimum height; the scoped variants below are inline
+   affordances inside a denser row and override the box, not the colour. */
+.link {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 44px; padding: 6px; gap: 4px;
+  background: none; border: 0; color: var(--accent-2);
+  font: inherit; font-weight: 700; cursor: pointer;
+}
+/* This link sits on the heading's baseline, so a taller box would push the
+   section spacing around. The hit area is grown instead, which reaches 44px
+   without moving anything on screen. */
+.section-head .link { min-height: 0; font-size: var(--fs-md); padding: var(--sp-xs); position: relative; }
+.section-head .link::after {
+  content: ''; position: absolute; left: 0; right: 0;
+  top: 50%; height: 44px; transform: translateY(-50%);
+}
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 11px var(--sp-lg); border-radius: var(--r-xs); border: 1px solid var(--stroke-strong);
+  background: var(--surface-2); color: var(--text); font-weight: 700; font-size: var(--fs-base);
+  transition: transform 0.12s ease, filter 0.2s;
+}
+.btn:active { transform: scale(0.97); }
+.btn.primary { background: var(--accent-grad); border-color: transparent; color: var(--on-accent); box-shadow: var(--shadow-sm); }
+.btn.ghost { background: none; }
+.btn.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
+.btn.block { width: 100%; }
+.btn:disabled { opacity: 0.45; pointer-events: none; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* The button fills the 44x44px minimum target from knowledge/ui-guidelines.md,
+   while ::before paints the smaller visible chrome — so the control keeps its
+   light look without shrinking the area a thumb has to hit. `isolation` keeps
+   the negative z-index inside the button instead of dropping it behind the
+   surrounding card's background. */
+.icon-btn {
+  width: 44px; height: 44px; flex: none; display: grid; place-items: center;
+  border: 0; background: none; padding: 0; isolation: isolate;
+  position: relative; color: var(--muted); font-size: var(--fs-lg);
+}
+.icon-btn::before {
+  content: ''; position: absolute; inset: 5px; z-index: -1;
+  border-radius: 10px; border: 1px solid var(--stroke); background: var(--surface);
+}
+.icon-btn:active { transform: scale(0.92); }
+
+input[type="text"], input[type="number"], input[type="time"], select, textarea {
+  width: 100%; padding: 11px 12px; border-radius: var(--r-xs);
+  background: var(--surface); border: 1px solid var(--stroke); color: var(--text);
+}
+/* Without this the browser paints its own light chrome for the clock field. */
+input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
+:root:not([data-theme="light"]) input[type="time"] { color-scheme: dark; }
+textarea { resize: vertical; min-height: 74px; }
+label.field { display: block; margin-bottom: 12px; }
+label.field > span { display: block; font-size: var(--fs-sm); font-weight: 700; color: var(--muted); margin-bottom: 6px; letter-spacing: 0.03em; text-transform: uppercase; }
+/* A field the app fills in for you: it must not look typeable. */
+label.field > .field-note { display: block; margin-top: 5px; font-size: var(--fs-xs); color: var(--faint); text-transform: none; letter-spacing: 0; font-weight: 400; }
+input[readonly] { color: var(--muted); background: none; cursor: default; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+.empty { text-align: center; color: var(--faint); padding: 22px 12px; font-size: var(--fs-base); }
+.empty .big { font-size: 30px; display: block; margin-bottom: 8px; }
+
+/* ============ hero (today) ============ */
+.hero {
+  position: relative; overflow: hidden;
+  border-radius: var(--r-lg); border: 1px solid var(--stroke);
+  background:
+    radial-gradient(120% 100% at 0% 0%, rgba(124, 108, 255, 0.28), transparent 60%),
+    radial-gradient(120% 120% at 100% 0%, rgba(53, 214, 255, 0.2), transparent 55%),
+    var(--surface);
+  padding: var(--sp-lg); margin-bottom: var(--sp-md); box-shadow: var(--shadow);
+}
+/* The day's own header. Deliberately small: knowledge/ui-guidelines.md puts what
+   today asks and the tick to record it first, and a streak is context, never the
+   headline — so this states the day and gets out of the way of the goal list. */
+.dayhead { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.dayhead-meta { min-width: 0; flex: 1; }
+
+.ring { width: 96px; height: 96px; flex: none; position: relative; }
+.ring.sm { width: 66px; height: 66px; }
+.ring.sm .ring-label b { font-size: var(--fs-lg); }
+.ring.sm .ring-label small { font-size: var(--fs-xs); letter-spacing: 0.04em; }
+.ring svg { transform: rotate(-90deg); display: block; width: 100%; height: 100%; }
+.ring .track { stroke: var(--stroke-strong); }
+.ring .bar { stroke: url(#ringGrad); stroke-linecap: round; transition: stroke-dasharray 0.6s cubic-bezier(0.3, 1, 0.4, 1); }
+.ring-label {
+  position: absolute; inset: 0; display: grid; place-content: center; text-align: center; line-height: 1.1;
+}
+.ring-label b { font-size: var(--fs-2xl); font-weight: 800; display: block; }
+.ring-label small { font-size: var(--fs-xs); color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+
+.hero-date { font-size: var(--fs-sm); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.hero-title { font-size: var(--fs-2xl); margin: 3px 0 0; }
+.hero-stats + .xpbar { margin-top: 14px; }
+.hero-stats { display: flex; gap: 14px; flex-wrap: wrap; }
+.hero-stat b { display: block; font-size: var(--fs-xl); font-weight: 800; }
+.hero-stat span { font-size: var(--fs-xs); color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.hero-stat .fire { color: var(--flame); }
+
+.xpbar { margin-top: 14px; }
+.xpbar-top { display: flex; justify-content: space-between; font-size: var(--fs-xs); color: var(--muted); margin-bottom: 5px; font-weight: 600; }
+.bar { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: 99px; background: var(--accent-grad); transition: width 0.5s ease; }
+.bar.flame > i { background: linear-gradient(90deg, var(--flame), var(--gold)); }
+.bar.gold > i { background: linear-gradient(90deg, var(--gold), #fff0a8); }
+
+/* date pager */
+.daypager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.daypager .label { font-weight: 700; font-size: var(--fs-base); }
+.daypager .today-btn { font-size: var(--fs-sm); padding: 6px 10px; border-radius: 999px; }
+
+/* ============ checklist ============ */
+.list { display: flex; flex-direction: column; gap: 8px; }
+.item {
+  display: flex; align-items: center; gap: var(--sp-md); width: 100%; text-align: left;
+  min-height: 68px; padding: var(--sp-md) var(--sp-lg); border-radius: var(--r-lg);
+  background: var(--surface); border: 1px solid var(--stroke); color: inherit;
+  transition: background 0.18s, border-color 0.18s, transform 0.12s;
+}
+.item:active { transform: scale(0.988); }
+/* order:2 puts the tick after the body without reordering the markup, so the
+   accessible name still reads name-then-state. */
+.item .tick {
+  order: 2; width: 38px; height: 38px; flex: none; border-radius: var(--r-xs);
+  border: 1px solid var(--stroke-strong); display: grid; place-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: var(--fs-xl); font-weight: 900;
+  color: rgba(255, 255, 255, 0.3); transition: all 0.2s;
+}
+/* A workout row is a container so the "how to" button can sit next to the
+   toggle; .item-main is the part that actually completes the exercise. */
+.item-main {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px;
+  background: none; border: 0; padding: 0; text-align: left; color: inherit; font: inherit;
+}
+.item .emoji { font-size: 24px; flex: none; width: 28px; text-align: center; }
+.item .body { min-width: 0; flex: 1; }
+.item .name { font-weight: 800; font-size: var(--fs-lg); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .sub { font-size: var(--fs-sm); color: var(--muted); }
+.item.done { background: color-mix(in srgb, var(--good) 10%, transparent); border-color: color-mix(in srgb, var(--good) 30%, transparent); }
+.item.done .tick { background: var(--cream); border-color: var(--cream); color: #1a1410; }
+.item.done .name { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--good) 70%, transparent); opacity: 0.75; }
+/* A future day must LOOK read-only without becoming unreadable — the guidelines
+   protect its reference material, and that is exactly when you read the cues.
+   Dimming the whole row put .sub at 2.7:1, well under AA, so only the
+   interactive chrome fades. The `disabled` attribute is what actually makes the
+   row inert: it also takes the controls out of the tab order, which
+   pointer-events never did. */
+.item.locked { background: none; border-style: dashed; }
+.item.locked .tick { opacity: 0.35; }
+.item.locked .emoji { opacity: 0.6; }
+.item.locked .icon-btn { opacity: 1; }
+
+/* --- the screen shown when a view throws --- */
+.recovery {
+  margin-top: 20px; padding: 18px;
+  background: var(--surface); border: 1px solid var(--stroke-strong); border-radius: var(--r);
+}
+.recovery h1 { font-size: var(--fs-xl); margin-bottom: 8px; }
+.recovery p { font-size: var(--fs-md); color: var(--muted); line-height: 1.6; margin: 0 0 12px; }
+.recovery pre {
+  margin: 0 0 14px; padding: 10px 12px; overflow-x: auto;
+  background: var(--surface-2); border-radius: var(--r-sm);
+  font-size: var(--fs-sm); color: var(--faint); white-space: pre-wrap; word-break: break-word;
+}
+
+/* --- how-to sheet --- */
+
+.how-dose {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; margin-bottom: 12px;
+  background: var(--surface); border: 1px solid var(--stroke); border-radius: var(--r-sm);
+}
+.how-dose b { font-size: var(--fs-lg); }
+.how-dose span { font-size: var(--fs-sm); color: var(--faint); }
+.how-list { margin: 0; padding-left: 20px; }
+.how-list li { margin-bottom: 9px; font-size: var(--fs-base); line-height: 1.55; color: var(--muted); }
+.how-list li:last-child { margin-bottom: 0; }
+.item .trail { font-size: var(--fs-xs); color: var(--faint); font-weight: 700; flex: none; }
+
+.pill {
+  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 700;
+  background: var(--surface-2); color: var(--muted);
+}
+.pill.fire { background: color-mix(in srgb, var(--flame) 18%, transparent); color: var(--flame); }
+.pill.good { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+
+.inline-add { display: flex; gap: 8px; margin-top: 8px; }
+.inline-add input { flex: 1; }
+
+/* ============ weekly strip ============ */
+.week-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.wd { text-align: center; }
+.wd .dot {
+  height: 38px; border-radius: var(--r-xs); display: grid; place-items: center;
+  background: var(--surface); border: 1px solid var(--stroke); font-size: var(--fs-md); font-weight: 800; color: var(--faint);
+}
+.wd .dot.complete { background: color-mix(in srgb, var(--good) 22%, transparent); border-color: color-mix(in srgb, var(--good) 45%, transparent); color: var(--good); }
+.wd .dot.partial  { background: color-mix(in srgb, var(--warn) 18%, transparent); border-color: color-mix(in srgb, var(--warn) 38%, transparent); color: var(--warn); }
+.wd .dot.missed   { color: var(--faint); }
+.wd .dot.rest     { color: var(--accent-2); opacity: 0.65; }
+.wd .dot.future   { opacity: 0.4; }
+.wd .dot.today    { box-shadow: 0 0 0 2px var(--accent-2); }
+.wd small { display: block; font-size: var(--fs-xs); color: var(--faint); margin-top: 4px; letter-spacing: 0.04em; }
+
+/* ============ plan ============ */
+.plan-day { margin-bottom: 12px; }
+.plan-day-head {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  background: var(--surface-2); border-bottom: 1px solid var(--stroke);
+}
+.plan-day-head h3 { font-size: var(--fs-lg); flex: 1; }
+.plan-day-head .count { font-size: var(--fs-xs); color: var(--muted); font-weight: 700; }
+.plan-day.is-today .plan-day-head { background: linear-gradient(90deg, rgba(124, 108, 255, 0.25), transparent); }
+.plan-day.is-today h3::after { content: "TODAY"; margin-left: 8px; font-size: var(--fs-xs); letter-spacing: 0.1em; color: var(--accent-2); vertical-align: middle; }
+.plan-rows { padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.plan-row { display: flex; align-items: center; gap: 4px; }
+.plan-main {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left;
+  background: none; border: 0; color: inherit; padding: 9px 8px; border-radius: 11px;
+  transition: background 0.15s;
+}
+.plan-main:hover { background: var(--surface); }
+.plan-main:active { transform: scale(0.99); }
+.plan-main .emoji { font-size: 19px; flex: none; width: 24px; text-align: center; }
+.plan-row .body { flex: 1; min-width: 0; }
+.plan-row .name { display: block; font-weight: 600; font-size: var(--fs-base); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-row .sub { display: block; font-size: var(--fs-xs); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Target stays 44x44; only the painted chrome shrinks. */
+.plan-row .icon-btn { font-size: var(--fs-md); }
+.plan-row .icon-btn::before { inset: 6.5px; }
+.icon-btn:disabled { opacity: 0.3; pointer-events: none; }
+.plan-actions { display: flex; gap: 6px; padding: 0 8px 10px; }
+
+/* exercise picker */
+.picker-search { position: sticky; top: 0; padding-bottom: 10px; background: var(--bg); }
+.cat-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
+.cat-tabs::-webkit-scrollbar { display: none; }
+.cat-tab {
+  display: inline-flex; align-items: center; white-space: nowrap;
+  min-height: 44px; padding: 7px 14px; border-radius: 999px;
+  border: 1px solid var(--stroke); background: var(--surface);
+  font-size: var(--fs-md); font-weight: 700; color: var(--muted);
+}
+.cat-tab.active { background: var(--accent-grad); color: var(--on-accent); border-color: transparent; }
+.pick-list { display: flex; flex-direction: column; gap: 6px; }
+
+/* ============ progress ============ */
+.stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.stat {
+  background: var(--surface); border: 1px solid var(--stroke); border-radius: var(--r); padding: 14px;
+}
+.stat b { display: block; font-size: var(--fs-3xl); font-weight: 800; letter-spacing: -0.02em; }
+.stat span { font-size: var(--fs-xs); color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
+.stat.fire b { color: var(--flame); }
+.stat.gold b { color: var(--gold); }
+.stat.good b { color: var(--good); }
+
+.heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 1fr); gap: 3px; overflow-x: auto; padding-bottom: 4px; }
+.heat i {
+  width: 13px; height: 13px; border-radius: 3.5px; background: var(--surface-2);
+  display: block; border: 1px solid transparent;
+}
+.heat i.rest { background: color-mix(in srgb, var(--accent-2) 14%, transparent); }
+.heat i.partial { background: color-mix(in srgb, var(--warn) 45%, transparent); }
+.heat i.complete { background: var(--good); }
+.heat i.missed { background: color-mix(in srgb, var(--bad) 22%, transparent); }
+.heat i.today { border-color: var(--text); }
+.heat i.future { background: color-mix(in srgb, var(--surface-2) 45%, transparent); }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: var(--fs-xs); color: var(--faint); }
+.legend b { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+
+.bars { display: flex; align-items: flex-end; gap: 8px; height: 110px; }
+.bars .col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; height: 100%; }
+.bars .col > i { width: 100%; border-radius: 7px 7px 3px 3px; background: var(--accent-grad); min-height: 3px; transition: height 0.5s; }
+.bars .col.hit > i { background: linear-gradient(180deg, var(--gold), var(--flame)); }
+.bars .col small { font-size: var(--fs-xs); color: var(--faint); }
+
+.breakdown-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.breakdown-row .lbl { width: 82px; font-size: var(--fs-sm); font-weight: 700; color: var(--muted); flex: none; }
+.breakdown-row .bar { flex: 1; }
+.breakdown-row .val { width: 30px; text-align: right; font-size: var(--fs-sm); font-weight: 800; color: var(--muted); }
+
+/* ============ rewards ============ */
+.next-reward {
+  border-radius: var(--r-lg); padding: 16px; margin-bottom: 14px; border: 1px solid var(--stroke);
+  background: radial-gradient(120% 120% at 100% 0%, rgba(255, 204, 77, 0.22), transparent 60%), var(--surface);
+}
+.next-reward .top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.next-reward .medal { font-size: 34px; }
+.next-reward h3 { font-size: var(--fs-xl); }
+.next-reward p { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--muted); }
+
+.reward-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.reward {
+  position: relative; text-align: center; padding: 16px 12px; border-radius: var(--r);
+  background: var(--surface); border: 1px solid var(--stroke);
+}
+.reward .medal { font-size: 32px; display: block; filter: grayscale(1); opacity: 0.35; transition: 0.3s; }
+.reward h4 { font-size: var(--fs-md); margin: 8px 0 2px; }
+.reward .days { font-size: var(--fs-xs); color: var(--faint); font-weight: 700; letter-spacing: 0.05em; }
+.reward.unlocked { border-color: color-mix(in srgb, var(--gold) 40%, transparent); background: radial-gradient(100% 100% at 50% 0%, rgba(255, 204, 77, 0.14), transparent 70%), var(--surface); }
+.reward.unlocked .medal { filter: none; opacity: 1; }
+.reward.claimed::after {
+  content: "✓ CLAIMED"; position: absolute; top: 8px; right: 8px;
+  font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.08em; color: var(--good);
+}
+.reward .claim { margin-top: 10px; width: 100%; padding: 8px; font-size: var(--fs-sm); }
+.reward .mini-bar { margin-top: 10px; }
+
+/* ============ more / settings ============ */
+.row {
+  display: flex; align-items: center; gap: 12px; padding: 12px 0;
+  border-bottom: 1px solid var(--stroke);
+}
+.row:last-child { border-bottom: 0; }
+.row .body { flex: 1; min-width: 0; }
+.row .name { font-weight: 600; font-size: var(--fs-base); }
+.row .sub { font-size: var(--fs-sm); color: var(--faint); }
+.row select, .row input[type="number"] { width: auto; min-width: 96px; }
+
+.switch { position: relative; width: 46px; height: 27px; flex: none; }
+/* The track stays 27px tall; the invisible input is what you actually press, so
+   it is grown to the 44px minimum and centred over the track. */
+.switch input {
+  position: absolute; opacity: 0; margin: 0; cursor: pointer;
+  width: 100%; height: 44px; top: 50%; transform: translateY(-50%);
+}
+.switch i { position: absolute; inset: 0; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--stroke); transition: 0.22s; pointer-events: none; }
+.switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 19px; height: 19px; border-radius: 50%; background: var(--muted); transition: 0.22s; }
+.switch input:checked + i { background: var(--accent-grad); border-color: transparent; }
+.switch input:checked + i::after { transform: translateX(19px); background: #fff; }
+
+/* ============ sheet ============ */
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 60; background: rgba(4, 5, 14, 0.6);
+  backdrop-filter: blur(3px); display: flex; align-items: flex-end; justify-content: center;
+  animation: fade 0.2s ease;
+}
+.sheet-backdrop[hidden] { display: none; }
+.sheet {
+  width: min(720px, 100%); max-height: 88vh; display: flex; flex-direction: column;
+  background: var(--bg); border: 1px solid var(--stroke); border-bottom: 0;
+  border-radius: var(--r-lg) var(--r-lg) 0 0; box-shadow: var(--shadow);
+  animation: slideup 0.28s cubic-bezier(0.25, 1, 0.4, 1);
+  padding-bottom: var(--safe-b);
+}
+.sheet-grip { width: 40px; height: 4px; border-radius: 99px; background: var(--stroke-strong); margin: 9px auto 2px; }
+.sheet-head { display: flex; align-items: center; gap: 10px; padding: 8px 16px 10px; }
+.sheet-head h2 { flex: 1; font-size: var(--fs-xl); }
+.sheet-body { padding: 0 16px 20px; overflow-y: auto; }
+@keyframes slideup { from { transform: translateY(18px); opacity: 0; } }
+@keyframes fade { from { opacity: 0; } }
+
+/* ============ toasts & confetti ============ */
+.toasts {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(var(--tab-h) + var(--safe-b) + 14px); z-index: 70;
+  display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; width: max-content; max-width: 92vw;
+}
+.toast {
+  display: flex; align-items: center; gap: 9px;
+  padding: 11px 15px; border-radius: 999px; font-size: var(--fs-md); font-weight: 700;
+  background: color-mix(in srgb, var(--bg) 80%, #fff 8%); border: 1px solid var(--stroke-strong);
+  box-shadow: var(--shadow); animation: toastin 0.3s cubic-bezier(0.2, 1.2, 0.4, 1);
+}
+.toast.gold { border-color: color-mix(in srgb, var(--gold) 55%, transparent); }
+.toast.out { animation: toastout 0.28s forwards; }
+@keyframes toastin { from { transform: translateY(14px) scale(0.94); opacity: 0; } }
+@keyframes toastout { to { transform: translateY(-8px); opacity: 0; } }
+
+.confetti { position: fixed; inset: 0; z-index: 65; pointer-events: none; display: none; }
+.confetti.on { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+@media (min-width: 640px) {
+  .stat-grid { grid-template-columns: repeat(4, 1fr); }
+  .heat i { width: 15px; height: 15px; }
+}
+
+/* ============ v2 — goals, progression, reading ============ */
+
+
+.bar.warn > i { background: var(--warn); }
+
+/* --- banners --- */
+.banner {
+  display: flex; align-items: center; gap: 12px;
+  padding: var(--sp-md) var(--sp-lg); margin-bottom: var(--sp-md);
+  border-radius: var(--r); border: 1px solid var(--stroke-strong);
+  background: var(--surface);
+}
+.banner b { display: block; font-size: var(--fs-base); }
+.banner p { margin: 3px 0 0; font-size: var(--fs-sm); color: var(--muted); }
+.banner > div { flex: 1; min-width: 0; }
+.banner .btn { flex: none; }
+/* A banner offering two routes out needs the full width for both on a phone. */
+.banner.stack { flex-direction: column; align-items: stretch; }
+.banner.stack > div { flex: none; }
+.banner.stack .btn-row { margin-top: 11px; }
+.banner.accent { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.banner.warn { border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+
+
+/* --- Read + More: the same card language as everywhere else --- */
+
+/* An archive row is a thing you open, so it gets the row treatment rather than
+   looking like the read-only stat rows next to it. */
+.entry {
+  background: var(--surface); border: 1px solid var(--stroke);
+  border-radius: var(--r); margin-bottom: var(--sp-sm); padding: 0 var(--sp-md);
+}
+.entry[open] { border-color: var(--stroke-strong); }
+.entry > summary b { font-size: var(--fs-base); }
+.entry p { margin: 0 0 var(--sp-md); }
+
+/* Settings rows breathe like list items instead of stacking flush. */
+.card > .row {
+  display: flex; align-items: center; gap: var(--sp-md);
+  min-height: 60px; padding: var(--sp-md) 0;
+  border-bottom: 1px solid var(--stroke);
+}
+.card > .row:last-child { border-bottom: 0; }
+.card > .row .name { font-weight: 700; font-size: var(--fs-lg); }
+.card > .row .sub { font-size: var(--fs-sm); color: var(--muted); margin-top: 2px; }
+.card > .row .body { flex: 1; min-width: 0; }
+
+/* The mood row is a choice, so it reads as one. */
+.mood-row { gap: var(--sp-sm); margin-bottom: var(--sp-md); }
+.mood.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+
+/* --- the real ledger: what actually happened --- */
+.lifeline { margin: 0; font-size: var(--fs-lg); line-height: 1.6; color: var(--muted); }
+.lifeline b { color: var(--text); font-weight: 800; }
+.lifegrid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--sp-md); margin-top: var(--sp-lg);
+}
+.lifeitem { min-width: 0; }
+.lifeitem b { display: block; font-size: var(--fs-3xl); font-weight: 900; letter-spacing: -0.02em; }
+.lifeitem span {
+  display: block; margin-top: 2px; font-size: var(--fs-sm); color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* --- rewards the user set for themselves --- */
+.myreward {
+  padding: var(--sp-md) var(--sp-lg) var(--sp-lg);
+  margin-bottom: var(--sp-md); border-radius: var(--r-lg);
+  background: var(--surface); border: 1px solid var(--stroke);
+}
+.myreward.is-ready { border-color: color-mix(in srgb, var(--gold) 50%, transparent); background: color-mix(in srgb, var(--gold) 9%, var(--surface)); }
+.myreward.is-claimed { opacity: 0.7; }
+.myreward-open {
+  display: flex; align-items: center; gap: var(--sp-md); width: 100%; text-align: left;
+  background: none; border: 0; color: inherit; padding: 0 0 var(--sp-md);
+}
+.myreward-icon { font-size: 30px; flex: none; line-height: 1; }
+.myreward-body { min-width: 0; }
+.myreward-name { display: block; font-size: var(--fs-xl); font-weight: 800; letter-spacing: -0.01em; }
+.myreward-trig { display: block; margin-top: 2px; font-size: var(--fs-sm); color: var(--muted); font-weight: 600; }
+.myreward.is-claimed .myreward-name { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--gold) 70%, transparent); }
+
+/* ============ Today: day line, segments, goal cards ============ */
+
+.dayline { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin: var(--sp-sm) 0 var(--sp-md); }
+.daynum {
+  font-size: 38px; font-weight: 900; letter-spacing: -0.03em; line-height: 1;
+  text-transform: uppercase; color: var(--text);
+}
+.daynum b { font-weight: 900; }
+.daynum i { font-style: normal; font-size: var(--fs-2xl); font-weight: 700; color: var(--faint); letter-spacing: 0; }
+
+/* The run. Two bars in one track: how far through the calendar you are, and —
+   in front of it — how many of those days you actually kept. Showing only the
+   first would let elapsed time masquerade as progress. */
+.chalbar {
+  display: block; width: 100%; text-align: left;
+  padding: var(--sp-md) var(--sp-lg); margin-bottom: var(--sp-md);
+  border-radius: var(--r); background: var(--surface); border: 1px solid var(--stroke); color: inherit;
+}
+.chalbar.is-complete { border-color: color-mix(in srgb, var(--gold) 50%, transparent); }
+.chalbar-top {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: var(--fs-sm); font-weight: 700; color: var(--muted); margin-bottom: 7px;
+}
+.chalbar-track { position: relative; display: block; height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.chalbar-track > i { position: absolute; left: 0; top: 0; height: 100%; border-radius: 999px; }
+.chalbar-track > .elapsed { background: color-mix(in srgb, var(--muted) 45%, transparent); }
+.chalbar-track > .kept { background: var(--accent-grad); }
+.daydate { margin-top: 6px; font-size: var(--fs-sm); color: var(--muted); font-weight: 600; }
+.dayline-nav { display: flex; gap: var(--sp-sm); flex: none; }
+
+.segbar { display: flex; align-items: center; gap: var(--sp-sm); margin-bottom: var(--sp-md); }
+.seg {
+  flex: 1; min-height: 44px; padding: 0 10px; border-radius: var(--r-xs);
+  background: none; border: 1px solid var(--stroke-strong); color: var(--muted);
+  font-size: var(--fs-md); font-weight: 700; white-space: nowrap;
+}
+.seg b { font-size: var(--fs-xs); opacity: 0.75; margin-left: 2px; }
+/* The selected segment inverts, exactly like the reference: a filled cream pill
+   against the charcoal is unmistakable at arm's length. */
+.seg.on { background: var(--cream); border-color: var(--cream); color: #1a1410; }
+.seg-add { flex: none; }
+
+.gcard {
+  /* Overridden per card by goalCard(); declared here so a card without an area
+     still paints a background instead of falling back to nothing. */
+  --hue: 32;
+  position: relative; overflow: hidden; isolation: isolate;
+  display: flex; align-items: center; gap: var(--sp-md);
+  min-height: 108px; padding: var(--sp-md) var(--sp-md) var(--sp-lg);
+  margin-bottom: var(--sp-md); border-radius: var(--r-lg);
+  border: 1px solid var(--stroke);
+  /* Generated "artwork": an area-tinted wash under a dark scrim, so the title
+     stays readable wherever the tint lands. No image is loaded — the app ships
+     no assets and makes no network calls. */
+  background:
+    linear-gradient(100deg, rgba(14, 13, 12, 0.94) 34%, rgba(14, 13, 12, 0.62) 66%, rgba(14, 13, 12, 0.35) 100%),
+    linear-gradient(135deg, hsl(var(--hue) 48% 32%), hsl(var(--hue) 42% 15%));
+}
+.gcard-art {
+  position: absolute; right: 52px; bottom: -20px; z-index: -1;
+  font-size: 96px; line-height: 1; opacity: 0.3; filter: saturate(1.15);
+  transform: rotate(-8deg); pointer-events: none;
+}
+.gcard-open {
+  flex: 1; min-width: 0; display: block; text-align: left;
+  background: none; border: 0; color: inherit; padding: 0;
+}
+.gcard-badges { display: flex; gap: 6px; min-height: 0; }
+.gcard-streak {
+  display: inline-block; margin-bottom: var(--sp-sm);
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--flame) 60%, transparent);
+  background: color-mix(in srgb, var(--flame) 18%, transparent);
+  font-size: var(--fs-xs); font-weight: 800; color: var(--flame);
+}
+.gcard-streak.skip { border-color: var(--stroke-strong); background: none; color: var(--faint); }
+.gcard-title {
+  display: block; font-size: var(--fs-2xl); font-weight: 800; line-height: 1.2;
+  letter-spacing: -0.015em; color: var(--text);
+}
+.gcard-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-top: 7px; font-size: var(--fs-sm); font-weight: 600; color: var(--muted);
+}
+.gcard-meta i { font-style: normal; opacity: 0.5; }
+
+.gcard-tick {
+  flex: none; width: 46px; height: 46px; border-radius: var(--r-xs);
+  background: rgba(18, 14, 11, 0.72); backdrop-filter: blur(3px);
+  border: 1px solid rgba(255, 255, 255, 0.34); color: rgba(255, 255, 255, 0.34);
+  font-size: var(--fs-2xl); font-weight: 900; line-height: 1;
+  transition: background 0.18s, color 0.18s, transform 0.12s;
+}
+.gcard-tick:active { transform: scale(0.94); }
+.gcard.is-done .gcard-tick { background: var(--cream); border-color: var(--cream); color: #1a1410; }
+.gcard.is-done .gcard-title { opacity: 0.72; }
+.gcard.is-skipped { opacity: 0.66; }
+
+/* Progress toward the next rung, hugging the bottom edge of the card. */
+.gcard-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255, 255, 255, 0.09); }
+.gcard-bar > i { display: block; height: 100%; background: var(--accent-grad); }
+
+.lvl {
+  flex: none; font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.06em;
+  padding: 2px 6px; border-radius: 6px;
+  background: var(--surface-2); color: var(--muted); border: 1px solid var(--stroke);
+}
+.lvl i { font-style: normal; opacity: 0.6; }
+.lvl.at { background: color-mix(in srgb, var(--gold) 20%, transparent); color: var(--gold); border-color: transparent; }
+
+.btn.tiny { min-height: 44px; padding: 6px 13px; font-size: var(--fs-sm); border-radius: 10px; }
+
+/* --- reading --- */
+.read-card { border-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+.read-card.done { border-color: color-mix(in srgb, var(--good) 32%, transparent); }
+.read-top { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 12px; }
+.read-top .emoji { font-size: 22px; }
+.read-top .name { font-weight: 700; font-size: var(--fs-base); }
+.read-top .sub { font-size: var(--fs-sm); color: var(--muted); margin-top: 2px; line-height: 1.45; }
+
+.entry { border-bottom: 1px solid var(--stroke); padding: 4px 0; }
+.entry:last-child { border-bottom: 0; }
+.entry > summary {
+  display: flex; justify-content: space-between; gap: 10px; align-items: baseline;
+  min-height: 44px; padding: 9px 2px; cursor: pointer; font-size: var(--fs-md); list-style: none;
+}
+.entry > summary::-webkit-details-marker { display: none; }
+/* The native triangle is removed, so something has to say these open. Without a
+   marker the archive reads as a list of dates and nobody ever taps one — and
+   project.md calls that archive the most useful thing in the app. */
+.entry > summary::after {
+  content: '⌄'; margin-left: auto; padding-left: 8px;
+  color: var(--faint); font-size: var(--fs-base); line-height: 1; transition: transform 0.2s;
+}
+.entry[open] > summary::after { transform: rotate(180deg); }
+.entry > summary span { font-size: var(--fs-sm); color: var(--faint); }
+.entry p { margin: 0 2px 10px; font-size: var(--fs-md); color: var(--muted); white-space: pre-wrap; line-height: 1.55; }
+.entry .link { min-height: 0; font-size: var(--fs-sm); padding: 0 2px 10px; }
+
+.mood-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.mood {
+  /* 44px is the minimum touch target; the emoji is centred inside it. */
+  flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center;
+  font-size: var(--fs-2xl); border-radius: var(--r-xs);
+  background: var(--surface-2); border: 1px solid var(--stroke); filter: grayscale(0.8); transition: 0.18s;
+}
+.mood.on { filter: none; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); transform: scale(1.06); }
+
+/* --- difficulty --- */
+.mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-bottom: 8px; }
+.mode-card {
+  display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center;
+  padding: 13px 8px; border-radius: var(--r);
+  background: var(--surface); border: 1px solid var(--stroke); color: inherit; cursor: pointer;
+  transition: 0.18s;
+}
+.mode-card .ico { font-size: 22px; }
+.mode-card b { font-size: var(--fs-md); }
+.mode-card small { font-size: var(--fs-xs); color: var(--faint); line-height: 1.35; }
+.mode-card i { font-style: normal; font-size: var(--fs-xs); color: var(--accent-2); font-weight: 700; margin-top: 3px; }
+.mode-card.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: 0 6px 18px rgba(124, 108, 255, 0.22); }
+
+/* --- weekday picker --- */
+.wd-picker { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: -4px 0 14px; }
+.wd-chip { position: relative; }
+/* A checkbox is a replaced element, so `inset: 0` alone leaves it at its
+   intrinsic size instead of filling the label. */
+.wd-chip input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+/* Keeps the chip on the 44px minimum from knowledge/ui-guidelines.md; the seven
+   columns already divide the sheet into roughly 44px-wide cells. */
+.wd-chip span {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 44px; padding: 4px 0; border-radius: 10px; font-size: var(--fs-xs); font-weight: 700;
+  background: var(--surface-2); border: 1px solid var(--stroke); color: var(--muted);
+}
+.wd-chip input:checked + span { background: var(--accent-grad); border-color: transparent; color: var(--on-accent); }
+
+/* --- ladders --- */
+.rungs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.rung {
+  flex: none; min-width: 62px; text-align: center; padding: 9px 6px; border-radius: var(--r-xs);
+  background: var(--surface); border: 1px solid var(--stroke);
+}
+.rung b { display: block; font-size: var(--fs-xs); color: var(--faint); letter-spacing: 0.06em; }
+.rung span { display: block; font-size: var(--fs-sm); font-weight: 700; margin-top: 2px; }
+.rung.past { opacity: 0.55; }
+.rung.past span { text-decoration: line-through; }
+.rung.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.rung.on span { color: var(--accent-2); }
+
+.ladder { padding: 11px 0; border-bottom: 1px solid var(--stroke); }
+.ladder:last-child { border-bottom: 0; }
+.ladder:first-child { padding-top: 2px; }
+.ladder-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 7px; font-size: var(--fs-md); }
+.ladder-top .faint { font-size: var(--fs-xs); }
+
+.goal-manage { align-items: flex-start; }
+.goal-manage .name { display: flex; align-items: center; gap: 7px; }
+.goal-manage .mini-track { margin: 6px 0 4px; }
+.goal-manage.is-archived { opacity: 0.55; }
+
+@media (max-width: 360px) {
+  .mode-grid { grid-template-columns: 1fr; }
+  .tab i { font-size: var(--fs-xs); }
+}

@@ -1,0 +1,5 @@
+# Arise has zero dependencies — the application ships none and the two test
+# scripts need nothing but Node. There is nothing to install, so anything below
+# is a local artefact rather than part of the project.
+node_modules/
+package-lock.json

@@ -1,0 +1,213 @@
+# Arise
+
+## Purpose
+
+Arise is an offline-first personal-development tracker: goal progression,
+streaks, a weekly training program, reading and journal.
+
+The goal is long-term maintainability, reliability, and clean architecture.
+
+Never sacrifice maintainability for short-term speed.
+
+---
+
+# Layout
+
+All paths in this file are relative to `arise/`.
+
+- `index.html` — the app shell
+- `styles.css` — design tokens and every view
+- `manifest.webmanifest` — PWA manifest
+- `sw.js` — service worker, offline app shell
+- `js/` — the application, loaded in this order:
+  `data.js` → `program.js` → `goals.js` → `store.js` → `ui.js` → `app.js`
+- `icons/` — generated PNG and SVG icons
+- `knowledge/` — project references for this app
+- `tools/` — test and utility scripts
+- `serve.cmd` — local HTTP server
+
+There is no build step, no bundler and no framework. The `js/` files are classic
+scripts hanging off `window.Arise` / `window.Store` / `window.UI`.
+
+---
+
+# Development Philosophy
+
+Always think before coding.
+
+Prefer analysis before implementation.
+
+Never modify unrelated files.
+
+Never introduce unnecessary complexity.
+
+Always preserve backward compatibility — stored user data especially, since
+goals, logs, streaks and journals live only on the user's device and are never
+uploaded anywhere.
+
+---
+
+# Workflow
+
+Every significant change should follow this order.
+
+1. Read the relevant knowledge files
+2. Review the current behaviour
+3. Prioritize the work
+4. Decide the smallest safe implementation
+5. Implement
+6. Verify
+
+---
+
+# Knowledge
+
+Always use these project references.
+
+- `knowledge/project.md` — what the app is for, the three rules, hard constraints
+- `knowledge/coding-standards.md` — layers, migrations, rendering, tests
+- `knowledge/ui-guidelines.md`
+- `knowledge/review-conventions.md` — the vocabulary for any review of this app
+
+---
+
+# Verifying
+
+Run from `arise/`. Never report a change as done without these.
+
+```bash
+node tools/smoke.js
+node tools/render.js
+```
+
+or `npm test`, which runs both.
+
+`smoke.js` loads `js/` into a sandbox with a fake `localStorage` and asserts the
+data layer and progression engine: ladder maths, earned advancement, step-back,
+streaks, freezes, the reading gate, frozen history, and every state migration.
+
+`render.js` renders every view, every sheet and every programmed day against a
+stub DOM, failing on anything that renders `undefined`, `NaN` or
+`[object Object]`.
+
+There is no typechecker. These two scripts are the whole safety net, so a change
+they cannot cover needs saying so out loud.
+
+Two things they cannot catch.
+
+- `render.js` uses a hand-rolled stub DOM. `document.activeElement`,
+  `document.contains`, `getClientRects` and `isConnected` do not exist on it.
+  Guard any new DOM API so the stub degrades instead of throwing.
+- Neither suite loads `js/app.js`, so click routing and event wiring have no
+  automated coverage. Drive those by hand in a browser.
+
+Serve over `http://`, never `file://` — service workers and install are blocked
+on `file://`.
+
+```bash
+serve.cmd          # http://localhost:8123
+```
+
+The service worker caches the shell and is cache-first, so while testing a change
+you must clear it or you will be reading stale assets:
+
+```js
+(async () => {
+  for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+  for (const k of await caches.keys()) await caches.delete(k);
+  location.reload();
+})()
+```
+
+---
+
+# Invariants
+
+These are the rules the app is built on. Breaking one is a Critical finding.
+`knowledge/project.md` states them as product constraints; this is the
+engineering form.
+
+**A day you have lived is never re-judged.** Every goal entry stores the target
+it was judged against, every day's log freezes its own exercise list, and every
+goal keeps a `scheduleHistory`, an `activeHistory` (when it was paused) and a
+`baselineHistory` (which baseline it ran from). Editing a goal, switching
+difficulty, moving a baseline, pausing it or changing a schedule must never reach
+back and change what a past day meant. Resolve a past day from those dated
+histories, never from the goal's current value — see
+`knowledge/coding-standards.md`.
+
+**Day status is derived, never stored.** Every number is recomputed from the
+logs, so nothing can drift out of sync. This is why `commit()` must stay O(1),
+why the best-streak high-water mark is maintained on read, and why day status and
+goal timelines are memoised per revision.
+
+**State is local and versioned.** Everything lives in `localStorage` under
+`arise.state.v1`, described by `STATE_VERSION` in `js/store.js`. Every migration
+must be additive and must tolerate state written by an older version. Never
+delete or overwrite user data in a migration; a one-time change must be guarded
+by its own flag, not by the version number alone. Read an incoming flag before
+merging seed defaults over it, or the default will mask the real value.
+
+`arise.state.v1.unreadable` is the one deliberate exception to the single-key
+rule. It is a lifeboat, not state: nothing in the normal read path touches it. It
+holds the raw bytes of a state that failed to parse, written once and verified by
+read-back, so that seeding a fresh start can never be the thing that destroys the
+user's only copy. If that copy cannot be made, `store.js` blocks writes instead.
+
+**Escape all user text.** Goal, exercise and habit names and journal text are
+user-controlled. Everything reaching `innerHTML` goes through `esc()` — toasts
+included, not just views.
+
+**Adding a `js/` file touches four places.** `index.html`, `sw.js` ASSETS, and
+the load lists in `tools/smoke.js` and `tools/render.js`.
+
+**Bump `sw.js` VERSION** after changing `styles.css` or anything in `js/`.
+Without it an installed copy keeps serving the old shell.
+
+**The app is fully offline.** No network calls, no accounts, no telemetry, no
+secrets. If a change needs a server, stop and raise it first.
+
+---
+
+# Review Roles
+
+When reviewing software use the following responsibilities.
+
+Each role is a subagent. Invoke it by name.
+
+Every review role follows the output contract in
+`knowledge/review-conventions.md`.
+
+| Responsibility | Subagent |
+|---|---|
+| UI Review | `ui-review` |
+| Code Review | `code-review` |
+| Engineering Manager | `engineering-manager` |
+| Chief Architect | `chief-architect` |
+
+---
+
+# Review Workflow
+
+Run the full review with `/review`.
+
+Run the roles in that order.
+
+Never skip a role.
+
+Reviews do not implement. Fixing findings is a separate task that needs the
+user's approval first.
+
+---
+
+# General Rules
+
+Always explain major architectural decisions.
+
+Always recommend the smallest safe implementation.
+
+Never implement multiple unrelated features in one task.
+
+Always keep the application production ready.
+
+Never put a secret in client code. This app has none and must stay that way.

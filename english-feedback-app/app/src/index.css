@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900;
+  overscroll-behavior-y: none;
+}
+
+mark {
+  @apply rounded bg-amber-200 px-0.5 text-inherit;
+}

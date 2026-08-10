@@ -1,0 +1,41 @@
+# Run Arise's test suites on every push.
+#
+# THIS WORKFLOW DOES NOT PUBLISH ANYTHING. It used to carry a deploy job that
+# uploaded `expense-pwa/` to GitHub Pages — a directory belonging to a different
+# application, which does not exist in this repository. It could never have
+# published Arise, and a workflow that looks like it deploys and does not is a
+# trap for whoever reaches for it under release pressure. It was removed rather
+# than repaired: if Arise is ever hosted, a few lines written for Arise will beat
+# a repaired inheritance.
+#
+# WHAT RUNS: `npm run verify`, which is `node tools/smoke.js && node tools/render.js`.
+# Those two scripts are the entire safety net — there is no typechecker and no
+# build step. Note what they cannot reach: neither harness loads `js/app.js`, so
+# click routing, event wiring and the service worker have no coverage here and
+# must be driven by hand in a browser over http:// via serve.cmd.
+#
+# There is no install step because the application and its tooling have zero
+# dependencies. Do not add one without adding a lockfile to match.
+#
+# Publishing, if it ever happens, stays a deliberate act — and `sw.js` carries a
+# hand-maintained cache key that must be bumped first. See sw.js:1.
+
+name: Verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm run verify

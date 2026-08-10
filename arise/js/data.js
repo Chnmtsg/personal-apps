@@ -1,0 +1,298 @@
+/* Arise — seed data, constants and pure helpers.
+   Loaded as a classic script; everything hangs off window.Arise. */
+(function (root) {
+  'use strict';
+
+  const Arise = (root.Arise = root.Arise || {});
+
+  /* ---------- dates ---------- */
+
+  const DAY_MS = 86400000;
+  const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  /** Local-time YYYY-MM-DD. Never use toISOString(): it shifts to UTC. */
+  function key(date) {
+    const d = date || new Date();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${m}-${day}`;
+  }
+
+  function fromKey(k) {
+    const [y, m, d] = k.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+
+  /** The day the user is *living in* right now.
+      Habits finished at 01:00 belong to the night before, so the calendar day
+      only rolls over at `boundaryHour` (default 04:00). This is the grace window. */
+  function todayKey(boundaryHour) {
+    const h = boundaryHour == null ? 4 : boundaryHour;
+    return key(new Date(Date.now() - h * 3600000));
+  }
+
+  /** Minutes remaining in the logical day — used to warn before the boundary. */
+  function minutesLeftToday(boundaryHour) {
+    const h = boundaryHour == null ? 4 : boundaryHour;
+    const now = new Date();
+    const end = fromKey(addDays(todayKey(h), 1));
+    end.setHours(h, 0, 0, 0);
+    return Math.max(0, Math.round((end - now) / 60000));
+  }
+
+  function addDays(k, n) {
+    const d = fromKey(k);
+    d.setDate(d.getDate() + n);
+    return key(d);
+  }
+
+  function weekday(k) {
+    return fromKey(k).getDay();
+  }
+
+  function daysBetween(a, b) {
+    return Math.round((fromKey(b) - fromKey(a)) / DAY_MS);
+  }
+
+  function prettyDate(k) {
+    const d = fromKey(k);
+    return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  }
+
+  /** Monday-first start of the ISO week containing k. */
+  function weekStart(k) {
+    const wd = weekday(k);
+    return addDays(k, wd === 0 ? -6 : 1 - wd);
+  }
+
+  /* ---------- ids ---------- */
+
+  function uid(prefix) {
+    return (prefix || 'id') + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+  }
+
+  /* ---------- exercise library ---------- */
+
+  // unit: 'reps' (sets x reps), 'time' (minutes), 'distance' (km)
+  const SEED_EXERCISES = [
+    { name: 'Push-ups', category: 'Strength', unit: 'reps', sets: 3, reps: 15, icon: '💪' },
+    { name: 'Pull-ups', category: 'Strength', unit: 'reps', sets: 3, reps: 8, icon: '🧗' },
+    { name: 'Squats', category: 'Strength', unit: 'reps', sets: 4, reps: 20, icon: '🦵' },
+    { name: 'Lunges', category: 'Strength', unit: 'reps', sets: 3, reps: 12, icon: '🚶' },
+    { name: 'Deadlift', category: 'Strength', unit: 'reps', sets: 4, reps: 6, icon: '🏋️' },
+    { name: 'Bench Press', category: 'Strength', unit: 'reps', sets: 4, reps: 8, icon: '🏋️' },
+    { name: 'Shoulder Press', category: 'Strength', unit: 'reps', sets: 3, reps: 10, icon: '🏋️' },
+    { name: 'Bicep Curls', category: 'Strength', unit: 'reps', sets: 3, reps: 12, icon: '💪' },
+    { name: 'Plank', category: 'Core', unit: 'time', minutes: 2, icon: '🧘' },
+    { name: 'Crunches', category: 'Core', unit: 'reps', sets: 3, reps: 25, icon: '🔥' },
+    { name: 'Leg Raises', category: 'Core', unit: 'reps', sets: 3, reps: 15, icon: '🔥' },
+    { name: 'Russian Twists', category: 'Core', unit: 'reps', sets: 3, reps: 30, icon: '🌀' },
+    { name: 'Running', category: 'Cardio', unit: 'distance', km: 3, icon: '🏃' },
+    { name: 'Cycling', category: 'Cardio', unit: 'distance', km: 10, icon: '🚴' },
+    { name: 'Jump Rope', category: 'Cardio', unit: 'time', minutes: 10, icon: '🪢' },
+    { name: 'Burpees', category: 'Cardio', unit: 'reps', sets: 3, reps: 12, icon: '⚡' },
+    { name: 'Swimming', category: 'Cardio', unit: 'time', minutes: 30, icon: '🏊' },
+    { name: 'Walking', category: 'Cardio', unit: 'time', minutes: 30, icon: '🚶' },
+    { name: 'Yoga Flow', category: 'Mobility', unit: 'time', minutes: 20, icon: '🧘' },
+    { name: 'Stretching', category: 'Mobility', unit: 'time', minutes: 10, icon: '🤸' },
+    { name: 'Foam Rolling', category: 'Mobility', unit: 'time', minutes: 10, icon: '🎯' }
+  ];
+
+  const CATEGORIES = ['Warm-up', 'Strength', 'Core', 'Cardio', 'Mobility', 'Stretch', 'Other'];
+
+  const SEED_HABITS = [
+    { name: 'Drink 3L water', icon: '💧' },
+    { name: 'Sleep 7+ hours', icon: '😴' },
+    { name: 'Read 10 pages', icon: '📖' },
+    { name: 'No junk food', icon: '🥗' }
+  ];
+
+  /* ---------- clock values ---------- */
+
+  /** '06:30' → 390 minutes past midnight. */
+  function hhmmToMin(s) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '').trim());
+    if (!m) return null;
+    return (Number(m[1]) % 24) * 60 + Math.min(59, Number(m[2]));
+  }
+
+  function minToHhmm(v) {
+    const n = ((Math.round(v) % 1440) + 1440) % 1440;
+    return String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
+  }
+
+  /** Human clock, respecting the device's 12/24-hour preference. */
+  function prettyTime(v) {
+    const n = ((Math.round(v) % 1440) + 1440) % 1440;
+    const d = new Date(2000, 0, 1, Math.floor(n / 60), n % 60);
+    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  /* ---------- goals: sections, modes, units ---------- */
+
+  const SECTIONS = [
+    { id: 'sleep', name: 'Sleep & rhythm', icon: '🌙' },
+    { id: 'fitness', name: 'Fitness', icon: '💪' },
+    { id: 'mind', name: 'Mind', icon: '🧠' },
+    { id: 'reading', name: 'Reading', icon: '📖' },
+    { id: 'health', name: 'Health', icon: '🥗' },
+    { id: 'craft', name: 'Skill & craft', icon: '🛠️' },
+    { id: 'custom', name: 'Custom', icon: '✨' }
+  ];
+
+  const sectionById = (id) => SECTIONS.find((s) => s.id === id) || SECTIONS[SECTIONS.length - 1];
+
+  /**
+   * Difficulty changes the *size of each step*, never the rules for earning one.
+   * You always advance by performing, so hard mode moves faster only if you keep up.
+   */
+  const MODES = {
+    easy: { id: 'easy', name: 'Easy', icon: '🌱', mult: 0.5, blurb: 'Half-size steps. Slow, and very hard to fall off.' },
+    normal: { id: 'normal', name: 'Normal', icon: '⚖️', mult: 1, blurb: 'The standard step. Noticeable but fair.' },
+    hard: { id: 'hard', name: 'Hard', icon: '🔥', mult: 2, blurb: 'Double steps. You reach the target in half the time.' }
+  };
+  const MODE_IDS = ['easy', 'normal', 'hard'];
+
+  /** unit → how a value is written and read. */
+  const UNITS = {
+    time: { id: 'time', label: 'Time of day', format: prettyTime, parse: hhmmToMin, input: 'time' },
+    minutes: { id: 'minutes', label: 'Minutes', format: (v) => `${Math.round(v)} min`, parse: Number, input: 'number' },
+    count: { id: 'count', label: 'Count', format: (v) => `${Math.round(v)}`, parse: Number, input: 'number' },
+    pages: { id: 'pages', label: 'Pages', format: (v) => `${Math.round(v)} pages`, parse: Number, input: 'number' },
+    km: { id: 'km', label: 'Kilometres', format: (v) => `${(Math.round(v * 10) / 10)} km`, parse: Number, input: 'number' },
+    litres: { id: 'litres', label: 'Litres', format: (v) => `${(Math.round(v * 10) / 10)} L`, parse: Number, input: 'number' },
+    seconds: { id: 'seconds', label: 'Seconds', format: (v) => `${Math.round(v)}s`, parse: Number, input: 'number' }
+  };
+
+  const formatValue = (unit, v) => ((UNITS[unit] || UNITS.count).format)(v);
+
+  /* ---------- seed goals ---------- */
+
+  /**
+   * Every goal carries a baseline AND a target, so no progression can run away.
+   * steps are per level, in the goal's unit, at normal difficulty.
+   */
+  const SEED_GOALS = [
+    {
+      key: 'wake', name: 'Wake up', icon: '⏰', section: 'sleep',
+      unit: 'time', direction: 'down', baseline: 450, target: 360, step: 15,
+      schedule: { type: 'daily' }, track: 'value',
+      blurb: 'Earlier mornings, earned one step at a time.'
+    },
+    {
+      key: 'sleep', name: 'Lights out', icon: '🌙', section: 'sleep',
+      unit: 'time', direction: 'down', baseline: 1410, target: 1350, step: 15,
+      schedule: { type: 'daily' }, track: 'value',
+      blurb: 'An earlier wake-up only works if bedtime moves too.'
+    },
+    {
+      key: 'read', name: 'Read', icon: '📖', section: 'reading',
+      unit: 'minutes', direction: 'up', baseline: 10, target: 45, step: 5,
+      schedule: { type: 'daily' }, track: 'value', gate: 'summary',
+      blurb: 'Write what you took from it — that is where the learning sticks.'
+    },
+    {
+      key: 'meditate', name: 'Meditate', icon: '🧘', section: 'mind',
+      unit: 'minutes', direction: 'up', baseline: 5, target: 20, step: 2,
+      schedule: { type: 'daily' }, track: 'value',
+      blurb: 'Attention is a muscle.'
+    },
+    {
+      key: 'deepwork', name: 'Deep work', icon: '🛠️', section: 'craft',
+      unit: 'minutes', direction: 'up', baseline: 25, target: 120, step: 10,
+      schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] }, track: 'value',
+      blurb: 'One unbroken block on the thing that matters.'
+    },
+    {
+      key: 'cold', name: 'Cold shower', icon: '🚿', section: 'health',
+      unit: 'seconds', direction: 'up', baseline: 15, target: 180, step: 15,
+      schedule: { type: 'daily' }, track: 'value', enabled: false,
+      blurb: 'Voluntary discomfort, in measured doses.'
+    },
+    {
+      key: 'water', name: 'Water', icon: '💧', section: 'health',
+      unit: 'litres', direction: 'up', baseline: 1.5, target: 3, step: 0.25,
+      schedule: { type: 'daily' }, track: 'value', enabled: false,
+      blurb: 'Boring, and it works.'
+    }
+  ];
+
+  /* ---------- reading journal ---------- */
+
+  /** Rotating prompts. Guidance, never a word count — a minimum length only buys you "asdf". */
+  const READING_PROMPTS = [
+    'What is the single idea you want to keep from today?',
+    'Explain what you read as if to a curious twelve-year-old.',
+    'What did the author claim, and do you actually believe it?',
+    'What will you do differently because of this?',
+    'What surprised you, or contradicted something you thought?',
+    'Which sentence was worth the whole session?',
+    'What question are you left with?',
+    'How does this connect to something you already know?'
+  ];
+
+  const promptForDay = (dateKey) => {
+    const n = Math.abs(daysBetween('2024-01-01', dateKey));
+    return READING_PROMPTS[n % READING_PROMPTS.length];
+  };
+
+  /* ---------- rewards ---------- */
+
+  // Streak milestones. xp is granted on claim.
+  const MILESTONES = [
+    { id: 'm3', days: 3, name: 'Ignition', icon: '🔥', xp: 50, blurb: 'Three days in. The hardest part is behind you.' },
+    { id: 'm7', days: 7, name: 'One Week Warrior', icon: '🗡️', xp: 120, blurb: 'A full week. This is becoming a rhythm.' },
+    { id: 'm14', days: 14, name: 'Fortnight Forged', icon: '⚔️', xp: 220, blurb: 'Two weeks. Your body is starting to expect it.' },
+    { id: 'm21', days: 21, name: 'Habit Formed', icon: '🧠', xp: 320, blurb: '21 days — the classic habit threshold, cleared.' },
+    { id: 'm30', days: 30, name: 'Monthly Machine', icon: '🏅', xp: 500, blurb: 'A month of showing up. Rare air.' },
+    { id: 'm50', days: 50, name: 'Half Century', icon: '🥇', xp: 800, blurb: 'Fifty days. Discipline over motivation.' },
+    { id: 'm75', days: 75, name: 'Iron Will', icon: '🛡️', xp: 1100, blurb: 'Seventy-five. Nothing knocks you off now.' },
+    { id: 'm100', days: 100, name: 'Centurion', icon: '👑', xp: 1600, blurb: 'One hundred days. You are the discipline.' },
+    { id: 'm150', days: 150, name: 'Relentless', icon: '💎', xp: 2400, blurb: '150 days of relentless forward motion.' },
+    { id: 'm200', days: 200, name: 'Unbreakable', icon: '🗿', xp: 3200, blurb: '200 days. Unbreakable.' },
+    { id: 'm365', days: 365, name: 'Year of Arising', icon: '🌟', xp: 6000, blurb: 'A full year. You rewrote who you are.' }
+  ];
+
+  const RANKS = [
+    { at: 1, name: 'Awakened', icon: '🌱' },
+    { at: 4, name: 'Apprentice', icon: '🪶' },
+    { at: 8, name: 'Fighter', icon: '🥊' },
+    { at: 13, name: 'Hunter', icon: '🏹' },
+    { at: 19, name: 'Knight', icon: '🛡️' },
+    { at: 26, name: 'Elite', icon: '⚡' },
+    { at: 34, name: 'Champion', icon: '🏆' },
+    { at: 45, name: 'Monarch', icon: '👑' },
+    { at: 60, name: 'Sovereign', icon: '🌟' }
+  ];
+
+  const XP = { exercise: 10, habit: 5, dayBonus: 25, weeklyGoal: 150, goal: 12, summary: 20, levelUp: 40 };
+
+  /** Total XP required to *reach* a level (level 1 = 0). Gentle quadratic curve. */
+  function xpForLevel(level) {
+    if (level <= 1) return 0;
+    const n = level - 1;
+    return Math.round(50 * n * (n + 1) * 0.5 + 60 * n);
+  }
+
+  function levelFromXp(xp) {
+    let lvl = 1;
+    while (lvl < 200 && xp >= xpForLevel(lvl + 1)) lvl++;
+    return lvl;
+  }
+
+  function rankFor(level) {
+    let r = RANKS[0];
+    for (const c of RANKS) if (level >= c.at) r = c;
+    return r;
+  }
+
+  Object.assign(Arise, {
+    DAY_MS, DAY_NAMES, DAY_SHORT, CATEGORIES,
+    SEED_EXERCISES, SEED_HABITS, SEED_GOALS, MILESTONES, RANKS, XP,
+    SECTIONS, sectionById, MODES, MODE_IDS, UNITS, formatValue, READING_PROMPTS, promptForDay,
+    key, fromKey, addDays, weekday, daysBetween, prettyDate, weekStart, uid,
+    todayKey, minutesLeftToday, hhmmToMin, minToHhmm, prettyTime,
+    xpForLevel, levelFromXp, rankFor
+  });
+})(window);

@@ -1,0 +1,33 @@
+name = "english-feedback-proxy"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Secrets — never [vars]:
+#   npx wrangler secret put ANTHROPIC_API_KEY
+#   npx wrangler secret put APP_KEY          # optional, see below
+
+[observability]
+enabled = true
+
+[vars]
+# Comma-separated origin allowlist. "*" allows every origin, which turns this
+# worker into an open relay in front of your paid API key — set your real app
+# origin BEFORE the first deploy, e.g.:
+#   ALLOWED_ORIGIN = "https://english-feedback.pages.dev"
+# Multiple origins are allowed: "https://a.pages.dev,https://b.example.com"
+ALLOWED_ORIGIN = "*"
+
+# Optional second gate. If the APP_KEY secret is set, the worker requires a
+# matching X-App-Key header and the app must be built with the same value in
+# VITE_APP_KEY. The key ships inside a public bundle, so it stops casual abuse
+# and scripted scraping — it is not a substitute for the origin allowlist and
+# it is not real authentication. Leave the secret unset to disable the check.
+
+# Durable per-IP rate limiting across isolates. Create the namespace with:
+#   npx wrangler kv namespace create RATE_LIMIT_KV
+# then paste the returned id below and uncomment. Until then the worker falls
+# back to best-effort in-memory (per-isolate) rate limiting.
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT_KV"
+# id = "PASTE_KV_NAMESPACE_ID_HERE"

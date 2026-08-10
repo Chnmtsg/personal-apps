@@ -1,0 +1,35 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>shot</title>
+<style>html,body{margin:0;background:#0b0d17}iframe{border:0;display:block}</style>
+<iframe id="f" src="../index.html" width="412" height="1800"></iframe>
+<script>
+  const q = new URLSearchParams(location.search);
+  const viewName = q.get('view') || 'today';
+  const seed = q.get('seed') === '1';
+  const days = Number(q.get('days') || 12);
+
+  f.addEventListener('load', () => {
+    const w = f.contentWindow;
+    const A = w.Arise, S = w.Store, UI = w.UI;
+    if (seed) {
+      const today = A.key();
+      for (let i = days; i >= 1; i--) {
+        const k = A.addDays(today, -i);
+        if (i % 9 === 0) continue;               // leave a gap so "missed" shows up
+        S.ensureLog(k);
+        S.completeAll(k);
+        S.dayHabits(k).forEach((h, idx) => { if (idx < 3) S.toggleHabit(k, h.id); });
+      }
+      const plan = S.dayPlan(today);
+      plan.slice(0, Math.ceil(plan.length / 2)).forEach((i) => S.toggleExercise(today, i.id));
+      S.claimReward('m3');
+    }
+    UI.go(viewName);
+    const open = q.get('open');
+    if (open === 'picker') UI.openPicker(1);
+    if (open === 'editor') UI.openPlanEditor(1, S.get().plan[1][0].id);
+    if (open === 'library') UI.openExerciseEditor(null);
+    document.title = 'ready:' + viewName;
+  });
+</script>
