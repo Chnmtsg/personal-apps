@@ -1,5 +1,6 @@
 import type { Screen } from "../App";
 import ErrorNote from "../components/ErrorNote";
+import EditSpan from "../components/EditSpan";
 import { getEntry } from "../lib/db";
 import { buildSegments } from "../lib/highlight";
 import { CATEGORY_LABELS, FAIL_REASON_LABELS, SEVERITY_STYLES } from "../lib/categories";
@@ -116,8 +117,7 @@ export default function FeedbackScreen({ entryId, navigate }: Props) {
                     </span>
                     <span className="flex-1 py-0.5">
                       <span className="block">
-                        <span className="text-red-600 line-through">{c.original}</span>{" "}
-                        <span className="font-medium text-emerald-700">→ {c.corrected}</span>
+                        <EditSpan original={c.original} corrected={c.corrected} />
                       </span>
                       <span
                         className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${SEVERITY_STYLES[c.severity]}`}
@@ -131,6 +131,26 @@ export default function FeedbackScreen({ entryId, navigate }: Props) {
               ))}
             </div>
           </section>
+
+          {/* 3.5 Fluency notes — nothing was wrong, just less native-sounding */}
+          {fb.fluency_notes && fb.fluency_notes.length > 0 && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-4">
+              <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">
+                Sounds more natural
+              </h2>
+              <div className="flex flex-col gap-3">
+                {fb.fluency_notes.map((n, i) => (
+                  <div key={i}>
+                    <p>
+                      <span className="text-slate-500">{n.before}</span>{" "}
+                      <span className="font-medium text-blue-700">→ {n.after}</span>
+                    </p>
+                    <p className="text-sm text-slate-600">{n.why}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* 4. Patterns in this entry */}
           {fb.patterns.length > 0 && (
@@ -180,6 +200,45 @@ export default function FeedbackScreen({ entryId, navigate }: Props) {
             </h2>
             <p className="text-emerald-900">{fb.what_went_well}</p>
           </section>
+
+          {/* 7. Practice — targets the learner's worst category, using this entry's own vocabulary */}
+          {fb.drills && fb.drills.length > 0 && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-4">
+              <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">
+                Practice
+              </h2>
+              <div className="flex flex-col divide-y divide-slate-100">
+                {fb.drills.map((d, i) => (
+                  <details key={i} className="group py-1">
+                    <summary className="flex min-h-11 cursor-pointer list-none items-start gap-2 py-1.5">
+                      <span
+                        aria-hidden
+                        className="mt-1 shrink-0 text-xs text-slate-400 transition-transform group-open:rotate-90"
+                      >
+                        ▸
+                      </span>
+                      <span className="flex-1 py-0.5">
+                        <p>{d.prompt}</p>
+                        <p className="mt-1 text-xs text-slate-500">{d.hint}</p>
+                      </span>
+                    </summary>
+                    <p className="ml-5 mt-1 rounded-lg bg-emerald-50 p-2 text-sm text-emerald-800">
+                      <span className="font-semibold">Answer: </span>
+                      {d.answer}
+                    </p>
+                  </details>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* 8. Coach reply — a personal note about the content, deliberately not styled
+              like the teaching cards above it */}
+          {fb.coach_reply && (
+            <section className="rounded-2xl bg-slate-100 p-4">
+              <p className="text-sm italic leading-relaxed text-slate-700">{fb.coach_reply}</p>
+            </section>
+          )}
         </>
       )}
     </div>

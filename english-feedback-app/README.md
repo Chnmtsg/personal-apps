@@ -192,15 +192,20 @@ Open the deployed URL on the phone → browser menu → **Add to Home Screen** t
 - **Offline-first** — drafts autosave to IndexedDB ~500 ms after each keystroke; entries created
   offline are queued and analysed automatically on reconnect; the service worker precaches the
   app shell so it opens in airplane mode.
-- **Structured output** — the Worker uses `client.messages.parse` + `zodOutputFormat(FeedbackSchema)`;
-  the app re-validates with the same schema before storing, so no free-text categories can reach
-  storage.
+- **Correctness by construction** — the Worker corrects the entry, then diffs its own output against
+  the submitted text (`worker/src/diff.ts`) to find every changed span. A model is only ever asked to
+  *label* a span the diff already found (category, severity, rule), never to invent one — so a
+  correction's `original`/`corrected` text can't drift from what's actually in the entry.
+- **Structured output** — each pipeline call uses `client.messages.parse` + `zodOutputFormat(...)`;
+  the app re-validates the final result with the shared schema before storing, so no free-text
+  categories can reach storage.
 - **Fixed taxonomy** — the 20-category enum lives in `shared/schema.ts`; treat it as versioned data.
 - **Privacy** — entries live only in IndexedDB; only the analysed text ever leaves the device; the
   Worker logs error counts and refusal categories, never entry text; Settings has a plain-language
   statement, export, and delete-all.
-- **Prompt caching** — the teaching prompt is a byte-identical cached system block; the response
-  includes `cache.read` so you can verify it's > 0 from the second request onward.
+- **Prompt caching** — each of the pipeline's system prompts (corrector, synthesize, coach) is its
+  own byte-identical cached block; the response includes the summed `cache.read`/`cache.write` across
+  all calls made for that entry, so you can verify reads climb from the second request onward.
 - **Refusals** — `stop_reason: "refusal"` returns a friendly state; the entry is kept, never lost,
   and never retried, because a refusal is a verdict on the text rather than an outage.
 - **Bounded retries** — every failure is classified transient or permanent, and a transient one is
@@ -211,23 +216,31 @@ Open the deployed URL on the phone → browser menu → **Add to Home Screen** t
 
 ## Cost
 
-`claude-opus-5` is $5 / $25 per million tokens, and the teaching prompt is cached.
+`claude-opus-5` is $5 / $25 per million tokens, and every pipeline prompt is cached.
 
-Note that this model **thinks by default**, which the earlier ~$0.023/entry estimate did not
-account for — measure your own first few entries before relying on a figure. `output_config.effort`
-in `worker/src/index.ts` is the lever: it is set to `"medium"`, and `"low"` is a meaningful
-saving if the feedback quality holds up for you.
+One entry now costs **2 to 5 Anthropic calls**, not 1: `corrector` (plus up to 2 in-request retries
+if it over-rewrites — see `MAX_REWRITE_RATIO` in `worker/src/diff.ts`), `synthesize`, and `coach`
+(parallel with the rest, so it doesn't add latency). This is a real, unmeasured increase over the
+old single-call design — measure your own first few entries before relying on a figure, in either
+direction. Each call's prompt is narrower than the old monolithic one, which pulls cost down; making
+several of them pulls it back up. `output_config.effort` in `worker/src/pipeline.ts` is the lever
+for each call: currently `"medium"` throughout.
 
-`max_tokens` is 16000 because that ceiling covers thinking *and* the response together; sizing it
-for the response alone truncates longer entries.
+Each call's `max_tokens` is sized separately in `worker/src/pipeline.ts` (`MAX_TOKENS_CORRECTOR`,
+`MAX_TOKENS_SYNTHESIZE`, `MAX_TOKENS_COACH`) because that ceiling covers thinking *and* the response
+together; sizing it for the response alone truncates that call.
 
-To switch models, change `MODEL_ID` in `shared/schema.ts` — nothing else.
+To switch models, change `MODEL_ID` in `shared/schema.ts` — every call uses it today; splitting the
+narrower calls onto a cheaper model is a worthwhile lever once real cost is measured, not done yet.
 
 ## Known gaps
 
-- The worker's request handler has no integration test; only its pure policy logic
-  (`worker/src/policy.ts`) is covered. Testing the full `fetch` handler needs Miniflare.
+- The worker's request handler has no integration test; only the pure pieces it calls
+  (`worker/src/policy.ts`, `worker/src/diff.ts`, `worker/src/sentences.ts`) are covered. Testing the
+  full `fetch` handler, or `worker/src/pipeline.ts`'s orchestration, needs Miniflare.
 - The app bundle is ~635 KB (188 KB gzipped), dominated by Recharts. Fine over a warm service
   worker, worth code-splitting if first load matters.
 - Rate limiting is per-IP and read-then-write; a determined abuser with many IPs is not stopped
   by it.
+- The corrector's over-rewrite threshold and the client's 540s request timeout are both sized from
+  theoretical worst cases, not observed behaviour — see `english-feedback-app/CLAUDE.md`'s Known Gaps.

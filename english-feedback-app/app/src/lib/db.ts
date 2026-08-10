@@ -136,6 +136,7 @@ export async function deleteAllData(): Promise<void> {
 // they are re-exported here so callers keep a single import site.
 export {
   getErrorCounts,
+  getRecurringCategories,
   getTrend,
   getExamples,
   getPatternExplanations,

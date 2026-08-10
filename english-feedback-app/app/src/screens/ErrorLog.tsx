@@ -10,6 +10,7 @@ import {
 } from "recharts";
 import type { ErrorCategory } from "../../../shared/schema";
 import ErrorNote from "../components/ErrorNote";
+import EditSpan from "../components/EditSpan";
 import {
   getEntries,
   getErrorCounts,
@@ -72,8 +73,7 @@ export default function ErrorLogScreen() {
           {examples.map((ex, i) => (
             <div key={i} className="rounded-2xl border border-slate-200 bg-white p-4">
               <p>
-                <span className="text-red-700 line-through">{ex.original}</span>{" "}
-                <span className="font-medium text-emerald-800">→ {ex.corrected}</span>
+                <EditSpan original={ex.original} corrected={ex.corrected} />
               </p>
               <p className="mt-1 text-sm text-slate-600">{ex.rule}</p>
               <p className="mt-1 text-xs text-slate-500">

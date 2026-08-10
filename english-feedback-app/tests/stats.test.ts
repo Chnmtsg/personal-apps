@@ -4,6 +4,7 @@ import {
   getErrorCounts,
   getExamples,
   getPatternExplanations,
+  getRecurringCategories,
   getTrend,
 } from "../app/src/lib/stats.ts";
 import { countWords } from "../app/src/lib/categories.ts";
@@ -119,6 +120,43 @@ test("the most recent explanation per category wins", () => {
     entry({ createdAt: day(2026, 1, 1), patterns: [{ category: "articles", count: 5, explanation: "older" }] }),
   ]);
   assert.equal(explanations.get("articles"), "newest");
+});
+
+test("getRecurringCategories sorts by count, most frequent first", () => {
+  const entries = [
+    entry({
+      createdAt: day(2026, 1, 1),
+      corrections: [
+        correction("articles"),
+        correction("articles"),
+        correction("articles"),
+        correction("copula"),
+        correction("copula"),
+        correction("spelling"),
+      ],
+    }),
+  ];
+  assert.deepEqual(getRecurringCategories(entries), [
+    { category: "articles", count: 3 },
+    { category: "copula", count: 2 },
+    { category: "spelling", count: 1 },
+  ]);
+});
+
+test("getRecurringCategories respects the limit", () => {
+  const entries = [
+    entry({
+      createdAt: day(2026, 1, 1),
+      corrections: [correction("articles"), correction("copula"), correction("spelling")],
+    }),
+  ];
+  assert.equal(getRecurringCategories(entries, 2).length, 2);
+  assert.equal(getRecurringCategories(entries, 5).length, 3);
+});
+
+test("getRecurringCategories is empty for no analysed entries", () => {
+  assert.deepEqual(getRecurringCategories([]), []);
+  assert.deepEqual(getRecurringCategories([entry({ createdAt: day(2026, 1, 1), status: "queued" })]), []);
 });
 
 test("counts words the way the Analyse gate does", () => {

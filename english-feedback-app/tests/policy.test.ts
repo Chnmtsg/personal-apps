@@ -13,6 +13,13 @@ const bodyOf = (value: unknown) => {
   return parseAnalyzeBody(raw, new TextEncoder().encode(raw).length, MAX);
 };
 
+// Comfortably over MIN_WORDS (30), so tests unrelated to length don't trip
+// the too_short gate.
+const LONG_ENOUGH =
+  "Yesterday I went to the site with my team to collect samples from the " +
+  "new drill hole and we found an interesting mineral there for the next " +
+  "phase of the project which made everyone quite happy about the results.";
+
 test("a wildcard config allows any origin, including none", () => {
   assert.equal(resolveOrigin("*", "https://anything.example"), "*");
   assert.equal(resolveOrigin(undefined, null), "*");
@@ -49,10 +56,11 @@ test("key comparison accepts only an exact match", () => {
   assert.equal(safeEqual("", "s3cret"), false);
 });
 
-test("accepts a well-formed entry", () => {
-  assert.deepEqual(bodyOf({ text: "I am geologist" }), {
+test("accepts a well-formed entry, with an empty history by default", () => {
+  assert.deepEqual(bodyOf({ text: LONG_ENOUGH }), {
     ok: true,
-    text: "I am geologist",
+    text: LONG_ENOUGH,
+    history: [],
   });
 });
 
@@ -70,6 +78,61 @@ test("rejects empty, unparseable, and textless bodies", () => {
   for (const value of [{}, { text: 42 }, { text: "" }, { text: "   \n " }]) {
     assert.deepEqual(bodyOf(value), { ok: false, status: 400, error: "missing_text" });
   }
+});
+
+test("rejects an entry shorter than MIN_WORDS before it can spend anything", () => {
+  assert.deepEqual(bodyOf({ text: "I am geologist" }), {
+    ok: false,
+    status: 400,
+    error: "too_short",
+  });
+});
+
+test("history defaults to empty when absent, malformed, or not an array", () => {
+  for (const history of [undefined, null, "not an array", 42, { category: "spelling" }]) {
+    assert.deepEqual(bodyOf({ text: LONG_ENOUGH, history }), {
+      ok: true,
+      text: LONG_ENOUGH,
+      history: [],
+    });
+  }
+});
+
+test("a valid history is passed through", () => {
+  const history = [
+    { category: "articles", count: 12 },
+    { category: "spelling", count: 3 },
+  ];
+  assert.deepEqual(bodyOf({ text: LONG_ENOUGH, history }), {
+    ok: true,
+    text: LONG_ENOUGH,
+    history,
+  });
+});
+
+test("malformed history entries are dropped, not rejected outright", () => {
+  const history = [
+    { category: "articles", count: 5 }, // kept
+    { category: "not_a_real_category", count: 1 }, // unknown category
+    { category: "spelling", count: -1 }, // negative count
+    { category: "spelling", count: 1.5 }, // non-integer count
+    { category: "spelling" }, // missing count
+    { count: 5 }, // missing category
+    "spelling", // not an object
+    null,
+  ];
+  assert.deepEqual(bodyOf({ text: LONG_ENOUGH, history }), {
+    ok: true,
+    text: LONG_ENOUGH,
+    history: [{ category: "articles", count: 5 }],
+  });
+});
+
+test("history is capped at one entry per category", () => {
+  const history = Array.from({ length: 50 }, () => ({ category: "spelling", count: 1 }));
+  const result = bodyOf({ text: LONG_ENOUGH, history });
+  assert.ok(result.ok);
+  assert.ok(result.history.length <= 20);
 });
 
 test("the size limit counts bytes, not UTF-16 units", () => {

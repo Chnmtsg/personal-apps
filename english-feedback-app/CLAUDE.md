@@ -18,15 +18,26 @@ All paths in this file are relative to `english-feedback-app/`.
 
 - `app/` — React + TypeScript + Vite PWA
   - `src/screens/` — Write, Feedback, ErrorLog, History, Settings
-  - `src/components/` — ErrorBoundary, ErrorNote
+  - `src/components/` — ErrorBoundary, ErrorNote, EditSpan (a before/after
+    pair, handling the empty-`original`/empty-`corrected` edge cases a
+    diff-derived edit can have)
   - `src/lib/` — all logic; see **Pure logic** below
   - `vite.config.ts` — PWA manifest **and** the production env guard
 - `worker/` — Cloudflare Worker proxy
   - `src/index.ts` — the request handler
-  - `src/policy.ts` — pure request-policy decisions (origin, key, body)
+  - `src/pipeline.ts` — orchestrates the analysis pipeline: corrector →
+    (diff, in code) → synthesize, with a coach reply in parallel. Not pure —
+    same untested-fetch-handler gap as `index.ts`, see Known Gaps.
+  - `src/diff.ts` — pure word-level diff (LCS-based; Node has no `difflib`).
+    This is what makes a correction's `original`/`corrected` text provably
+    correct, computed from the two texts rather than asserted by a model.
+  - `src/sentences.ts` — pure sentence splitting and reassembly.
+  - `src/policy.ts` — pure request-policy decisions (origin, key, body,
+    including the client-supplied `history` field)
   - `wrangler.toml` — `ALLOWED_ORIGIN`, KV binding, observability
-- `shared/schema.ts` — Zod feedback schema, category taxonomy, teaching prompt,
-  `MODEL_ID`, `PROMPT_VERSION`. Imported by both sides.
+- `shared/schema.ts` — Zod feedback schema, category taxonomy, the pipeline's
+  system prompts (`CORRECTOR_SYSTEM_PROMPT`, `SYNTHESIZE_SYSTEM_PROMPT`,
+  `COACH_SYSTEM_PROMPT`), `MODEL_ID`, `PROMPT_VERSION`. Imported by both sides.
 - `tests/` — Node's built-in runner, no framework
 
 This app has **no** `knowledge/` or `.claude/` of its own. It uses the ones at
@@ -140,20 +151,35 @@ on every launch and every reconnect, forever, billing each attempt.
 `shared/schema.ts` are stored inside every past entry. Renaming or removing one
 silently rewrites history — treat any change as a migration. Each entry also
 records the `modelId` and `promptVersion` it was judged under; bump
-`PROMPT_VERSION` whenever `TEACHING_SYSTEM_PROMPT` changes.
+`PROMPT_VERSION` whenever a pipeline system prompt changes.
 
-**The teaching prompt is a byte-identical cached prefix.** Never interpolate
-anything into it. Anything per-request or per-user belongs in the user message,
-after the cached block, or prompt caching silently stops working and input cost
-roughly triples.
+**A correction's `original`/`corrected` text is computed, never asserted.**
+`worker/src/diff.ts` diffs the corrector's output against the submitted text;
+the model is only ever asked to label a span the diff already found, never to
+invent one. This is what replaced the old design's exact-substring risk (the
+client's `FeedbackSchema` substring check in `api.ts` is now a regression
+guard, not an active risk).
 
-**`max_tokens` bounds thinking *and* response.** `claude-opus-5` thinks by
-default. Sizing `max_tokens` for the response alone truncates longer entries into
-`stop_reason: "max_tokens"`. Truncation is reported as a *permanent* failure,
-because it is deterministic for a given entry.
+**Every system prompt is a byte-identical cached prefix.** `CORRECTOR_SYSTEM_PROMPT`,
+`SYNTHESIZE_SYSTEM_PROMPT`, and `COACH_SYSTEM_PROMPT` each get their own cache
+entry. Never interpolate anything into any of them. Anything per-request or
+per-user (the entry text, the diffed edits, the learner's recurring
+categories) belongs in the user message, after the cached block, or prompt
+caching silently stops working for that call and its input cost roughly
+triples.
+
+**`max_tokens` bounds thinking *and* response, for every call.** `claude-opus-5`
+thinks by default. Sizing `max_tokens` for the response alone truncates a call
+into `stop_reason: "max_tokens"`. Truncation is reported as a *permanent*
+failure for the whole entry, because it is deterministic for a given call.
 
 **A refusal is a verdict, not an outage.** `stop_reason: "refusal"` arrives on an
-HTTP 200. Keep the entry, never retry it.
+HTTP 200. Keep the entry, never retry it. A refusal from the corrector or
+synthesize call fails the whole entry, since `corrections`/`scores`/etc. are
+required fields; a refusal from the coach call degrades to an absent
+`coach_reply` instead, since it's the one optional field and needs only the
+raw text — losing it isn't worth discarding grammar teaching that already
+succeeded.
 
 **Derived data is computed on read, never stored.** Error counts, the trend, and
 per-category examples are recomputed from entries. They live in
@@ -162,9 +188,14 @@ site.
 
 **Pure logic has no runtime browser or Worker imports.** No IndexedDB, no
 `fetch`, no `import.meta.env` — type-only imports are fine, since they are
-erased. This is what lets `tests/` run under bare Node with no DOM shim.
-`lib/highlight.ts`, `lib/retry.ts`, `lib/failure.ts`, `lib/stats.ts` and
-`worker/src/policy.ts` all obey it. Keep it that way when adding logic.
+erased. A *value* import from `shared/schema.ts` (not `import type`) needs an
+explicit `.ts` extension so Node's runtime resolves it directly, which is why
+`allowImportingTsExtensions` is on in `app/` and `worker/`'s tsconfigs — see
+`worker/src/policy.ts`'s import of `countWords`/`MIN_WORDS` for the pattern.
+This is what lets `tests/` run under bare Node with no DOM shim.
+`lib/highlight.ts`, `lib/retry.ts`, `lib/failure.ts`, `lib/stats.ts`,
+`worker/src/policy.ts`, `worker/src/diff.ts` and `worker/src/sentences.ts` all
+obey it. Keep it that way when adding logic.
 
 **`VITE_API_URL` is inlined at build time.** A wrong value is not a startup
 error — it is baked into an installed PWA that silently fails every analysis.
@@ -216,6 +247,9 @@ Current, honest state. Update this list rather than letting it rot.
 - The `/review` workflow has been prepared but **never actually run** against
   this codebase.
 - The Worker's `fetch` handler has no integration test (see **Verifying**).
+  `worker/src/pipeline.ts` — the orchestration of up to 5 Anthropic calls per
+  entry — shares this gap; only the pure pieces it calls (`diff.ts`,
+  `sentences.ts`, `policy.ts`) are tested.
 - The bundle is ~635 KB (188 KB gzipped), dominated by Recharts. Fine behind a
   warm service worker; worth code-splitting if first load matters.
 - Rate limiting is per-IP and read-then-write, so two simultaneous requests can
@@ -225,8 +259,25 @@ Current, honest state. Update this list rather than letting it rot.
   else, but the "why you made this error" explanations would be confidently
   wrong. This blocks sharing the app beyond Mongolian speakers until the learner
   profile is made configurable.
-- Cost per entry has not been measured since thinking became active. The old
-  ~$0.023/entry figure predates it.
+- **Cost and latency for the multi-call pipeline are unmeasured.** The old
+  ~$0.023/entry figure predates thinking being active and predates this
+  pipeline entirely — it's now a real over-estimate in one direction (each
+  call's prompt is narrower than the old monolithic one) and an under-estimate
+  in another (2–5 calls instead of 1). Measure real entries before relying on
+  a number. `app/src/lib/api.ts`'s client timeout (540s) was sized from the
+  Worker's per-call timeout × the theoretical worst case, not from
+  observation — if real latency runs much lower, both are worth tightening.
+- **The corrector's over-rewrite threshold (`MAX_REWRITE_RATIO = 0.45` in
+  `worker/src/diff.ts`) is untuned against this learner's actual writing.** At
+  IELTS 4.0–4.5, a legitimately dense entry could need close to half its words
+  touched — watch whether the retry-with-a-hint path fires often in practice,
+  which would mean the threshold is miscalibrated rather than the correction
+  being wrong.
+- **Every pipeline call uses `MODEL_ID` (`claude-opus-5`).** The narrower
+  calls (labelling an edit, the coach reply) likely don't need its full
+  reasoning power. Worth splitting into a cheaper/faster tier once real cost
+  is measured — deliberately not done in this pass, see the working notes on
+  this change.
 
 ---
 

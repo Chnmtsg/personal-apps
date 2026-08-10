@@ -1,4 +1,5 @@
 import type { ErrorCategory } from "../../../shared/schema";
+export { countWords } from "../../../shared/schema.ts";
 
 export const CATEGORY_LABELS: Record<ErrorCategory, string> = {
   articles: "Articles (a / an / the)",
@@ -37,7 +38,3 @@ export const SEVERITY_STYLES: Record<string, string> = {
   moderate: "bg-amber-100 text-amber-700",
   major: "bg-red-100 text-red-700",
 };
-
-export function countWords(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length;
-}

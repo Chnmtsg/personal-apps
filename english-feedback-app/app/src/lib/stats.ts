@@ -1,4 +1,4 @@
-import type { ErrorCategory } from "../../../shared/schema";
+import type { ErrorCategory, RecurringCategory } from "../../../shared/schema";
 import type { Entry } from "./db";
 
 /**
@@ -20,6 +20,18 @@ export function getErrorCounts(entries: Entry[]): Map<ErrorCategory, number> {
     }
   }
   return counts;
+}
+
+/**
+ * The learner's most frequent categories, sent to the Worker as context for
+ * ranking "one thing to fix" and choosing what to drill — computed here and
+ * sent fresh with each request, never stored server-side (§8, §ui.privacy).
+ */
+export function getRecurringCategories(entries: Entry[], limit = 5): RecurringCategory[] {
+  return [...getErrorCounts(entries).entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([category, count]) => ({ category, count }));
 }
 
 export interface TrendPoint {

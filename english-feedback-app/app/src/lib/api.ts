@@ -1,4 +1,4 @@
-import { FeedbackSchema, type Feedback } from "../../../shared/schema";
+import { FeedbackSchema, type Feedback, type RecurringCategory } from "../../../shared/schema";
 import type { AnalyzeFailure } from "./failure";
 
 // Trailing slashes are stripped so a URL ending in "/" can't produce "//analyze".
@@ -8,9 +8,14 @@ const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) ?? "").rep
 // public bundle, so it deters casual abuse rather than authenticating anyone.
 const APP_KEY = import.meta.env.VITE_APP_KEY as string | undefined;
 
-// The worker allows itself 120s upstream; give it a little more than that so a
-// slow analysis is not cut short by the client, but a hung socket still ends.
-const REQUEST_TIMEOUT_MS = 150_000;
+// The worker allows itself 120s per Anthropic call, and the pipeline can now
+// make up to four sequentially in the worst case (up to 3 corrector attempts
+// on an over-rewrite, then synthesize — coach runs in parallel and never
+// extends this). Give it a little more than that worst case so a slow-but-
+// succeeding analysis is not cut short by the client, but a hung socket
+// still ends. This worst case is theoretical, not measured — see the
+// multi-call latency note in Known Gaps.
+const REQUEST_TIMEOUT_MS = 540_000;
 
 export type { AnalyzeFailure, AnalyzeFailureKind } from "./failure";
 
@@ -18,7 +23,10 @@ export type AnalyzeResult =
   | { ok: true; feedback: Feedback; model: string; promptVersion: number }
   | AnalyzeFailure;
 
-export async function analyzeText(text: string): Promise<AnalyzeResult> {
+export async function analyzeText(
+  text: string,
+  history: RecurringCategory[] = []
+): Promise<AnalyzeResult> {
   let res: Response;
   try {
     res = await fetch(`${API_URL}/analyze`, {
@@ -27,7 +35,10 @@ export async function analyzeText(text: string): Promise<AnalyzeResult> {
         "Content-Type": "application/json",
         ...(APP_KEY ? { "X-App-Key": APP_KEY } : {}),
       },
-      body: JSON.stringify({ text }),
+      // `history` is the learner's own recurring-category counts, computed
+      // from local entries (getRecurringCategories) — request-scoped context
+      // for ranking, never stored server-side.
+      body: JSON.stringify({ text, history }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch {
@@ -64,7 +75,9 @@ export async function analyzeText(text: string): Promise<AnalyzeResult> {
     return { ok: false, kind: "server", retryable: true, code: "schema_mismatch" };
   }
 
-  // Criterion 6: assert `original` is an exact substring; log violations.
+  // The worker builds `original` from a diff against the submitted text
+  // (worker/src/diff.ts), so this should never fire — kept as a cheap
+  // regression guard rather than an active risk.
   for (const c of parsed.data.corrections) {
     if (!text.includes(c.original)) {
       console.warn("correction.original is not a substring of the entry text:", c.original);

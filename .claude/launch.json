@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "english-feedback-app", "run", "dev:app"],
       "port": 5173
+    },
+    {
+      "name": "english-feedback-worker",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "english-feedback-app", "run", "dev:worker"],
+      "port": 8787
     }
   ]
 }

@@ -6,6 +6,14 @@
  * stand between the public internet and a paid API key can be tested directly.
  */
 
+import {
+  countWords,
+  ERROR_CATEGORIES,
+  MIN_WORDS,
+  type ErrorCategory,
+  type RecurringCategory,
+} from "../../shared/schema.ts";
+
 export function allowedOrigins(configured: string | undefined): string[] {
   return (configured ?? "*")
     .split(",")
@@ -50,8 +58,34 @@ export function safeEqual(a: string, b: string): boolean {
 }
 
 export type BodyCheck =
-  | { ok: true; text: string }
+  | { ok: true; text: string; history: RecurringCategory[] }
   | { ok: false; status: number; error: string };
+
+// At most one entry per category — anything past this in a request body is
+// either a bug on the client or someone poking the endpoint by hand.
+const MAX_HISTORY_ENTRIES = ERROR_CATEGORIES.length;
+
+/**
+ * The learner's recurring-category counts, computed client-side from their
+ * own IndexedDB and sent as context for this one request — nothing is stored
+ * server-side. Malformed entries are dropped rather than failing the whole
+ * request: this is ranking context, not the payload the user is paying to
+ * analyse.
+ */
+function parseHistory(raw: unknown): RecurringCategory[] {
+  if (!Array.isArray(raw)) return [];
+  const known = new Set<string>(ERROR_CATEGORIES);
+  const out: RecurringCategory[] = [];
+  for (const item of raw) {
+    if (out.length >= MAX_HISTORY_ENTRIES) break;
+    if (typeof item !== "object" || item === null) continue;
+    const { category, count } = item as { category?: unknown; count?: unknown };
+    if (typeof category !== "string" || !known.has(category)) continue;
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 0) continue;
+    out.push({ category: category as ErrorCategory, count });
+  }
+  return out;
+}
 
 /**
  * Validate an /analyze payload. `byteLength` is the decoded size on the wire —
@@ -66,9 +100,9 @@ export function parseAnalyzeBody(
   if (byteLength === 0) return { ok: false, status: 400, error: "empty_body" };
   if (byteLength > maxBytes) return { ok: false, status: 413, error: "too_large" };
 
-  let body: { text?: unknown };
+  let body: { text?: unknown; history?: unknown };
   try {
-    body = JSON.parse(raw) as { text?: unknown };
+    body = JSON.parse(raw) as { text?: unknown; history?: unknown };
   } catch {
     return { ok: false, status: 400, error: "invalid_json" };
   }
@@ -76,5 +110,11 @@ export function parseAnalyzeBody(
   if (typeof body.text !== "string" || !body.text.trim()) {
     return { ok: false, status: 400, error: "missing_text" };
   }
-  return { ok: true, text: body.text };
+  // Defense-in-depth: the client already gates the Analyse button on
+  // MIN_WORDS, but a bypassed or future client shouldn't be able to spend a
+  // request on an entry too short to teach anything from.
+  if (countWords(body.text) < MIN_WORDS) {
+    return { ok: false, status: 400, error: "too_short" };
+  }
+  return { ok: true, text: body.text, history: parseHistory(body.history) };
 }

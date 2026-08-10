@@ -1,12 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import {
-  FeedbackSchema,
-  TEACHING_SYSTEM_PROMPT,
-  MODEL_ID,
-  PROMPT_VERSION,
-} from "../../shared/schema";
+import { MODEL_ID, PROMPT_VERSION } from "../../shared/schema";
 import { corsHeaders, parseAnalyzeBody, resolveOrigin, safeEqual } from "./policy";
+import { runPipeline } from "./pipeline";
 
 export interface Env {
   ANTHROPIC_API_KEY: string;
@@ -18,15 +13,14 @@ export interface Env {
 }
 
 const RATE_LIMIT_PER_HOUR = 20;
-const MAX_BODY_BYTES = 10 * 1024;
-
-// `claude-opus-5` thinks by default, and max_tokens caps thinking AND response
-// text together — so this ceiling must clear both. At 8000 a long entry spent
-// its budget thinking and truncated, surfacing as a permanent "incomplete".
-const MAX_TOKENS = 16000;
+// 10 KB for the entry text, plus headroom for the `history` field (client-
+// computed recurring-category counts, at most one entry per category).
+const MAX_BODY_BYTES = 12 * 1024;
 
 // Give up before Cloudflare does, so a hung upstream returns a real error
-// rather than a dropped connection.
+// rather than a dropped connection. Applies per Anthropic call — the
+// pipeline now makes up to three, so a slow entry's total wall-clock time
+// can exceed this; the client's own REQUEST_TIMEOUT_MS accounts for that.
 const UPSTREAM_TIMEOUT_MS = 120_000;
 
 // Fallback when the KV namespace isn't configured yet — per-isolate only.
@@ -136,9 +130,11 @@ export default {
       MAX_BODY_BYTES
     );
     if (!body.ok) return fail(allowOrigin, body.status, body.error, false);
-    const text = body.text;
+    const { text, history } = body;
 
-    // Only a request we are actually about to pay for costs quota.
+    // Only a request we are actually about to pay for costs quota. The
+    // pipeline below may make up to three Anthropic calls to fulfil this one
+    // already-charged request — that internal retrying never charges again.
     const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
     if (!(await chargeQuota(env, ip))) {
       return fail(allowOrigin, 429, "rate_limited", true);
@@ -149,79 +145,27 @@ export default {
       timeout: UPSTREAM_TIMEOUT_MS,
     });
 
-    let response;
-    try {
-      response = await client.messages.parse({
-        model: MODEL_ID,
-        max_tokens: MAX_TOKENS,
-        // Explicit rather than implied: on claude-opus-5 an omitted `thinking`
-        // already means adaptive, and silently relying on that default is how
-        // the max_tokens budget got mis-sized in the first place.
-        thinking: { type: "adaptive" },
-        // Cached stable prefix — the user's text goes in messages, after it,
-        // so the prefix stays byte-identical across requests.
-        system: [
-          {
-            type: "text",
-            text: TEACHING_SYSTEM_PROMPT,
-            cache_control: { type: "ephemeral" },
-          },
-        ],
-        output_config: {
-          effort: "medium",
-          format: zodOutputFormat(FeedbackSchema),
-        },
-        messages: [{ role: "user", content: text }],
-      });
-    } catch (err) {
-      // Log the error class only — never the entry text (privacy, §3.6).
-      const status = err instanceof Anthropic.APIError ? err.status : undefined;
-      console.error(
-        "anthropic_error:",
-        status ?? "no_status",
-        err instanceof Error ? err.message : "unknown"
-      );
-      // 401/403 mean the key is wrong or lacks access — retrying cannot fix
-      // it, and letting the client requeue would spin against a dead config.
-      const retryable = status !== 401 && status !== 403;
-      return fail(allowOrigin, 502, "upstream", retryable);
-    }
+    const result = await runPipeline(client, text, history);
 
-    if (response.stop_reason === "refusal") {
-      console.warn("refusal:", response.stop_details?.category ?? "uncategorised");
-      return json(allowOrigin, 200, { status: "refusal" });
-    }
-
-    // Truncation is deterministic for a given entry, so it must not be sold to
-    // the client as a transient failure it should keep retrying.
-    if (response.stop_reason === "max_tokens") {
-      console.error(`truncated: output exceeded max_tokens=${MAX_TOKENS}`);
-      return fail(allowOrigin, 502, "too_long_to_analyse", false);
-    }
-
-    if (!response.parsed_output) {
-      return fail(allowOrigin, 502, "incomplete", true);
-    }
-
-    const feedback = response.parsed_output;
-
-    // Acceptance criterion 6: every `original` must be an exact substring of
-    // the submitted text. Log the count only — not the content.
-    const violations = feedback.corrections.filter((c) => !text.includes(c.original)).length;
-    if (violations > 0) {
-      console.warn(`substring_violations=${violations} of ${feedback.corrections.length}`);
+    if (!result.ok) {
+      if (result.kind === "refusal") {
+        return json(allowOrigin, 200, { status: "refusal" });
+      }
+      // Truncation is deterministic for a given entry, so it must not be
+      // sold to the client as a transient failure it should keep retrying.
+      if (result.kind === "truncated") {
+        return fail(allowOrigin, 502, "too_long_to_analyse", false);
+      }
+      return fail(allowOrigin, 502, "upstream", result.retryable);
     }
 
     return json(allowOrigin, 200, {
       status: "ok",
-      feedback,
+      feedback: result.value.feedback,
       model: MODEL_ID,
       promptVersion: PROMPT_VERSION,
       // Criterion 7: from the second request onward cache.read should be > 0.
-      cache: {
-        read: response.usage.cache_read_input_tokens ?? 0,
-        write: response.usage.cache_creation_input_tokens ?? 0,
-      },
+      cache: result.value.cache,
     });
   },
 };

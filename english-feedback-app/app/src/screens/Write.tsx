@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { Screen } from "../App";
 import { analyzeText, type AnalyzeFailure } from "../lib/api";
-import { clearDraft, getDraft, saveDraft, saveEntry, type Entry } from "../lib/db";
+import { clearDraft, getDraft, getEntries, getRecurringCategories, saveDraft, saveEntry, type Entry } from "../lib/db";
 import { countWords } from "../lib/categories";
 import { applyFailure, type FailureOutcome } from "../lib/retry";
-
-const MIN_WORDS = 30;
+import { MIN_WORDS } from "../../../shared/schema";
 
 interface Props {
   navigate: (s: Screen) => void;
@@ -100,10 +99,19 @@ export default function WriteScreen({ navigate, showToast }: Props) {
       return;
     }
 
+    // Best-effort context for ranking "one thing to fix" and drills — never
+    // worth failing the analysis over, so a read error just means no history.
+    const history = await getEntries()
+      .then((entries) => getRecurringCategories(entries))
+      .catch((err) => {
+        console.error("Couldn't read entry history for context:", err);
+        return [];
+      });
+
     setBusy(true);
     let result;
     try {
-      result = await analyzeText(entry.text);
+      result = await analyzeText(entry.text, history);
     } finally {
       setBusy(false);
     }
