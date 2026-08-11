@@ -1,6 +1,15 @@
 import { analyzeText } from "./api";
-import { getQueuedEntries, saveEntry } from "./db";
+import {
+  claimForAnalysis,
+  finishAnalysis,
+  getEntries,
+  getProfile,
+  getQueuedEntries,
+  reclaimStaleAnalysing,
+} from "./db";
+import { getAnalysedCount, getRecurringCategories } from "./stats";
 import { applyFailure } from "./retry";
+import { STALE_CLAIM_MS } from "./claim";
 
 let processing = false;
 
@@ -16,23 +25,63 @@ export async function processQueue(): Promise<number> {
   processing = true;
   let done = 0;
   try {
+    // A tab killed mid-analysis leaves its claim behind. Release those first,
+    // or the entry is never picked up again by anyone.
+    await reclaimStaleAnalysing(STALE_CLAIM_MS);
+
     const queued = await getQueuedEntries();
+
+    // The same ranking context the Write screen sends. Without it every entry
+    // written offline, or requeued after a blip, is analysed blind to the
+    // learner's recurring categories — the teacher voice and the drills would
+    // treat it as their first ever entry. Read once for the whole run;
+    // best-effort, exactly as on the Write screen.
+    const [context, profile] = await Promise.all([
+      getEntries()
+        .then((entries) => ({
+          history: getRecurringCategories(entries),
+          analysedSoFar: getAnalysedCount(entries),
+        }))
+        .catch((err) => {
+          console.error("Couldn't read entry history for context:", err);
+          return { history: [], analysedSoFar: undefined };
+        }),
+      getProfile().catch((err) => {
+        console.error("Couldn't read the learner profile:", err);
+        return {};
+      }),
+    ]);
+
     for (const entry of queued) {
-      const result = await analyzeText(entry.text);
+      // Another tab, or the Write screen, may hold this one already — the
+      // snapshot above is only a candidate list. The claim decides.
+      const claimed = await claimForAnalysis(entry.id);
+      if (!claimed) continue;
+
+      const entryNumber =
+        context.analysedSoFar === undefined ? undefined : context.analysedSoFar + done + 1;
+      const result = await analyzeText(claimed.text, context.history, profile, entryNumber);
 
       if (result.ok) {
-        await saveEntry({
-          ...entry,
-          status: "analysed",
-          feedback: result.feedback,
-          modelId: result.model,
-          promptVersion: result.promptVersion,
-        });
+        await finishAnalysis(
+          claimed.id,
+          {
+            status: "analysed",
+            feedback: result.feedback,
+            modelId: result.model,
+            promptVersion: result.promptVersion,
+          },
+          claimed.analysingSince
+        );
         done++;
         continue;
       }
 
-      await saveEntry({ ...entry, ...applyFailure(entry.attempts ?? 0, result) });
+      await finishAnalysis(
+        claimed.id,
+        applyFailure(claimed.attempts ?? 0, result),
+        claimed.analysingSince
+      );
 
       // A retryable failure means the network or the service is unhappy right
       // now — running the rest of the queue into it just burns the quota.

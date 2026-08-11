@@ -1,40 +1,50 @@
 /**
- * Orchestrates the analysis pipeline: corrector → diff (code, no LLM) →
- * synthesize, with a content-only coach reply running in parallel.
+ * The per-entry pipeline: ONE runtime agent, everything else code (ADR 0001).
  *
- * Not pure — this is the Anthropic SDK plus Worker runtime, same as
- * `index.ts` today, and untested for the same reason (§ Known Gaps: testing
- * it needs Miniflare). The pure pieces it leans on — `diff.ts`,
- * `sentences.ts`, `policy.ts` — are tested directly.
+ *   policy (index.ts) → split (code) → pattern matcher (code) →
+ *   THE TEACHER (llm: risk check · minimal correction · ambiguity ·
+ *   per-change notes · teacher message) → diff (code) → labelling (code) →
+ *   assembled Feedback
+ *
+ * The model never produces the error list: spans come from diffing its
+ * corrected sentences against the learner's ORIGINAL text. Its `notes` only
+ * label the changes it made, zipped onto diff-confirmed model edits in
+ * reading order; a mismatch degrades that edit's label to "other" with a
+ * pair-based explanation rather than inventing anything. Pattern-sourced
+ * edits are labelled straight from the taxonomy with no model involvement.
+ *
+ * `risk: "acute"` short-circuits: no corrections, no teacher message — the
+ * client renders the wellbeing screen. Never a grammar lesson for a crisis.
+ *
+ * Not pure — this is the Anthropic SDK plus Worker runtime, untested for the
+ * same reason index.ts is (needs Miniflare). The pure pieces it leans on —
+ * patterns.ts, diff.ts, sentences.ts, policy.ts, learner.ts — are tested.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import type { ZodType } from "zod";
 import {
-  CORRECTOR_SYSTEM_PROMPT,
-  SYNTHESIZE_SYSTEM_PROMPT,
-  COACH_SYSTEM_PROMPT,
-  CorrectorOutputSchema,
-  SynthesizeOutputSchema,
+  AgentOutputSchema,
   MODEL_ID,
+  TEACHER_SYSTEM_PROMPT,
+  type AgentOutput,
   type Feedback,
+  type LearnerProfile,
   type RecurringCategory,
-  type SynthesizeOutput,
 } from "../../shared/schema";
+import { contextualExamplesFor } from "../../shared/patterns";
+import { TAXONOMY, ruleFor } from "../../shared/taxonomy";
 import { splitSentences, reconstructText } from "./sentences";
-import { extractEdits, rewriteRatio, MAX_REWRITE_RATIO, type WordEdit } from "./diff";
+import { extractEdits, rewriteRatio, MAX_REWRITE_RATIO } from "./diff";
+import { applyPatterns, findMatchingHit, labelForHit, type PatternHit } from "./patterns";
+import { effectiveLevel, l1NotesFor, learnerContext } from "./learner.ts";
 
-// Narrow, single-purpose calls need far less headroom than the original
-// monolithic one did. Unmeasured against real traffic — see Known Gaps.
-const MAX_TOKENS_CORRECTOR = 8000;
-const MAX_TOKENS_SYNTHESIZE = 16000;
-const MAX_TOKENS_COACH = 2000;
+// Covers thinking AND the response together — the response carries the
+// corrected sentences, the notes, and a ≤160-word message. Unmeasured.
+const MAX_TOKENS = 12_000;
 
-// In-request retries when the corrector over-rewrites, bounded separately
-// from the client's cross-request retry budget (MAX_ATTEMPTS in
-// app/src/lib/retry.ts) — this loop runs inside a single already-charged
-// /analyze call, it never touches quota again.
+// In-request retries when the agent over-rewrites — this loop runs inside a
+// single already-charged /analyze call, it never touches quota again.
 const MAX_REWRITE_ATTEMPTS = 2;
 
 export type StageFailure =
@@ -42,220 +52,92 @@ export type StageFailure =
   | { kind: "truncated" }
   | { kind: "upstream"; retryable: boolean };
 
-type StageResult<T> = ({ ok: true; value: T; usage: UsageInfo }) | ({ ok: false } & StageFailure);
-
 interface UsageInfo {
   read: number;
   write: number;
 }
 
-function usageOf(response: {
-  usage: { cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };
-}): UsageInfo {
-  return {
-    read: response.usage.cache_read_input_tokens ?? 0,
-    write: response.usage.cache_creation_input_tokens ?? 0,
-  };
-}
+type StageResult<T> = ({ ok: true; value: T; usage: UsageInfo }) | ({ ok: false } & StageFailure);
 
-/** Runs one Anthropic call, classifying a thrown error into upstream/retryable. */
-async function callAnthropic<R>(
-  fn: () => Promise<R>
-): Promise<{ ok: true; value: R } | ({ ok: false } & StageFailure)> {
+/** One structured call to the teacher. Classifies every failure. */
+async function callTeacher(
+  client: Anthropic,
+  userContent: string
+): Promise<StageResult<AgentOutput>> {
+  let response;
   try {
-    return { ok: true, value: await fn() };
+    response = await client.messages.parse({
+      model: MODEL_ID,
+      max_tokens: MAX_TOKENS,
+      // Explicit rather than implied — max_tokens is sized for it.
+      thinking: { type: "adaptive" },
+      system: [{ type: "text", text: TEACHER_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+      output_config: { effort: "medium", format: zodOutputFormat(AgentOutputSchema) },
+      messages: [{ role: "user", content: userContent }],
+    });
   } catch (err) {
-    // Log the error class only — never the entry text (privacy, §3.6).
+    // Log the error class only — never the entry text (privacy). An
+    // APIError's message is the upstream body, text this worker doesn't own.
     const status = err instanceof Anthropic.APIError ? err.status : undefined;
-    console.error(
-      "anthropic_error:",
-      status ?? "no_status",
-      err instanceof Error ? err.message : "unknown"
-    );
-    // 401/403 mean the key is wrong or lacks access — retrying cannot fix
-    // it, and letting the client requeue would spin against a dead config.
-    const retryable = status !== 401 && status !== 403;
+    const errorClass = err instanceof Error ? err.constructor.name : "unknown";
+    console.error("anthropic_error:", status ?? "no_status", errorClass);
+    // Only a rate limit, a server fault, or a connection failure can succeed
+    // later; everything else is deterministic for this entry.
+    const retryable = status === undefined || status === 429 || status >= 500;
     return { ok: false, kind: "upstream", retryable };
   }
-}
 
-/** Refusal and truncation are classified the same way for every stage. */
-function classifyStop<
-  R extends { stop_reason: string | null; stop_details?: { category?: string | null } | null },
->(response: R, maxTokens: number): { ok: true; value: R } | ({ ok: false } & StageFailure) {
   if (response.stop_reason === "refusal") {
     console.warn("refusal:", response.stop_details?.category ?? "uncategorised");
     return { ok: false, kind: "refusal" };
   }
   if (response.stop_reason === "max_tokens") {
-    console.error(`truncated: output exceeded max_tokens=${maxTokens}`);
+    console.error(`truncated: output exceeded max_tokens=${MAX_TOKENS}`);
     return { ok: false, kind: "truncated" };
   }
-  return { ok: true, value: response };
-}
-
-async function callStructured<T>(
-  client: Anthropic,
-  system: string,
-  userContent: string,
-  schema: ZodType<T>,
-  maxTokens: number
-): Promise<StageResult<T>> {
-  const called = await callAnthropic(() =>
-    client.messages.parse({
-      model: MODEL_ID,
-      max_tokens: maxTokens,
-      // Explicit rather than implied — see shared/schema.ts's MODEL_ID note
-      // on why relying on the default is how max_tokens got mis-sized before.
-      thinking: { type: "adaptive" },
-      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-      output_config: { effort: "medium", format: zodOutputFormat(schema) },
-      messages: [{ role: "user", content: userContent }],
-    })
-  );
-  if (!called.ok) return called;
-
-  const classified = classifyStop(called.value, maxTokens);
-  if (!classified.ok) return classified;
-
-  const response = classified.value;
   if (!response.parsed_output) return { ok: false, kind: "upstream", retryable: true };
-  return { ok: true, value: response.parsed_output, usage: usageOf(response) };
-}
-
-async function callText(
-  client: Anthropic,
-  system: string,
-  userContent: string,
-  maxTokens: number
-): Promise<StageResult<string>> {
-  const called = await callAnthropic(() =>
-    client.messages.create({
-      model: MODEL_ID,
-      max_tokens: maxTokens,
-      thinking: { type: "adaptive" },
-      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-      messages: [{ role: "user", content: userContent }],
-    })
-  );
-  if (!called.ok) return called;
-
-  const classified = classifyStop(called.value, maxTokens);
-  if (!classified.ok) return classified;
-
-  const block = classified.value.content.find((b) => b.type === "text");
-  const text = block && "text" in block ? block.text : undefined;
-  if (!text) return { ok: false, kind: "upstream", retryable: true };
-  return { ok: true, value: text, usage: usageOf(classified.value) };
-}
-
-interface CorrectorResult {
-  sentences: string[];
-  corrected: string[];
-  edits: WordEdit[];
-}
-
-/**
- * Corrects the entry, verified by re-diffing its own output. Retries, with a
- * hint appended to the next attempt's user message, when the correction
- * changed far more of the text than a minimal grammar fix should have. If
- * still over budget after retrying, proceeds with the last attempt rather
- * than inventing a new failure state — logged, not silently accepted.
- */
-async function runCorrector(client: Anthropic, text: string): Promise<StageResult<CorrectorResult>> {
-  const sentences = splitSentences(text);
-  let hint = "";
-
-  for (let attempt = 0; attempt <= MAX_REWRITE_ATTEMPTS; attempt++) {
-    const userContent = JSON.stringify({ sentences }) + hint;
-    const result = await callStructured(
-      client,
-      CORRECTOR_SYSTEM_PROMPT,
-      userContent,
-      CorrectorOutputSchema,
-      MAX_TOKENS_CORRECTOR
-    );
-    if (!result.ok) return result;
-
-    const { corrected } = result.value;
-    const isLastAttempt = attempt === MAX_REWRITE_ATTEMPTS;
-
-    if (corrected.length !== sentences.length) {
-      // The model didn't return one corrected sentence per input sentence —
-      // a shape problem, not a verdict on the text.
-      if (!isLastAttempt) continue;
-      return { ok: false, kind: "upstream", retryable: true };
-    }
-
-    const edits = extractEdits(sentences, corrected);
-    const ratio = rewriteRatio(sentences, edits);
-    if (ratio <= MAX_REWRITE_RATIO || isLastAttempt) {
-      if (ratio > MAX_REWRITE_RATIO) {
-        console.warn(`high_rewrite_ratio=${ratio.toFixed(2)}: proceeding after ${attempt} retries`);
-      }
-      return { ok: true, value: { sentences, corrected, edits }, usage: result.usage };
-    }
-
-    hint = `\n\nYour previous correction changed ${Math.round(
-      ratio * 100
-    )}% of the words — far more than a minimal grammar fix requires. Undo any rewording that was not strictly necessary for correctness.`;
-  }
-
-  // Unreachable: every branch above returns by the final iteration.
-  throw new Error("runCorrector: exhausted attempts without returning");
-}
-
-async function runSynthesize(
-  client: Anthropic,
-  text: string,
-  edits: WordEdit[],
-  history: RecurringCategory[]
-): Promise<StageResult<SynthesizeOutput>> {
-  const userContent = JSON.stringify({
-    entry: text,
-    edits: edits.map((e) => ({ original: e.original, corrected: e.corrected })),
-    recurring: history,
-  });
-  const result = await callStructured(
-    client,
-    SYNTHESIZE_SYSTEM_PROMPT,
-    userContent,
-    SynthesizeOutputSchema,
-    MAX_TOKENS_SYNTHESIZE
-  );
-  if (!result.ok) return result;
-  if (result.value.labels.length !== edits.length) {
-    // Shape problem — surfacing this as a mislabeled edit would be worse
-    // than asking the client to retry the whole entry.
-    return { ok: false, kind: "upstream", retryable: true };
-  }
-  return result;
-}
-
-function assembleFeedback(
-  original: string,
-  corrector: CorrectorResult,
-  synth: SynthesizeOutput,
-  coachReply: string | undefined
-): Feedback {
   return {
-    corrected_text: reconstructText(original, corrector.sentences, corrector.corrected),
-    cefr_estimate: synth.cefr_estimate,
-    corrections: corrector.edits.map((edit, i) => ({
-      original: edit.original,
-      corrected: edit.corrected,
-      category: synth.labels[i].category,
-      rule: synth.labels[i].rule,
-      severity: synth.labels[i].severity,
-    })),
-    patterns: synth.patterns,
-    scores: synth.scores,
-    one_thing_to_fix: synth.one_thing_to_fix,
-    what_went_well: synth.what_went_well,
-    fluency_notes: synth.fluency_notes,
-    drills: synth.drills,
-    coach_reply: coachReply,
+    ok: true,
+    value: response.parsed_output,
+    usage: {
+      read: response.usage.cache_read_input_tokens ?? 0,
+      write: response.usage.cache_creation_input_tokens ?? 0,
+    },
   };
+}
+
+/** The per-user, per-entry context block. Everything that varies lives here,
+ * never in the system prompt. */
+function buildUserContent(
+  patched: string[],
+  history: RecurringCategory[],
+  profile: LearnerProfile | undefined,
+  entryNumber: number | undefined,
+  patternFixes: PatternHit[],
+  hint: string
+): string {
+  const notes = l1NotesFor(profile?.nativeLanguage);
+  const examples = contextualExamplesFor(history.map((h) => h.category), 8);
+  const sections = [
+    learnerContext(profile),
+    `entry_number: ${entryNumber ?? "unknown"}`,
+    history.length > 0
+      ? `RECURRING PATTERNS (real counts from their stored history — never invent a number):\n${JSON.stringify(history)}`
+      : "",
+    notes ? `l1_notes (curated contrasts and bridges):\n${notes}` : "",
+    patternFixes.length > 0
+      ? `PATTERN FIXES already applied by code before you (checklist numbers you may cite):\n${patternFixes
+          .map((h) => `- #${h.id}: "${h.original}" -> "${h.corrected}"`)
+          .join("\n")}`
+      : "",
+    examples.length > 0
+      ? `KNOWN ERROR PATTERNS this learner's history makes likely (reference only):\n${examples
+          .map((e) => `- "${e.wrong}" -> "${e.right}"`)
+          .join("\n")}`
+      : "",
+    JSON.stringify({ sentences: patched }),
+  ];
+  return sections.filter(Boolean).join("\n\n") + hint;
 }
 
 export interface PipelineOutcome {
@@ -263,46 +145,128 @@ export interface PipelineOutcome {
   cache: UsageInfo;
 }
 
-/**
- * Runs the full pipeline for one entry. A refusal or truncation from the
- * corrector or the synthesize call fails the whole entry — those fields are
- * required, matching how a single-call refusal was handled before. The coach
- * reply is the one optional field in the schema and needs only the raw text,
- * so it runs alongside the rest and degrades to "absent" on failure instead
- * of discarding grammar teaching that already succeeded.
- */
 export async function runPipeline(
   client: Anthropic,
   text: string,
-  history: RecurringCategory[]
+  history: RecurringCategory[],
+  profile: LearnerProfile | undefined,
+  entryNumber?: number
 ): Promise<{ ok: true; value: PipelineOutcome } | ({ ok: false } & StageFailure)> {
-  const coachPromise = runCoach(client, text);
+  const sentences = splitSentences(text);
 
-  const correctorResult = await runCorrector(client, text);
-  if (!correctorResult.ok) return correctorResult;
+  // Deterministic pattern fixes first: zero cost, zero hallucination, and the
+  // agent gets an easier job. The ORIGINAL sentences are kept for the diff,
+  // so the learner sees their own sentence, not a half-fixed one.
+  const perSentence = sentences.map(applyPatterns);
+  const patched = perSentence.map((r) => r.patched);
+  const hitsBySentence = perSentence.map((r) => r.hits);
+  const allHits = hitsBySentence.flat();
 
-  const synthResult = await runSynthesize(client, text, correctorResult.value.edits, history);
-  if (!synthResult.ok) return synthResult;
+  // The one model call, retried in-request when it over-rewrites. The ratio
+  // measures the MODEL's edits — against the patched text — so certain,
+  // code-made pattern fixes never count against it.
+  let agent: AgentOutput | undefined;
+  let usage: UsageInfo = { read: 0, write: 0 };
+  let hint = "";
+  for (let attempt = 0; attempt <= MAX_REWRITE_ATTEMPTS; attempt++) {
+    const result = await callTeacher(
+      client,
+      buildUserContent(patched, history, profile, entryNumber, allHits, hint)
+    );
+    if (!result.ok) return result;
+    usage = { read: usage.read + result.usage.read, write: usage.write + result.usage.write };
 
-  const coachResult = await coachPromise;
-  let coachReply: string | undefined;
-  if (coachResult.ok) {
-    coachReply = coachResult.value;
-  } else {
-    console.warn(`coach_reply_unavailable: ${coachResult.kind}`);
+    const isLastAttempt = attempt === MAX_REWRITE_ATTEMPTS;
+    if (result.value.risk === "acute") {
+      agent = result.value;
+      break;
+    }
+    if (result.value.corrected.length !== patched.length) {
+      // A shape problem, not a verdict on the text.
+      if (!isLastAttempt) continue;
+      return { ok: false, kind: "upstream", retryable: true };
+    }
+    const ratio = rewriteRatio(patched, extractEdits(patched, result.value.corrected));
+    if (ratio <= MAX_REWRITE_RATIO || isLastAttempt) {
+      if (ratio > MAX_REWRITE_RATIO) {
+        console.warn(`high_rewrite_ratio=${ratio.toFixed(2)}: proceeding after ${attempt} retries`);
+      }
+      agent = result.value;
+      break;
+    }
+    hint = `\n\nYour previous correction changed ${Math.round(
+      ratio * 100
+    )}% of the words — far more than a minimal grammar fix requires. Undo any rewording that was not strictly necessary for correctness.`;
+  }
+  if (!agent) throw new Error("runPipeline: exhausted attempts without a result");
+
+  if (agent.risk === "acute") {
+    // Never make the person's crisis into a grammar lesson: no corrections,
+    // no teacher message. The client shows human-written support.
+    return {
+      ok: true,
+      value: {
+        feedback: { risk: "acute", corrected_text: text, corrections: [] },
+        cache: usage,
+      },
+    };
   }
 
-  const feedback = assembleFeedback(text, correctorResult.value, synthResult.value, coachReply);
+  // All edits, diffed against the learner's own text — spans stay verbatim.
+  const edits = extractEdits(sentences, agent.corrected);
 
-  const parts = [correctorResult, synthResult, ...(coachResult.ok ? [coachResult] : [])];
-  const cache = parts.reduce(
-    (sum, p) => ({ read: sum.read + p.usage.read, write: sum.write + p.usage.write }),
-    { read: 0, write: 0 }
-  );
+  // Notes queued per sentence, consumed in reading order by the model's own
+  // edits. Pattern-sourced edits never consume one: the model did not make
+  // those changes, so it wrote no note for them.
+  const noteQueues = new Map<number, Array<{ category: string; rule: string }>>();
+  for (const n of agent.notes) {
+    if (n.index < 0 || n.index >= sentences.length) continue;
+    const q = noteQueues.get(n.index) ?? [];
+    q.push({ category: n.category, rule: n.rule });
+    noteQueues.set(n.index, q);
+  }
 
-  return { ok: true, value: { feedback, cache } };
-}
+  const level = effectiveLevel(profile);
+  const corrections: Feedback["corrections"] = edits.map((edit) => {
+    const hit = findMatchingHit(edit, hitsBySentence[edit.sentIdx] ?? []);
+    if (hit) {
+      const l = labelForHit(hit, level);
+      return {
+        original: edit.original,
+        corrected: edit.corrected,
+        category: l.category,
+        severity: l.severity,
+        explanation: l.explanation,
+        source: "pattern",
+        pattern_id: l.patternId,
+      };
+    }
+    const note = noteQueues.get(edit.sentIdx)?.shift();
+    const category = (note?.category ?? "other") as Feedback["corrections"][number]["category"];
+    const explanation =
+      note?.rule ??
+      ruleFor(category, level) ??
+      `In English this is written “${edit.corrected || "(nothing)"}”, not “${edit.original || "(nothing)"}”.`;
+    return {
+      original: edit.original,
+      corrected: edit.corrected,
+      category,
+      severity: TAXONOMY[category].severityDefault,
+      explanation,
+      source: "model",
+    };
+  });
 
-function runCoach(client: Anthropic, text: string): Promise<StageResult<string>> {
-  return callText(client, COACH_SYSTEM_PROMPT, text, MAX_TOKENS_COACH);
+  const ambiguous = agent.ambiguous.filter((a) => a.index >= 0 && a.index < sentences.length);
+  const teacherFeedback = agent.feedback.trim();
+
+  const feedback: Feedback = {
+    risk: "none",
+    corrected_text: reconstructText(text, sentences, agent.corrected),
+    corrections,
+    ...(teacherFeedback ? { teacher_feedback: teacherFeedback } : {}),
+    ...(ambiguous.length > 0 ? { ambiguous } : {}),
+  };
+
+  return { ok: true, value: { feedback, cache: usage } };
 }

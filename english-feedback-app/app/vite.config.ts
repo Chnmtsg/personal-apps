@@ -52,12 +52,22 @@ export default defineConfig(({ command, mode }) => {
       tailwindcss(),
       VitePWA({
         registerType: "autoUpdate",
+        workbox: {
+          // woff2 is not in Workbox's default glob. Without it the fonts are
+          // built and served but never precached, so an installed PWA opened
+          // offline silently falls back to Georgia and system-ui — the exact
+          // failure that self-hosting them was meant to prevent.
+          globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        },
         manifest: {
           name: "English Feedback",
           short_name: "EnFeedback",
           description: "English writing feedback with persistent error tracking",
-          theme_color: "#1e40af",
-          background_color: "#f8fafc",
+          // The paper the app is actually printed on: the status bar tints to
+          // match the top of the page, and the splash screen no longer flashes
+          // blue before a warm-white app loads.
+          theme_color: "#faf8f3",
+          background_color: "#faf8f3",
           display: "standalone",
           start_url: "/",
           icons: [

@@ -1,4 +1,9 @@
-import { FeedbackSchema, type Feedback, type RecurringCategory } from "../../../shared/schema";
+import {
+  FeedbackSchema,
+  type Feedback,
+  type LearnerProfile,
+  type RecurringCategory,
+} from "../../../shared/schema";
 import type { AnalyzeFailure } from "./failure";
 
 // Trailing slashes are stripped so a URL ending in "/" can't produce "//analyze".
@@ -25,7 +30,9 @@ export type AnalyzeResult =
 
 export async function analyzeText(
   text: string,
-  history: RecurringCategory[] = []
+  history: RecurringCategory[] = [],
+  profile: LearnerProfile = {},
+  entryNumber?: number
 ): Promise<AnalyzeResult> {
   let res: Response;
   try {
@@ -37,8 +44,14 @@ export async function analyzeText(
       },
       // `history` is the learner's own recurring-category counts, computed
       // from local entries (getRecurringCategories) — request-scoped context
-      // for ranking, never stored server-side.
-      body: JSON.stringify({ text, history }),
+      // for ranking, never stored server-side. `entryNumber` lets the teacher
+      // welcome a first entry.
+      body: JSON.stringify({
+        text,
+        history,
+        profile,
+        ...(entryNumber !== undefined ? { entryNumber } : {}),
+      }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch {

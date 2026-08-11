@@ -1,11 +1,30 @@
 import { z } from "zod";
+import {
+  CATEGORY_IDS,
+  SEVERITIES,
+  TAXONOMY,
+  type CategoryId,
+  type Severity,
+} from "./taxonomy.ts";
 
-// Single configurable constant — switch models here, nowhere else (§4.5).
+// ---------------------------------------------------------------------------
+// Model — the pipeline runs ONE runtime agent (ADR 0001). The 9-agent library
+// in knowledge/agent_prompts.md is the growth map; model tiering returns with
+// it. Switch models here, nowhere else.
+//
+// Caching note: a system prompt below the model's minimum cacheable prefix
+// (512 tokens on claude-opus-5) never caches. The teacher prompt clears the
+// floor comfortably; verify cache.read on a real request after deploying.
+// ---------------------------------------------------------------------------
+
 export const MODEL_ID = "claude-opus-5";
 
-// Bump whenever CORRECTOR_SYSTEM_PROMPT, SYNTHESIZE_SYSTEM_PROMPT, or
-// COACH_SYSTEM_PROMPT changes, so stored feedback stays interpretable (§13).
-export const PROMPT_VERSION = 2;
+// Bump whenever the teacher prompt changes (prompts/teacher.md is the source;
+// the string below is its mirror), so stored feedback stays interpretable.
+// 6: the 9-agent pipeline; taxonomy v2.
+// 7: collapsed to the single teacher agent (ADR 0001) — inline risk check,
+//    minimal correction, per-change notes, teacher message in one call.
+export const PROMPT_VERSION = 7;
 
 // Mirrors the client-side minimum in Write.tsx, enforced again server-side as
 // defense-in-depth against a bypassed or future client — validate before
@@ -18,54 +37,50 @@ export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-// 🔴 Fixed taxonomy (§3.5 / §6). Changing an entry breaks every stored entry's
-// history — treat as versioned data after shipping.
-export const ERROR_CATEGORIES = [
-  "articles",           // a / an / the — missing, extra, or wrong
-  "noun_number",        // plural -s, countable vs uncountable
-  "verb_agreement",     // he work → he works
-  "verb_tense",         // wrong tense choice, incl. present perfect
-  "verb_form",          // wrong participle, bare -ing, missing auxiliary
-  "copula",             // missing "to be"
-  "word_order",         // SVO, adverb placement, adjective order
-  "preposition",        // wrong or missing preposition
-  "topic_fronting",     // "About X, it is…"
-  "pronoun",            // he/she, its vs it's, number agreement
-  "determiner",         // another/other, each/every, some/any
-  "question_form",      // missing inversion or do-support
-  "embedded_question",  // "tell me where is it" → "where it is"
-  "comma_splice",       // two sentences joined by a comma
-  "punctuation",        // other punctuation
-  "capitalization",     // languages, nationalities, I, proper nouns
-  "collocation",        // do/make, heavy rain, conduct a survey
-  "word_choice",        // wrong word, vague words (thing, stuff)
-  "register",           // too informal for the context
-  "spelling",
-] as const;
+// 🔴 Taxonomy v2 (shared/taxonomy.ts) — versioned data stored inside every
+// entry. The legacy 20-name taxonomy is mapped at read time, never deleted.
+export const ERROR_CATEGORIES = CATEGORY_IDS;
+export type ErrorCategory = CategoryId;
+export type { Severity };
 
-export type ErrorCategory = (typeof ERROR_CATEGORIES)[number];
+export const CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
+export type CefrLevel = (typeof CEFR_LEVELS)[number];
 
-const SEVERITIES = ["minor", "moderate", "major"] as const;
-const CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
+// "concern" no longer arrives on new entries (the dedicated distress
+// classifier is retired for now) but remains valid stored data.
+export const RISK_LEVELS = ["none", "concern", "acute"] as const;
+export type RiskLevel = (typeof RISK_LEVELS)[number];
+
+const CategoryEnum = z.enum(ERROR_CATEGORIES);
+const SeverityEnum = z.enum(SEVERITIES);
+
+// ---------------------------------------------------------------------------
+// Stored feedback — the client validates every /analyze response against this
+// before anything reaches IndexedDB, so no free-text category can ever be
+// stored. Entries analysed before PROMPT_VERSION 6 carry the legacy fields
+// below and are normalised at read time; entries from the 9-agent era may
+// carry fields (drills, fluency_notes, coach_reply, highlighted) the current
+// pipeline no longer writes. Screens render whatever is present.
+// ---------------------------------------------------------------------------
 
 const CorrectionSchema = z.object({
-  original: z.string(),   // exact erroneous span — computed by worker/src/diff.ts, never asserted by the model
-  corrected: z.string(),  // the corrected span
-  category: z.enum(ERROR_CATEGORIES),
-  rule: z.string(),       // one sentence: WHY it was wrong
-  severity: z.enum(SEVERITIES),
+  /** Exact erroneous span — computed by worker/src/diff.ts, never asserted. */
+  original: z.string(),
+  corrected: z.string(),
+  category: CategoryEnum,
+  severity: SeverityEnum,
+  /** ONE sentence teaching the rule, addressed to the writer. */
+  explanation: z.string(),
+  /** "pattern" = fixed by the deterministic matcher; "model" = the agent. */
+  source: z.enum(["pattern", "model"]),
+  /** Checklist number when source is "pattern" — feeds the progress map. */
+  pattern_id: z.number().int().optional(),
 });
 
-const PatternSchema = z.object({
-  category: z.enum(ERROR_CATEGORIES),
-  count: z.number().int(),
-  explanation: z.string(), // why this pattern happens for a Mongolian speaker
-});
-
-const ScoresSchema = z.object({
-  grammar: z.number().int().min(0).max(100),
-  vocabulary: z.number().int().min(0).max(100),
-  naturalness: z.number().int().min(0).max(100),
+const AmbiguitySchema = z.object({
+  /** Sentence index the agent left unchanged rather than guessing. */
+  index: z.number().int().min(0),
+  question: z.string(),
 });
 
 const FluencyNoteSchema = z.object({
@@ -77,155 +92,170 @@ const FluencyNoteSchema = z.object({
 const DrillSchema = z.object({
   prompt: z.string(),
   answer: z.string(),
+  distractors: z.array(z.string()),
   hint: z.string(),
 });
 
 export const FeedbackSchema = z.object({
+  risk: z.enum(RISK_LEVELS),
   corrected_text: z.string(),
-  cefr_estimate: z.enum(CEFR_LEVELS),
   corrections: z.array(CorrectionSchema),
-  patterns: z.array(PatternSchema),
-  scores: ScoresSchema,
-  one_thing_to_fix: z.string(),
-  what_went_well: z.string(),
-  // Additive — absent on every entry analysed before PROMPT_VERSION 2.
-  // Screens must render without them rather than assume they exist.
+  /** The teacher's message — absent on an acute entry, where grammar
+   * feedback is deliberately withheld. */
+  teacher_feedback: z.string().optional(),
+  /** 9-agent era: indices the teacher voice chose. No longer written. */
+  highlighted: z.array(z.number().int().min(0)).optional(),
+  ambiguous: z.array(AmbiguitySchema).optional(),
+  /** 9-agent era fields — still valid stored data, no longer written. */
   fluency_notes: z.array(FluencyNoteSchema).optional(),
   drills: z.array(DrillSchema).optional(),
-  // A separate, content-only reply — never present on pre-v2 entries, and
-  // absent even on v2 ones if that one call happened to fail (§ pipeline.ts:
-  // it degrades gracefully rather than failing the whole entry over it).
   coach_reply: z.string().optional(),
 });
 
-export type Feedback = z.infer<typeof FeedbackSchema>;
+/**
+ * Fields that only exist on entries stored before PROMPT_VERSION 6. Screens
+ * render them when present and must never assume they exist. Their category
+ * and severity strings are the legacy taxonomy — normalise via
+ * shared/taxonomy.ts before counting or labelling.
+ */
+export interface LegacyFeedbackFields {
+  cefr_estimate?: string;
+  patterns?: Array<{ category: string; count: number; explanation: string }>;
+  scores?: { grammar: number; vocabulary: number; naturalness: number };
+  one_thing_to_fix?: string;
+  what_went_well?: string;
+  vocabulary?: Array<{ term: string; stress: string; meaning: string; example: string }>;
+  pattern_watch?: { category: string; entries_clean: number; note: string; practice: string };
+}
+
+/** A stored correction may be legacy: `rule` instead of `explanation`, no
+ * `source`, legacy category/severity names. */
+export type StoredCorrection = z.infer<typeof CorrectionSchema> & { rule?: string };
+
+/** Stored feedback: v2 fields, `risk` absent on pre-v2 entries, corrections
+ * possibly legacy-shaped. The network schema above stays strict; this type is
+ * what screens and stats read back OUT of IndexedDB. */
+export type Feedback = Omit<z.infer<typeof FeedbackSchema>, "corrections" | "risk"> & {
+  risk?: RiskLevel;
+  corrections: StoredCorrection[];
+} & LegacyFeedbackFields;
+
+export type Drill = z.infer<typeof DrillSchema>;
 
 /** A learner's recurring-category counts, computed client-side from their own
- * entries and sent as request context (never stored server-side — §8, §3). */
+ * entries and sent as request context (never stored server-side). */
 export interface RecurringCategory {
   category: ErrorCategory;
   count: number;
+  /** How many of the most recent analysed entries did not contain this
+   * category — what lets feedback say "this came back after four clean
+   * entries" truthfully. */
+  cleanStreak?: number;
 }
 
-// --- Worker-internal structured-output schemas — never sent to the client ---
+// ---------------------------------------------------------------------------
+// The one runtime agent's output — worker-internal, never sent to the client.
+// The diff still produces the edit list; `notes` only label the changes the
+// agent made, zipped onto diff-confirmed edits in reading order.
+// ---------------------------------------------------------------------------
 
-export const CorrectorOutputSchema = z.object({
+export const AgentOutputSchema = z.object({
+  risk: z.enum(["none", "acute"]),
   // Same length and order as the sentences given to it, one per input.
   corrected: z.array(z.string()),
+  ambiguous: z.array(AmbiguitySchema),
+  notes: z.array(
+    z.object({
+      index: z.number().int().min(0),
+      category: CategoryEnum,
+      rule: z.string(),
+    })
+  ),
+  feedback: z.string(),
 });
-export type CorrectorOutput = z.infer<typeof CorrectorOutputSchema>;
+export type AgentOutput = z.infer<typeof AgentOutputSchema>;
 
-const EditLabelSchema = z.object({
-  category: z.enum(ERROR_CATEGORIES),
-  severity: z.enum(SEVERITIES),
-  rule: z.string(),
+/**
+ * Who the learner is. Every field is optional: the app must work on first
+ * launch, before anyone has filled anything in.
+ *
+ * Per-user data, so it NEVER goes in a system prompt — it travels in the user
+ * message. A per-user system prompt is a different cache entry for every
+ * user, which silently triples input cost.
+ */
+export const LearnerProfileSchema = z.object({
+  /** Free text: the world has more first languages than any list we'd ship. */
+  nativeLanguage: z.string().max(40).optional(),
+  /** What they do or study — the source of examples worth remembering. */
+  field: z.string().max(80).optional(),
+  /** Self-assessed; absent means "not sure", which is a normal answer. */
+  level: z.enum(CEFR_LEVELS).optional(),
+  goal: z.string().max(120).optional(),
 });
-export type EditLabel = z.infer<typeof EditLabelSchema>;
-
-export const SynthesizeOutputSchema = z.object({
-  // Same length and order as the edits given to it — the worker zips these
-  // back onto the diff's original/corrected pairs to build `corrections`.
-  labels: z.array(EditLabelSchema),
-  patterns: z.array(PatternSchema),
-  scores: ScoresSchema,
-  cefr_estimate: z.enum(CEFR_LEVELS),
-  one_thing_to_fix: z.string(),
-  what_went_well: z.string(),
-  fluency_notes: z.array(FluencyNoteSchema),
-  drills: z.array(DrillSchema),
-});
-export type SynthesizeOutput = z.infer<typeof SynthesizeOutputSchema>;
+export type LearnerProfile = z.infer<typeof LearnerProfileSchema>;
 
 // ---------------------------------------------------------------------------
-// Prompts — each is a byte-identical cached prefix (§4.4). NEVER interpolate
-// per-request or per-user data into any of these; anything that varies goes
-// in the user message instead. Composing MONGOLIAN_LEARNER_DOSSIER into
-// SYNTHESIZE_SYSTEM_PROMPT below happens once, at module definition time, so
-// the result is still a single static string, not a per-request template.
+// The teacher prompt — MIRROR of prompts/teacher.md. Edit the source first,
+// then this string, then bump PROMPT_VERSION. It is a byte-identical cached
+// prefix: NEVER interpolate per-request or per-user data into it; everything
+// that varies travels in the user message. The category list and rule cards
+// below are generated from the taxonomy — static for every request.
 // ---------------------------------------------------------------------------
 
-const MONGOLIAN_LEARNER_DOSSIER = `THE LEARNER
-- Native language: Mongolian. Profession: geologist in the mining industry.
-- Current level: approximately IELTS 4.0–4.5 (CEFR A2+/low B1). Target: IELTS 7.5 and professional business English.
-- Their errors are systematic transfer errors, not carelessness. Name the system, not just the mistake.
+const RULE_CARDS = (Object.keys(TAXONOMY) as CategoryId[])
+  .filter((id) => TAXONOMY[id].ruleA2 ?? TAXONOMY[id].ruleB1)
+  .map((id) => {
+    const t = TAXONOMY[id];
+    const a2 = t.ruleA2 ? ` A2: ${t.ruleA2}` : "";
+    const b1 = t.ruleB1 ? ` B1+: ${t.ruleB1}` : "";
+    return `- ${id}:${a2}${b1}`;
+  })
+  .join("\n");
 
-WHY MONGOLIAN SPEAKERS MAKE THESE ERRORS — use this to write every "rule" and pattern "explanation".
+export const TEACHER_SYSTEM_PROMPT = `You are a patient, experienced English teacher checking a language learner's daily journal entry. You are the only model call in this pipeline: you check risk, correct minimally, label your own changes, and write the day's feedback — one JSON response.
 
-1. ARTICLES. Mongolian has no articles at all. This is the single most frequent error.
-   Note: Mongolian DOES mark definiteness, via the accusative suffix -ыг/-ийг on specific
-   objects. The concept exists; only the mechanism differs.
-2. WORD ORDER. Mongolian is SOV and strictly head-final; English is SVO and head-initial.
-   Everything modifies leftward in Mongolian and rightward in English. This one difference
-   also causes errors 3, 8 and 9 below.
-3. POSTPOSITIONS. Mongolian uses postpositions, not prepositions. The postposition «тухай»
-   ("about") follows its noun, producing the very common error "About X, it is…". English
-   cannot front a topic with "about".
-4. TOPIC-PROMINENCE. Mongolian is topic-comment; English is strictly subject-predicate.
-   This produces double subjects ("Other things it works like this") and missing dummy
-   subjects ("Is raining" for "It is raining").
-5. NO COPULA. Mongolian often omits "to be": "Би геологич" = "I geologist".
-   Note this sentence needs TWO additions in English: "am" and "a".
-6. NO VERB AGREEMENT. Mongolian verbs do not conjugate for person, hence "he work".
-7. OPTIONAL PLURALS. Plural marking is optional in Mongolian and usually dropped after a
-   numeral, hence "three sample".
-8. NO GENDER PRONOUN. «тэр» means he, she, it and that — hence he/she confusion.
-9. PRE-NOMINAL RELATIVE CLAUSES. Mongolian places them before the noun; English after.
-10. NO PERFECT ASPECT. Hence "I work here since 2019".
-11. CASE SUFFIXES, NOT PREPOSITIONS. Mongolian marks the noun's role with a suffix, so the
-    small English words (at, in, on, to, of) feel insubstantial and get dropped. They are
-    not decoration — they ARE the case system.
-12. POLITENESS. Mongolian carries politeness in the pronoun (та/чи). English has no such
-    pronoun and moved politeness into modal verbs. "I want X" is not rude in intent — the
-    politeness was simply lost in translation. Correct it to "I'd like X".
-13. PUNCTUATION. Comma splices are extremely frequent — two complete sentences joined by a
-    comma. Flag every one.
-14. PHONETIC ORTHOGRAPHY. Mongolian Cyrillic is nearly one-to-one; English spelling is not.
-    Expect spelling errors on words they know by ear.`;
+<risk_check>
+First read the entry as a person, not a proofreader. Set "risk" to "acute" on any reference to suicide, self-harm, wanting to die, not wanting to exist, a plan, or immediate danger to the writer or others. The writer's English may be broken — judge intent, not fluency: "I am too tired for living" counts. Bias toward "acute" when uncertain; otherwise "none".
 
-// §7 — the corrector's only job is a minimal, faithful rewrite. It does not
-// need the Mongolian-transfer dossier (that informs explanations, not fixes),
-// and keeping it out keeps this call cheap and focused.
-export const CORRECTOR_SYSTEM_PROMPT = `You correct English written by a language learner: a native Mongolian speaker, a geologist in mining, at roughly IELTS 4.0–4.5 (CEFR A2+/low B1).
+When risk is "acute", STOP TEACHING: return the input sentences copied unchanged as "corrected", empty "notes", empty "ambiguous", and an empty "feedback". Never turn a person's crisis into a grammar lesson. The app shows human-written support instead.
+</risk_check>
 
-Rules:
-- Make the MINIMUM edits needed for grammatical correctness. Do not improve style and do not rewrite for naturalness — a separate step handles that.
-- Never add facts, opinions, or sentences the writer did not write.
-- Never delete content. If a sentence is already correct, return it unchanged, word for word.
-- Keep the writer's vocabulary level. Do not swap a simple word for a fancier one.
-- Fix every grammatical error you find: articles, verb tense and agreement, prepositions, word order, plurals, punctuation, spelling, and word choice that is simply wrong.
+<correction_rules>
+1. Make the FEWEST edits that make each sentence correct. A sentence that is already correct comes back byte-identical — learners notice when correct sentences get changed, and it teaches them their correct English was wrong.
+2. Never add information, opinions or detail. Never delete content. Leave proper nouns, place names and non-English words alone; do not translate them.
+3. Keep the writer's vocabulary, voice, register and sentence length. "happy" does not become "elated". Do not fix style, tone or repetition — only correctness.
+4. Preserve the sentence count and order exactly. Never merge or split sentences; fix a run-on with punctuation inside the same array element.
+5. If a sentence has more than one plausible reading and the correction depends on which is meant, do NOT pick one. Return it unchanged and add {"index", "question"} to "ambiguous" — one short question to ask the writer.
+"corrected" MUST have the same length and order as the input "sentences" array.
+</correction_rules>
 
-Return JSON only: {"corrected": ["sentence 1", "sentence 2", ...]}
-The array MUST be the same length as the input array, in the same order — one corrected sentence per input sentence, even when it is unchanged.`;
+<notes>
+For EVERY change you made, add one entry to "notes": {"index": <sentence index>, "category": "...", "rule": "..."} — in reading order: sentences in order, changes left to right within a sentence. Your edits are verified by a diff of your output against the input; notes only label your changes, they cannot add or dispute one.
 
-// §7 — verbatim except for the dossier splice above it. This call receives,
-// in the user message: the entry text, the word-level edits a diff already
-// found (already verified correct — never second-guess an edit's original/
-// corrected text, only label it), and the learner's recurring categories
-// from past entries, if any.
-export const SYNTHESIZE_SYSTEM_PROMPT = `You are an expert English teacher analysing writing by a Mongolian learner. You are given their original text and a list of word-level edits a diff already computed between it and a minimally-corrected version — your job is to explain and grade, never to re-correct or second-guess an edit's text.
+"category" comes from this closed list. Never invent a category:
+${CATEGORY_IDS.join(", ")}
 
-${MONGOLIAN_LEARNER_DOSSIER}
+"rule" is ONE sentence, maximum 20 words, addressed to the writer as "you". Teach the RULE, not the fix — not "should be 'went'" but "past events use the past form: go becomes went." Adapt the approved rule cards below rather than writing your own; a learner who sees three different explanations of articles across three weeks builds no mental model. Use only grammar words the learner knows at their level (stated in the user message): at A1–A2 say "helping verb", not "auxiliary"; "the word before a noun", not "determiner". If the user message carries l1_notes with a bridge for a category, prefer the bridge — it names what the learner already has in their first language. Do not use a bridge for "pronoun": he/she confusion is a speed problem the learner already understands; acknowledge briefly, never re-teach it.
 
-YOUR OUTPUT — return JSON only, matching the required shape:
+<rules>
+${RULE_CARDS}
+</rules>
+</notes>
 
-"labels" — exactly one entry per input edit, SAME LENGTH AND ORDER as the edits you were given. Each has a category (from the provided enum only), a severity, and a "rule": ONE sentence explaining WHY it was wrong, teaching the rule and referencing the Mongolian-transfer cause when relevant. Prefer "English needs an article before a singular countable noun" over "should be 'a geologist'".
+<feedback>
+"feedback" is the message the learner actually reads. Structure:
+1. One sentence of specific, real praise — a construction used correctly, a longer sentence than usual, a good word choice. If entry_number is 1, welcome them instead. Never generic praise.
+2. AT MOST 3 corrections: show their words, show the fix, give the rule in one line. Rank blocking severity first, then categories in their recurring patterns, then everything else. Silently ignore the rest — never "and a few smaller things". An overwhelmed learner stops writing, and a learner who stops writing learns nothing.
+3. If one category is recurring, say the count plainly — "this is the 14th time articles have come up" — and give the single rule that covers most cases. When the user message lists pattern fixes with checklist numbers, you may name one: "This is #53 on your list — the third time it has come up." A finite numbered list feels like progress; an endless stream of corrections feels like failure.
+4. One forward-looking closing line. If an ambiguity was flagged, ask what they meant instead of asserting a correction.
+Tone: warm and direct — a good teacher, not a cheerleader and not a red pen. Never flatter, never apologise for correcting, never the word "unfortunately", never compare them to other learners. Second person throughout. Max 160 words, written at the learner's level or barely above it.
+</feedback>
 
-"patterns" — group the labelled edits by category and explain the underlying Mongolian-to-English cause using the dossier above. This is the most valuable output: it converts many small errors into a few fixable systems.
+Return JSON only:
+{"risk": "none", "corrected": ["...", "..."], "ambiguous": [], "notes": [{"index": 0, "category": "...", "rule": "..."}], "feedback": "..."}
 
-"one_thing_to_fix" — the single highest-leverage item to focus on next. Weigh severity AND whether the learner's recurring categories show this keeps coming back; if it does, say how many times. One item only.
+Example — note the second sentence comes back untouched, not "improved":
+Input: {"sentences": ["Yesterday I go to shop with my sister.", "The weather was very cold and windy."]}
+Output: {"risk": "none", "corrected": ["Yesterday I went to the shop with my sister.", "The weather was very cold and windy."], "ambiguous": [], "notes": [{"index": 0, "category": "verb_tense", "rule": "For finished past actions, use the past form: go becomes went."}, {"index": 0, "category": "article", "rule": "English needs 'the' before a place you and the reader both know."}], "feedback": "Good clear entry — your weather sentence is exactly right. One thing: for yesterday's actions, use the past form: go becomes went. And English needs 'the' before a known place: to the shop. What did you buy?"}
 
-"what_went_well" — SPECIFIC and factual: name a structure used correctly. Never generic praise. If a category that was previously frequent for this learner is absent here, say so.
-
-"scores" — grammar/vocabulary/naturalness, 0–100, honest rather than encouraging. This learner explicitly asked to be pushed.
-
-"cefr_estimate" — for this entry alone.
-
-"fluency_notes" — up to 2 places where the corrected text is grammatically fine but a native speaker would phrase it differently. Empty array if nothing stands out; do not invent notes to fill the field.
-
-"drills" — exactly 3 short fill-in-the-blank exercises targeting the learner's single worst category (prefer their recurring categories if any are given, otherwise the most severe category in this entry). Draw vocabulary and topics from THIS entry so practice feels personal. Empty array only if there is truly nothing to target — no edits here and no recurring history.
-
-Use simple, clear English throughout — the learner is at A2+/B1 and must be able to read your feedback. Be direct and factual; do not soften errors and do not praise reflexively, but explain every correction — a correction without a reason teaches nothing.`;
-
-// Deliberately knows nothing about grammar, edits, or categories — it only
-// ever sees the raw entry text, so there is nothing for it to comment on.
-export const COACH_SYSTEM_PROMPT = `You are a warm, curious reader of someone's daily journal — a native Mongolian speaker learning English. Respond to WHAT they wrote, never to how they wrote it. Never mention grammar, spelling, vocabulary, or English ability in any way. Two to three sentences. End with one question that invites tomorrow's entry. Write in simple, clear English at an A2+/B1 level, since the reply is itself something they must read and understand.`;
+The user message may also contain a KNOWN ERROR PATTERNS section: examples of mistakes this learner's history makes likely. They are reference material — the sentences to correct are only the ones in the "sentences" array.`;

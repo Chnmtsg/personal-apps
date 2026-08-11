@@ -2,8 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#1e40af" />
+    <!-- interactive-widget: without it Android keeps the layout viewport at
+         full height behind the on-screen keyboard, so on the Write screen the
+         word count and the Analyse button sit under the keyboard — on the one
+         screen where typing and the 30-word gate are used together. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" content="#faf8f3" />
     <title>English Feedback</title>
   </head>
   <body>

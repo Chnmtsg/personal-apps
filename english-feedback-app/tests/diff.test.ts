@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diffWords, extractEdits, rewriteRatio, MAX_REWRITE_RATIO } from "../worker/src/diff.ts";
+import {
+  diffWords,
+  extractEdits,
+  rewriteRatio,
+  MAX_LCS_CELLS,
+  MAX_REWRITE_RATIO,
+} from "../worker/src/diff.ts";
 import type { WordEdit } from "../worker/src/diff.ts";
 
 /** Ranges must partition both token arrays end to end, in order, with no gap or overlap. */
@@ -102,6 +108,98 @@ test("rewriteRatio is zero rather than dividing by zero when there are no senten
   assert.equal(rewriteRatio([], []), 0);
 });
 
-test("MAX_REWRITE_RATIO is the documented over-rewrite threshold", () => {
-  assert.equal(MAX_REWRITE_RATIO, 0.45);
+test("a set of edits touching over half the entry trips the over-rewrite guard", () => {
+  // Asserts the behaviour the threshold exists for, rather than its literal
+  // value — CLAUDE.md's Known Gaps expects MAX_REWRITE_RATIO to be retuned.
+  const sentences = ["one two three four"];
+  const heavy: WordEdit[] = [{ sentIdx: 0, original: "one two three", corrected: "A B C" }];
+  assert.ok(rewriteRatio(sentences, heavy) > MAX_REWRITE_RATIO);
+
+  const light: WordEdit[] = [{ sentIdx: 0, original: "one", corrected: "A" }];
+  assert.ok(rewriteRatio(sentences, light) <= MAX_REWRITE_RATIO);
+});
+
+// The bug these caught: `original` was rebuilt as tokens.join(" "), so any
+// whitespace the learner actually typed — a line break, a double space —
+// was normalised away. The span then existed nowhere in the entry, the
+// Feedback highlight found nothing, and api.ts's "should never fire"
+// substring guard fired instead.
+test("an edit's original is a verbatim substring of the sentence it came from", () => {
+  const sentence = "I am\nwork in the mine since 2019.";
+  const edits = extractEdits([sentence], ["I have worked in the mine since 2019."]);
+  assert.ok(edits.length > 0);
+  for (const e of edits) {
+    assert.ok(sentence.includes(e.original), `${JSON.stringify(e.original)} not in the sentence`);
+  }
+});
+
+test("a double space inside a changed span survives into the edit", () => {
+  const sentence = "I am  work in the mine.";
+  const edits = extractEdits([sentence], ["I have worked in the mine."]);
+  for (const e of edits) assert.ok(sentence.includes(e.original));
+});
+
+test("single-spaced text still produces the plain joined span", () => {
+  assert.deepEqual(extractEdits(["I am work in the mine."], ["I have worked in the mine."]), [
+    { sentIdx: 0, original: "am work", corrected: "have worked" },
+  ]);
+});
+
+test("MAX_REWRITE_RATIO stays a fraction of the entry", () => {
+  assert.ok(MAX_REWRITE_RATIO > 0 && MAX_REWRITE_RATIO < 1);
+});
+
+// The gap these close: the LCS table was quadratic in one "sentence", so an
+// unpunctuated ~2400-word entry — one giant sentence to the splitter — could
+// exhaust the Worker's memory. Common ends are now trimmed before the table
+// is allocated, and a middle too large to diff exactly degrades to a single
+// replace instead of allocating without bound.
+test("a 2400-word unpunctuated entry with one error diffs exactly", () => {
+  const words = Array.from({ length: 2400 }, (_, k) => `w${k}`);
+  const sentence = words.join(" ");
+  const correctedWords = [...words];
+  correctedWords[1200] = "changed";
+  const edits = extractEdits([sentence], [correctedWords.join(" ")]);
+  assert.deepEqual(edits, [{ sentIdx: 0, original: "w1200", corrected: "changed" }]);
+});
+
+test("changes at both ends leave nothing to trim and still diff exactly", () => {
+  const a = Array.from({ length: 300 }, (_, k) => `w${k}`);
+  const b = [...a];
+  b[0] = "first";
+  b[299] = "last";
+  const ranges = diffWords(a, b);
+  assertPartitions(a, b, ranges);
+  assert.deepEqual(ranges, [
+    { op: "replace", aStart: 0, aEnd: 1, bStart: 0, bEnd: 1 },
+    { op: "equal", aStart: 1, aEnd: 299, bStart: 1, bEnd: 299 },
+    { op: "replace", aStart: 299, aEnd: 300, bStart: 299, bEnd: 300 },
+  ]);
+});
+
+test("a middle too large to diff exactly becomes one replace, not an allocation", () => {
+  // No shared tokens anywhere, so nothing trims and the exact table would
+  // need more than MAX_LCS_CELLS cells.
+  const side = Math.ceil(Math.sqrt(MAX_LCS_CELLS)) + 1;
+  const a = Array.from({ length: side }, (_, k) => `a${k}`);
+  const b = Array.from({ length: side }, (_, k) => `b${k}`);
+  const ranges = diffWords(a, b);
+  assertPartitions(a, b, ranges);
+  assert.deepEqual(ranges, [
+    { op: "replace", aStart: 0, aEnd: side, bStart: 0, bEnd: side },
+  ]);
+});
+
+test("the cap fallback keeps trimmed common ends as equal ranges", () => {
+  const side = Math.ceil(Math.sqrt(MAX_LCS_CELLS)) + 1;
+  const shared = ["I", "am", "a", "geologist"];
+  const a = [...shared, ...Array.from({ length: side }, (_, k) => `a${k}`), ...shared];
+  const b = [...shared, ...Array.from({ length: side }, (_, k) => `b${k}`), ...shared];
+  const ranges = diffWords(a, b);
+  assertPartitions(a, b, ranges);
+  assert.deepEqual(ranges, [
+    { op: "equal", aStart: 0, aEnd: 4, bStart: 0, bEnd: 4 },
+    { op: "replace", aStart: 4, aEnd: 4 + side, bStart: 4, bEnd: 4 + side },
+    { op: "equal", aStart: 4 + side, aEnd: a.length, bStart: 4 + side, bEnd: b.length },
+  ]);
 });

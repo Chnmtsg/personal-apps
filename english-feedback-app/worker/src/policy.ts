@@ -7,15 +7,24 @@
  */
 
 import {
+  CEFR_LEVELS,
   countWords,
   ERROR_CATEGORIES,
   MIN_WORDS,
   type ErrorCategory,
+  type LearnerProfile,
   type RecurringCategory,
 } from "../../shared/schema.ts";
 
+/**
+ * An unset ALLOWED_ORIGIN yields an empty allowlist, so every browser request
+ * is refused. Defaulting to "*" instead would mean any environment that lost
+ * its [vars] — a dashboard-edited worker, a second environment — became an
+ * open relay in front of a paid API key without anything failing loudly.
+ * "*" stays available, but only when it is written down on purpose.
+ */
 export function allowedOrigins(configured: string | undefined): string[] {
-  return (configured ?? "*")
+  return (configured ?? "")
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean);
@@ -58,7 +67,13 @@ export function safeEqual(a: string, b: string): boolean {
 }
 
 export type BodyCheck =
-  | { ok: true; text: string; history: RecurringCategory[] }
+  | {
+      ok: true;
+      text: string;
+      history: RecurringCategory[];
+      profile?: LearnerProfile;
+      entryNumber?: number;
+    }
   | { ok: false; status: number; error: string };
 
 // At most one entry per category — anything past this in a request body is
@@ -75,6 +90,7 @@ const MAX_HISTORY_ENTRIES = ERROR_CATEGORIES.length;
 function parseHistory(raw: unknown): RecurringCategory[] {
   if (!Array.isArray(raw)) return [];
   const known = new Set<string>(ERROR_CATEGORIES);
+  const seen = new Set<string>();
   const out: RecurringCategory[] = [];
   for (const item of raw) {
     if (out.length >= MAX_HISTORY_ENTRIES) break;
@@ -82,9 +98,61 @@ function parseHistory(raw: unknown): RecurringCategory[] {
     const { category, count } = item as { category?: unknown; count?: unknown };
     if (typeof category !== "string" || !known.has(category)) continue;
     if (typeof count !== "number" || !Number.isInteger(count) || count < 0) continue;
-    out.push({ category: category as ErrorCategory, count });
+    // A repeated category would reach the synthesize prompt as several
+    // separate "this keeps coming back N times" facts about one pattern.
+    if (seen.has(category)) continue;
+    seen.add(category);
+    // The streak drives a factual claim about the learner's own history
+    // ("you had four clean entries"), so a malformed one is dropped rather
+    // than passed through — a wrong number here becomes a confident lie.
+    const { cleanStreak } = item as { cleanStreak?: unknown };
+    const streakOk =
+      typeof cleanStreak === "number" && Number.isInteger(cleanStreak) && cleanStreak >= 0;
+    out.push({
+      category: category as ErrorCategory,
+      count,
+      ...(streakOk ? { cleanStreak } : {}),
+    });
   }
   return out;
+}
+
+/** Field caps, matched to LearnerProfileSchema. Long enough for a real answer,
+ *  short enough that nobody can smuggle a second prompt through them. */
+const PROFILE_LIMITS = { nativeLanguage: 40, field: 80, goal: 120 } as const;
+
+/**
+ * The learner's own description of themselves, sent as context for this one
+ * request and never stored server-side.
+ *
+ * Free text from the public internet that ends up inside a prompt, so it is
+ * length-capped and stripped of the line breaks that would let it pose as a
+ * new section of the message. A malformed field is dropped rather than
+ * failing the request: this is context, not the payload being paid for.
+ */
+function parseProfile(raw: unknown): LearnerProfile | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { nativeLanguage, field, level, goal } = raw as Record<string, unknown>;
+
+  const text = (value: unknown, max: number): string | undefined => {
+    if (typeof value !== "string") return undefined;
+    const cleaned = value.replace(/\s+/g, " ").trim().slice(0, max);
+    return cleaned ? cleaned : undefined;
+  };
+
+  const profile: LearnerProfile = {
+    nativeLanguage: text(nativeLanguage, PROFILE_LIMITS.nativeLanguage),
+    field: text(field, PROFILE_LIMITS.field),
+    goal: text(goal, PROFILE_LIMITS.goal),
+    level:
+      typeof level === "string" && (CEFR_LEVELS as readonly string[]).includes(level)
+        ? (level as LearnerProfile["level"])
+        : undefined,
+  };
+
+  const empty =
+    !profile.nativeLanguage && !profile.field && !profile.goal && !profile.level;
+  return empty ? undefined : profile;
 }
 
 /**
@@ -100,9 +168,9 @@ export function parseAnalyzeBody(
   if (byteLength === 0) return { ok: false, status: 400, error: "empty_body" };
   if (byteLength > maxBytes) return { ok: false, status: 413, error: "too_large" };
 
-  let body: { text?: unknown; history?: unknown };
+  let body: { text?: unknown; history?: unknown; profile?: unknown; entryNumber?: unknown };
   try {
-    body = JSON.parse(raw) as { text?: unknown; history?: unknown };
+    body = JSON.parse(raw) as typeof body;
   } catch {
     return { ok: false, status: 400, error: "invalid_json" };
   }
@@ -116,5 +184,27 @@ export function parseAnalyzeBody(
   if (countWords(body.text) < MIN_WORDS) {
     return { ok: false, status: 400, error: "too_short" };
   }
-  return { ok: true, text: body.text, history: parseHistory(body.history) };
+  // How many analysed entries came before this one — lets the teacher welcome
+  // a first entry. Ranking context only; malformed is dropped, not fatal.
+  const entryNumber =
+    typeof body.entryNumber === "number" &&
+    Number.isInteger(body.entryNumber) &&
+    body.entryNumber >= 1 &&
+    body.entryNumber <= 1_000_000
+      ? body.entryNumber
+      : undefined;
+  // The key is omitted rather than set to undefined when there is no profile,
+  // so "no profile" is one shape everywhere instead of two.
+  const profile = parseProfile(body.profile);
+  return {
+    ok: true,
+    text: body.text,
+    history: parseHistory(body.history),
+    ...(profile ? { profile } : {}),
+    ...(entryNumber !== undefined ? { entryNumber } : {}),
+  };
 }
+
+// The /level and /review payload parsers were removed with their routes when
+// the pipeline collapsed to a single agent — see docs/adr/0001. They return
+// with those agents.

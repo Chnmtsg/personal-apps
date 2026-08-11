@@ -22,27 +22,80 @@ All paths in this file are relative to `english-feedback-app/`.
     pair, handling the empty-`original`/empty-`corrected` edge cases a
     diff-derived edit can have)
   - `src/lib/` — all logic; see **Pure logic** below
-  - `vite.config.ts` — PWA manifest **and** the production env guard
-- `worker/` — Cloudflare Worker proxy
-  - `src/index.ts` — the request handler
-  - `src/pipeline.ts` — orchestrates the analysis pipeline: corrector →
-    (diff, in code) → synthesize, with a coach reply in parallel. Not pure —
-    same untested-fetch-handler gap as `index.ts`, see Known Gaps.
-  - `src/diff.ts` — pure word-level diff (LCS-based; Node has no `difflib`).
-    This is what makes a correction's `original`/`corrected` text provably
-    correct, computed from the two texts rather than asserted by a model.
+  - `src/index.css` — the design tokens. The palette is ink on warm paper with
+    one accent; screens name tokens (`bg-paper`, `text-ink-soft`,
+    `border-rule`) and never Tailwind palette steps.
+  - `src/lib/progress.ts` — orchestrates the two history-scoped agents (level
+    estimate every 7 analysed entries; user-triggered weekly review)
+  - `vite.config.ts` — PWA manifest, the woff2 precache glob, **and** the
+    production env guard
+- `worker/` — Cloudflare Worker proxy running the pipeline
+  - `src/index.ts` — the request handler; routes `/analyze` and `/health`
+  - `src/pipeline.ts` — the per-entry flow: split (code) → pattern matcher
+    (code) → THE TEACHER (the one runtime agent: risk check, minimal
+    correction, ambiguity, per-change notes, teacher message) → diff (code)
+    → labelling (code). See `docs/adr/0001`. Not pure — same
+    untested-fetch-handler gap as `index.ts`.
+  - `src/patterns.ts` — pure deterministic matcher over the Top-100 checklist:
+    regex fixes applied before the agent, labelled from the taxonomy with no
+    model call.
+  - `src/diff.ts` — pure word-level diff (LCS-based). This is what makes a
+    correction's `original`/`corrected` text provably correct, computed from
+    the two texts rather than asserted by a model.
   - `src/sentences.ts` — pure sentence splitting and reassembly.
-  - `src/policy.ts` — pure request-policy decisions (origin, key, body,
-    including the client-supplied `history` field)
+  - `src/learner.ts` — pure assembly of the per-user blocks (level, l1 notes
+    and bridges) that go in USER messages, never in system prompts.
+  - `src/policy.ts` — pure request-policy decisions (origin, key, body)
   - `wrangler.toml` — `ALLOWED_ORIGIN`, KV binding, observability
-- `shared/schema.ts` — Zod feedback schema, category taxonomy, the pipeline's
-  system prompts (`CORRECTOR_SYSTEM_PROMPT`, `SYNTHESIZE_SYSTEM_PROMPT`,
-  `COACH_SYSTEM_PROMPT`), `MODEL_ID`, `PROMPT_VERSION`. Imported by both sides.
+- `shared/` — imported by both sides
+  - `schema.ts` — Zod schemas for stored feedback and the agent's output, the
+    teacher prompt (mirror of `prompts/teacher.md`), `MODEL_ID`,
+    `PROMPT_VERSION`
+  - `taxonomy.ts` — error taxonomy v2 (25 categories) with rules, Mongolian
+    contrast notes and bridges, plus the legacy 20-name map. Mirror of
+    `knowledge/error_taxonomy.yaml`.
+  - `patterns.ts` — the Top-100 error patterns. Mirror of
+    `knowledge/top_100_patterns.yaml`.
+- `prompts/` — runtime prompt sources, frontmatter-versioned. Today: one,
+  `teacher.md`.
+- `knowledge/` — the source documents: `error_taxonomy.yaml`,
+  `top_100_patterns.yaml`, `agent_prompts.md` (the full 9-agent library the
+  pipeline grows back into), `integration.md`. **Edit these first, then
+  mirror into the TS ports**; the app cannot read them at runtime.
+- `docs/` — `architecture.md` and `adr/` (decision records; topology changes
+  go through the `architect` subagent and land here first)
+- `evals/` — regression set and reports (being built; see `eval-runner`)
+- `.claude/agents/` — the six build-time subagents (see **Two agent layers**)
 - `tests/` — Node's built-in runner, no framework
 
-This app has **no** `knowledge/` or `.claude/` of its own. It uses the ones at
-the repository root — those describe this app. (`arise/` is the opposite: fully
+This app now has its own `knowledge/` (source documents) and
+`.claude/agents/` (build-time subagents). The repository root's `knowledge/`
+and review roles still apply to it as well. (`arise/` is fully
 self-contained. Never apply one app's standards to the other.)
+
+---
+
+# Two agent layers — do not confuse them
+
+**Runtime agents** are model calls made per entry. There is exactly ONE — the
+teacher (`prompts/teacher.md`, ADR 0001). The full 9-agent library in
+`knowledge/agent_prompts.md` is the growth map; agents return one at a time,
+by ADR, when their cost is justified.
+
+**Build-time subagents** live in `.claude/agents/` and run while developing.
+They hand off through files (ADRs, prompts, YAML, reports), not conversation.
+
+| Task | Subagent |
+|---|---|
+| Add a pipeline stage, change the stored shape, alter routing | `architect` first, then `pipeline-engineer` |
+| Implement an accepted ADR | `pipeline-engineer` |
+| Change what a runtime agent says | `prompt-engineer` |
+| Add a category, rule, bridge, or regex pattern | `linguistics-curator` |
+| Measure after any change | `eval-runner` |
+| Anything touching distress, wellbeing or minors | `safety-reviewer`, before commit |
+
+When a request says "the teacher agent", it means the runtime one. When it
+says "the prompt engineer", it means the subagent.
 
 ---
 
@@ -109,13 +162,19 @@ step and no test framework. Test imports must carry explicit `.ts` extensions.
 
 ## What the tests do not cover
 
-- **The Worker's `fetch` handler.** Only `worker/src/policy.ts` is tested. The
-  routing, quota charging, and Anthropic call have no automated coverage —
-  testing them needs Miniflare.
+- **The Worker's `fetch` handler and `pipeline.ts`.** `patterns.ts`,
+  `diff.ts`, `sentences.ts`, `policy.ts` and `learner.ts` are tested; the
+  routing, quota charging, and the agent orchestration are not — testing
+  them needs Miniflare.
 - **Every React component.** There is no DOM testing library. Screens are
   verified by typecheck and by hand.
 
-Say so out loud when a change lands in either gap.
+(`shared/schema.ts`, `shared/taxonomy.ts` and `shared/patterns.ts` are
+covered: `tests/schema.test.ts` pins the trust boundary and
+`tests/patterns.test.ts` runs every deterministic pattern's own example
+through the matcher.)
+
+Say so out loud when a change lands in any of these gaps.
 
 ---
 
@@ -140,6 +199,22 @@ and every failure path leaves the text readable in History. A storage failure
 keeps the user on the Write screen with their text still in the textarea, rather
 than navigating away from unsaved writing.
 
+**One analysis at a time, and a result never overwrites a newer one.** An entry
+carries `status: "analysing"` for the duration of one analysis, taken in a
+single IndexedDB `readwrite` transaction so the claim is a real lock across
+tabs — two runners cannot both pay to analyse the same text. Results are merged
+onto the *stored* record, never onto the caller's snapshot, which by then is up
+to nine minutes old and still carries `feedback: null`. A stored analysis is
+never downgraded. A claim outlives its holder if a tab is killed, so
+`processQueue` releases claims older than `STALE_CLAIM_MS` first. The rules are
+pure and live in `app/src/lib/claim.ts`; `db.ts` only supplies the transaction
+that makes them atomic.
+
+**A dead-lettered entry has a way back.** Only `gave_up` — five transient
+failures say nothing about the writing. A refusal, a rejected request and an
+over-long entry are verdicts on the text, so they stay final; retrying them
+spends money to receive the same answer.
+
 **Failures are classified, and retries are bounded.** The Worker returns
 `retryable` alongside every error; the client honours it. A permanent failure
 (refusal, rejected request, truncation) marks the entry failed immediately. A
@@ -147,11 +222,21 @@ transient one requeues, up to `MAX_ATTEMPTS`. Rate limiting deliberately does
 *not* spend the retry budget. Without this the app retried deterministic failures
 on every launch and every reconnect, forever, billing each attempt.
 
-**The category taxonomy is versioned data.** The 20 categories in
-`shared/schema.ts` are stored inside every past entry. Renaming or removing one
-silently rewrites history — treat any change as a migration. Each entry also
-records the `modelId` and `promptVersion` it was judged under; bump
-`PROMPT_VERSION` whenever a pipeline system prompt changes.
+**The category taxonomy is versioned data.** The 25 v2 category ids in
+`shared/taxonomy.ts` are stored inside every past entry. Renaming or removing
+one silently rewrites history — treat any change as a migration. Entries from
+before v2 carry the legacy 20-name taxonomy; `normalizeCategory` /
+`normalizeSeverity` map them at read time, and `LEGACY_CATEGORY_MAP` must
+never lose an entry. Each entry also records the `modelId` and
+`promptVersion` it was judged under; bump `PROMPT_VERSION` whenever any
+system prompt changes.
+
+**A crisis is never a grammar lesson.** The risk check runs inline in the one
+agent call: on `acute` the Worker returns no corrections and no teacher
+message, and the client shows human-written crisis guidance (no invented
+phone numbers; it points to local emergency services and findahelpline.com).
+Any change in this path goes through the `safety-reviewer` subagent before
+commit.
 
 **A correction's `original`/`corrected` text is computed, never asserted.**
 `worker/src/diff.ts` diffs the corrector's output against the submitted text;
@@ -160,13 +245,23 @@ invent one. This is what replaced the old design's exact-substring risk (the
 client's `FeedbackSchema` substring check in `api.ts` is now a regression
 guard, not an active risk).
 
-**Every system prompt is a byte-identical cached prefix.** `CORRECTOR_SYSTEM_PROMPT`,
-`SYNTHESIZE_SYSTEM_PROMPT`, and `COACH_SYSTEM_PROMPT` each get their own cache
-entry. Never interpolate anything into any of them. Anything per-request or
-per-user (the entry text, the diffed edits, the learner's recurring
-categories) belongs in the user message, after the cached block, or prompt
-caching silently stops working for that call and its input cost roughly
-triples.
+**A claim about the learner's history is computed, never asserted.** The same
+rule as the one above, applied to time rather than text. `cleanStreak` comes
+from `stats.ts`, counted over stored entries; `pattern_watch.entries_clean`
+echoes it back. The model is told the numbers and forbidden from inventing
+one. This matters more than it looks: a fabricated "you had three clean
+lessons" is indistinguishable from a real one to the learner, and the whole
+reason this app exists rather than a chat window is that its memory is real.
+For the same reason the app cites categories by name and never invents a rule
+number — a citation that looks precise and points at nothing is worse than no
+citation.
+
+**Every system prompt is a byte-identical cached prefix.** The teacher prompt
+in `shared/schema.ts` (mirror of `prompts/teacher.md`) is one cache entry.
+Never interpolate anything into it. Anything per-request or per-user (the
+entry, the learner's level, l1 notes, recurring categories, pattern-fix
+summaries) belongs in the user message, or prompt caching silently stops
+working and input cost roughly triples.
 
 **`max_tokens` bounds thinking *and* response, for every call.** `claude-opus-5`
 thinks by default. Sizing `max_tokens` for the response alone truncates a call
@@ -194,8 +289,8 @@ explicit `.ts` extension so Node's runtime resolves it directly, which is why
 `worker/src/policy.ts`'s import of `countWords`/`MIN_WORDS` for the pattern.
 This is what lets `tests/` run under bare Node with no DOM shim.
 `lib/highlight.ts`, `lib/retry.ts`, `lib/failure.ts`, `lib/stats.ts`,
-`worker/src/policy.ts`, `worker/src/diff.ts` and `worker/src/sentences.ts` all
-obey it. Keep it that way when adding logic.
+`lib/claim.ts`, `worker/src/policy.ts`, `worker/src/diff.ts` and
+`worker/src/sentences.ts` all obey it. Keep it that way when adding logic.
 
 **`VITE_API_URL` is inlined at build time.** A wrong value is not a startup
 error — it is baked into an installed PWA that silently fails every analysis.
@@ -244,40 +339,74 @@ user's approval first.
 
 Current, honest state. Update this list rather than letting it rot.
 
-- The `/review` workflow has been prepared but **never actually run** against
-  this codebase.
-- The Worker's `fetch` handler has no integration test (see **Verifying**).
-  `worker/src/pipeline.ts` — the orchestration of up to 5 Anthropic calls per
-  entry — shares this gap; only the pure pieces it calls (`diff.ts`,
-  `sentences.ts`, `policy.ts`) are tested.
-- The bundle is ~635 KB (188 KB gzipped), dominated by Recharts. Fine behind a
-  warm service worker; worth code-splitting if first load matters.
-- Rate limiting is per-IP and read-then-write, so two simultaneous requests can
-  overshoot by one. It caps sustained spend; it is not a security boundary.
-- **The teaching prompt is hard-coded for one learner** — a native Mongolian
-  speaker working as a geologist. Corrections would still be right for anyone
-  else, but the "why you made this error" explanations would be confidently
-  wrong. This blocks sharing the app beyond Mongolian speakers until the learner
-  profile is made configurable.
-- **Cost and latency for the multi-call pipeline are unmeasured.** The old
-  ~$0.023/entry figure predates thinking being active and predates this
-  pipeline entirely — it's now a real over-estimate in one direction (each
-  call's prompt is narrower than the old monolithic one) and an under-estimate
-  in another (2–5 calls instead of 1). Measure real entries before relying on
-  a number. `app/src/lib/api.ts`'s client timeout (540s) was sized from the
-  Worker's per-call timeout × the theoretical worst case, not from
-  observation — if real latency runs much lower, both are worth tightening.
-- **The corrector's over-rewrite threshold (`MAX_REWRITE_RATIO = 0.45` in
-  `worker/src/diff.ts`) is untuned against this learner's actual writing.** At
-  IELTS 4.0–4.5, a legitimately dense entry could need close to half its words
-  touched — watch whether the retry-with-a-hint path fires often in practice,
-  which would mean the threshold is miscalibrated rather than the correction
-  being wrong.
-- **Every pipeline call uses `MODEL_ID` (`claude-opus-5`).** The narrower
-  calls (labelling an edit, the coach reply) likely don't need its full
-  reasoning power. Worth splitting into a cheaper/faster tier once real cost
-  is measured — deliberately not done in this pass, see the working notes on
-  this change.
+- **Cost and latency of the single-agent pipeline are unmeasured.** One entry
+  is 1–3 Anthropic calls (one teacher call, plus up to 2 in-request retries
+  on an over-rewrite), all on `claude-opus-5`. Measure real entries, then
+  tighten `app/src/lib/api.ts`'s 540s client timeout, which was sized for the
+  old multi-call worst case and is now far too generous.
+- **The notes→edits zip is an order heuristic.** The agent labels its own
+  changes in reading order and the pipeline zips them onto diff-confirmed
+  model edits per sentence. If the diff finds a different number of changes
+  than the agent declared, the leftovers get `category: "other"` with a
+  pair-based explanation — never invented, but unlabelled. Watch how often
+  "other" appears in real entries; a high rate means the zip needs work or
+  the tutor agent should return.
+- The Worker's `fetch` handler and `worker/src/pipeline.ts` have no
+  integration test — testing them needs Miniflare. Only the pure pieces
+  (`patterns.ts`, `diff.ts`, `sentences.ts`, `policy.ts`, `learner.ts`) are
+  tested. Every React screen is also untested (no DOM library); the acute
+  wellbeing screen, the pattern grid, the MCQ drills and the weekly-review
+  card have all been verified by typecheck only.
+- **The pattern map has no "fixed" state, on purpose.** integration.md's
+  `fixed` status requires knowing the learner *attempted* a structure
+  correctly, not merely avoided it, and nothing stored today can tell those
+  apart. The map stops at unseen/active/fading rather than congratulating
+  avoidance.
+- **Pattern-edit attribution is a containment heuristic.**
+  `findMatchingHit` matches a word-diff edit back to the matcher hit that
+  caused it by text containment; a coincidental model edit inside a matched
+  phrase can inherit the pattern's label. The label's text is always
+  verbatim-correct; only its `source`/`pattern_id` can misattribute.
+- The Top-100 port deliberately fixes less than the YAML promises in spots:
+  pattern 22 fixes the noun and leaves the verb to the corrector; patterns
+  whose YAML `replace` was null and needed a lemma table got one only where
+  it was closed and safe (26, 33, 35, 75); the rest stay contextual. The
+  YAML files are the source documents — edit them first, then mirror the TS.
+- **The risk check is inline, not a dedicated gate.** It rides in the same
+  call and prompt as the teaching, which is weaker than the library's
+  dedicated classifier (no independent verdict, and a failed call fails the
+  entry rather than failing open). Restoring the dedicated distress
+  classifier is the first candidate when runtime agents are added back —
+  route any change here through `safety-reviewer`.
+- New entries have no coach reply, drills, fluency notes, level estimate or
+  weekly review — those agents are retired for now (ADR 0001). The screens
+  render 9-agent-era entries that carry them, and the stored fields remain
+  valid.
+- The Error Log's counts are all-time, so a pattern the learner has already
+  fixed outranks a current one forever. (The pattern map's active/fading
+  split now covers part of this; the ranked list still doesn't decay.)
+- The precache is ~950 KB across 20 entries: the JS bundle (dominated by
+  Recharts) plus ~270 KB of self-hosted woff2. Fine behind a warm service
+  worker; worth code-splitting Recharts if first load matters.
+- Rate limiting is per-IP and read-then-write, so two simultaneous requests
+  can overshoot by one. It caps sustained spend; it is not a security
+  boundary.
+- **Only Mongolian has curated contrast notes** (`shared/taxonomy.ts`,
+  ported from the contrastive guide). For every other language the "why you
+  made this error" explanation is the model's own contrastive knowledge,
+  unverified by us. Adding a language means adding note/bridge fields per
+  category — write them only from real contrastive knowledge.
+- `English-Teacher-Bot-Prompt.md` is the older chat-assistant prompt this
+  app grew out of. The agent library and YAML files supersede it as the
+  app's source material; it stays only as the user's personal document for
+  chat assistants and is no longer kept in sync.
+- **The corrector's over-rewrite threshold (`MAX_REWRITE_RATIO = 0.45`) is
+  untuned.** It now measures only the model's edits (pattern fixes are
+  applied before the corrector runs), which should trip it less often —
+  still worth watching the retry-with-a-hint path in practice.
+- The Top-100 frequency ordering is predicted from typology, not measured
+  from learners. Per integration.md: recompute `priority` from the app's own
+  corpus at around 200 entries.
 
 ---
 

@@ -20,9 +20,47 @@ export interface DiffRange {
   bEnd: number;
 }
 
+interface Token {
+  text: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * Tokens with their offsets in the source sentence, so an edit's text can be
+ * sliced back out verbatim. Re-joining tokens with a single space instead
+ * normalises whatever whitespace the learner typed, and a normalised span is
+ * no longer findable in the entry — the client's highlight silently finds
+ * nothing and `api.ts`'s substring guard fires.
+ */
+function tokenizeWithOffsets(sentence: string): Token[] {
+  const tokens: Token[] = [];
+  for (const m of sentence.matchAll(/\S+/g)) {
+    tokens.push({ text: m[0], start: m.index, end: m.index + m[0].length });
+  }
+  return tokens;
+}
+
 function tokenize(sentence: string): string[] {
   return sentence.split(/\s+/).filter(Boolean);
 }
+
+/** The source text spanned by tokens [start, end), verbatim. Empty if none. */
+function sliceTokens(source: string, tokens: Token[], start: number, end: number): string {
+  if (start >= end) return "";
+  return source.slice(tokens[start]!.start, tokens[end - 1]!.end);
+}
+
+/**
+ * Ceiling on the LCS table, in cells. The table is the diff's quadratic cost:
+ * one unpunctuated "sentence" of W words costs roughly W² cells against its
+ * correction, and as row-per-row JS arrays a ~2400-word entry was enough to
+ * exhaust the Worker's 128 MB isolate. 9M cells is a 36 MB flat Uint32Array —
+ * a ~3000×3000-word sentence pair after trimming, beyond anything the 10 KB
+ * body limit admits as ordinary prose. A middle larger than this is reported
+ * as one replace instead of allocating without bound.
+ */
+export const MAX_LCS_CELLS = 9_000_000;
 
 /**
  * Diffs two token arrays. A run of consecutive non-matching tokens — deletes,
@@ -32,15 +70,69 @@ function tokenize(sentence: string): string[] {
  * deletion.
  */
 export function diffWords(a: string[], b: string[]): DiffRange[] {
-  const n = a.length;
-  const m = b.length;
+  // Trim the common prefix and suffix before the quadratic part: corrections
+  // touch a small share of a sentence, so this is what keeps the table small
+  // for a long sentence. It changes no result — the walk below takes an equal
+  // step wherever tokens match, so trimmed ends always came back as these
+  // same equal runs.
+  let lo = 0;
+  while (lo < a.length && lo < b.length && a[lo] === b[lo]) lo++;
+  let aHi = a.length;
+  let bHi = b.length;
+  while (aHi > lo && bHi > lo && a[aHi - 1] === b[bHi - 1]) {
+    aHi--;
+    bHi--;
+  }
 
-  // lcs[i][j] = length of the longest common subsequence of a[i:] and b[j:].
-  const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  const ranges: DiffRange[] = [];
+  if (lo > 0) ranges.push({ op: "equal", aStart: 0, aEnd: lo, bStart: 0, bEnd: lo });
+  appendMiddleRanges(a, b, lo, aHi, bHi, ranges);
+  if (aHi < a.length) {
+    ranges.push({ op: "equal", aStart: aHi, aEnd: a.length, bStart: bHi, bEnd: b.length });
+  }
+  return ranges;
+}
+
+/**
+ * Diffs the trimmed middle `a[lo:aHi)` vs `b[lo:bHi)` and appends its ranges.
+ * The first and last middle tokens differ by construction, so the first and
+ * last appended range is never "equal" and cannot need merging with the
+ * trimmed ends.
+ */
+function appendMiddleRanges(
+  a: string[],
+  b: string[],
+  lo: number,
+  aHi: number,
+  bHi: number,
+  ranges: DiffRange[]
+): void {
+  const n = aHi - lo;
+  const m = bHi - lo;
+  if (n === 0 && m === 0) return;
+
+  // One-sided middles are a pure insertion or deletion; an oversized one is
+  // one replace spanning everything that changed — degraded (the learner gets
+  // a single edit covering the whole changed span, and the over-rewrite
+  // warning will fire downstream) but verbatim-correct, and never an OOM.
+  if (n === 0 || m === 0 || n * m > MAX_LCS_CELLS) {
+    ranges.push({ op: "replace", aStart: lo, aEnd: aHi, bStart: lo, bEnd: bHi });
+    return;
+  }
+
+  // lcs[i*(m+1)+j] = length of the LCS of middle a[i:] and middle b[j:].
+  // Flat and typed: row-per-row JS arrays cost several times this and are
+  // exactly what made the old table exhaust the isolate.
+  const width = m + 1;
+  const lcs = new Uint32Array((n + 1) * width);
   for (let i = n - 1; i >= 0; i--) {
+    const row = i * width;
+    const below = row + width;
     for (let j = m - 1; j >= 0; j--) {
-      lcs[i][j] =
-        a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+      lcs[row + j] =
+        a[lo + i] === b[lo + j]
+          ? lcs[below + j + 1] + 1
+          : Math.max(lcs[below + j], lcs[row + j + 1]);
     }
   }
 
@@ -49,25 +141,26 @@ export function diffWords(a: string[], b: string[]): DiffRange[] {
   let i = 0;
   let j = 0;
   while (i < n && j < m) {
-    if (a[i] === b[j]) {
-      raw.push({ op: "equal", ai: i, bi: j });
+    if (a[lo + i] === b[lo + j]) {
+      raw.push({ op: "equal", ai: lo + i, bi: lo + j });
       i++;
       j++;
-    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
-      raw.push({ op: "delete", ai: i, bi: j });
+    } else if (lcs[(i + 1) * width + j] >= lcs[i * width + j + 1]) {
+      raw.push({ op: "delete", ai: lo + i, bi: lo + j });
       i++;
     } else {
-      raw.push({ op: "insert", ai: i, bi: j });
+      raw.push({ op: "insert", ai: lo + i, bi: lo + j });
       j++;
     }
   }
-  while (i < n) raw.push({ op: "delete", ai: i++, bi: j });
-  while (j < m) raw.push({ op: "insert", ai: i, bi: j++ });
+  while (i < n) raw.push({ op: "delete", ai: lo + i++, bi: lo + j });
+  while (j < m) raw.push({ op: "insert", ai: lo + i, bi: lo + j++ });
 
-  const ranges: DiffRange[] = [];
   for (const step of raw) {
     const last = ranges[ranges.length - 1];
     const isEqual = step.op === "equal";
+    // The prefix equal range never joins a middle run: the first middle step
+    // is non-equal by construction, and equal only merges with equal.
     const sameRun = last !== undefined && (isEqual ? last.op === "equal" : last.op !== "equal");
 
     if (sameRun) {
@@ -86,8 +179,6 @@ export function diffWords(a: string[], b: string[]): DiffRange[] {
           : { op: "replace", aStart: step.ai, aEnd: step.ai, bStart: step.bi, bEnd: step.bi + 1 }
     );
   }
-
-  return ranges;
 }
 
 export interface WordEdit {
@@ -108,14 +199,19 @@ export function extractEdits(sentences: string[], corrected: string[]): WordEdit
   const edits: WordEdit[] = [];
   const len = Math.min(sentences.length, corrected.length);
   for (let sentIdx = 0; sentIdx < len; sentIdx++) {
-    const a = tokenize(sentences[sentIdx]);
-    const b = tokenize(corrected[sentIdx]);
-    for (const r of diffWords(a, b)) {
+    const aSource = sentences[sentIdx]!;
+    const bSource = corrected[sentIdx]!;
+    const aTokens = tokenizeWithOffsets(aSource);
+    const bTokens = tokenizeWithOffsets(bSource);
+    for (const r of diffWords(
+      aTokens.map((t) => t.text),
+      bTokens.map((t) => t.text)
+    )) {
       if (r.op === "equal") continue;
       edits.push({
         sentIdx,
-        original: a.slice(r.aStart, r.aEnd).join(" "),
-        corrected: b.slice(r.bStart, r.bEnd).join(" "),
+        original: sliceTokens(aSource, aTokens, r.aStart, r.aEnd),
+        corrected: sliceTokens(bSource, bTokens, r.bStart, r.bEnd),
       });
     }
   }

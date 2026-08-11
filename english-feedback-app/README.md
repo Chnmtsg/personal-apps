@@ -8,9 +8,21 @@ Two parts:
 | Folder | What it is |
 |---|---|
 | `app/` | React + TypeScript + Vite PWA (Tailwind, IndexedDB via `idb`, Recharts, `vite-plugin-pwa`) |
-| `worker/` | Cloudflare Worker proxy that holds the Anthropic API key, rate-limits, and calls `claude-opus-5` with structured output |
-| `shared/` | The Zod feedback schema, error-category taxonomy, and the teaching system prompt — shared by both |
+| `worker/` | Cloudflare Worker proxy that holds the Anthropic API key, rate-limits, and runs the pipeline: ONE runtime agent (`claude-opus-5`, structured output) surrounded by deterministic code |
+| `shared/` | The Zod schemas, the teacher prompt, the error taxonomy v2 with Mongolian contrast notes (`taxonomy.ts`), and the Top-100 pattern list (`patterns.ts`) — shared by both |
+| `prompts/`, `knowledge/`, `docs/` | Runtime prompt sources, the source documents (taxonomy, patterns, the full 9-agent library), and the architecture + decision records |
 | `tests/` | Node's built-in test runner over the pure logic — no framework, no build step |
+
+The pipeline per entry (see `docs/architecture.md` and `docs/adr/0001`): a
+deterministic regex matcher fixes known Top-100 patterns before any model
+call; then ONE agent — the teacher — checks risk (a crisis is never turned
+into a grammar lesson), corrects minimally, flags ambiguity instead of
+guessing, labels its own changes with taxonomy categories, and writes the
+day's feedback (at most 3 corrections mentioned); then a code diff computes
+every changed span from the learner's own text, and pattern-sourced edits are
+labelled straight from the taxonomy. The full 9-agent library lives in
+`knowledge/agent_prompts.md` and grows back one agent at a time, by decision
+record.
 
 The PWA **never** talks to `api.anthropic.com` directly. The key exists only as a Worker secret.
 
@@ -200,12 +212,17 @@ Open the deployed URL on the phone → browser menu → **Add to Home Screen** t
   the app re-validates the final result with the shared schema before storing, so no free-text
   categories can reach storage.
 - **Fixed taxonomy** — the 20-category enum lives in `shared/schema.ts`; treat it as versioned data.
-- **Privacy** — entries live only in IndexedDB; only the analysed text ever leaves the device; the
+- **Any learner** — first language, work or study, level and goal are set in Settings, all
+  optional, stored on the device, and sent as context with each analysis. They never touch a
+  system prompt: that would give every user their own cache entry. Where a curated contrastive
+  dossier exists for the first language it is used; otherwise the model uses its own knowledge;
+  with no language given it does not guess.
+- **Privacy** — entries live only in IndexedDB; only the analysed text and this profile ever leave the device; the
   Worker logs error counts and refusal categories, never entry text; Settings has a plain-language
   statement, export, and delete-all.
-- **Prompt caching** — each of the pipeline's system prompts (corrector, synthesize, coach) is its
-  own byte-identical cached block; the response includes the summed `cache.read`/`cache.write` across
-  all calls made for that entry, so you can verify reads climb from the second request onward.
+- **Prompt caching** — the teacher prompt is one byte-identical cached block for every user; the
+  response includes `cache.read`/`cache.write` so you can verify reads climb from the second
+  request onward.
 - **Refusals** — `stop_reason: "refusal"` returns a friendly state; the entry is kept, never lost,
   and never retried, because a refusal is a verdict on the text rather than an outage.
 - **Bounded retries** — every failure is classified transient or permanent, and a transient one is
@@ -216,28 +233,21 @@ Open the deployed URL on the phone → browser menu → **Add to Home Screen** t
 
 ## Cost
 
-`claude-opus-5` is $5 / $25 per million tokens, and every pipeline prompt is cached.
+One entry is **1 to 3 Anthropic calls** on `claude-opus-5` ($5/$25 per Mtok): one teacher call,
+plus up to 2 in-request retries if it over-rewrites (see `MAX_REWRITE_RATIO`). The deterministic
+pattern matcher fixes what it can for free before the model runs, and its prompt is one cached
+prefix for every user. Real cost is **unmeasured** — measure your own first entries.
+`output_config.effort` in `worker/src/pipeline.ts` is the lever: currently `"medium"`.
 
-One entry now costs **2 to 5 Anthropic calls**, not 1: `corrector` (plus up to 2 in-request retries
-if it over-rewrites — see `MAX_REWRITE_RATIO` in `worker/src/diff.ts`), `synthesize`, and `coach`
-(parallel with the rest, so it doesn't add latency). This is a real, unmeasured increase over the
-old single-call design — measure your own first few entries before relying on a figure, in either
-direction. Each call's prompt is narrower than the old monolithic one, which pulls cost down; making
-several of them pulls it back up. `output_config.effort` in `worker/src/pipeline.ts` is the lever
-for each call: currently `"medium"` throughout.
-
-Each call's `max_tokens` is sized separately in `worker/src/pipeline.ts` (`MAX_TOKENS_CORRECTOR`,
-`MAX_TOKENS_SYNTHESIZE`, `MAX_TOKENS_COACH`) because that ceiling covers thinking *and* the response
-together; sizing it for the response alone truncates that call.
-
-To switch models, change `MODEL_ID` in `shared/schema.ts` — every call uses it today; splitting the
-narrower calls onto a cheaper model is a worthwhile lever once real cost is measured, not done yet.
+`max_tokens` covers thinking *and* the response together; sizing it for the response alone
+truncates the call. To switch models, change `MODEL_ID` in `shared/schema.ts`.
 
 ## Known gaps
 
 - The worker's request handler has no integration test; only the pure pieces it calls
-  (`worker/src/policy.ts`, `worker/src/diff.ts`, `worker/src/sentences.ts`) are covered. Testing the
-  full `fetch` handler, or `worker/src/pipeline.ts`'s orchestration, needs Miniflare.
+  (`worker/src/policy.ts`, `worker/src/patterns.ts`, `worker/src/diff.ts`,
+  `worker/src/sentences.ts`, `worker/src/learner.ts`) are covered. Testing the full `fetch`
+  handler, or `worker/src/pipeline.ts`'s orchestration of the nine agents, needs Miniflare.
 - The app bundle is ~635 KB (188 KB gzipped), dominated by Recharts. Fine over a warm service
   worker, worth code-splitting if first load matters.
 - Rate limiting is per-IP and read-then-write; a determined abuser with many IPs is not stopped

@@ -1,41 +1,112 @@
+import { useMemo, useRef, useState } from "react";
 import type { Screen } from "../App";
 import ErrorNote from "../components/ErrorNote";
 import EditSpan from "../components/EditSpan";
-import { getEntry } from "../lib/db";
+import { getEntry, requeueFailedEntry, type Entry } from "../lib/db";
+import { processQueue } from "../lib/queue";
+import { canRequeue } from "../lib/claim";
+import { FAIL_REASON_MESSAGES, labelFor } from "../lib/categories";
 import { buildSegments } from "../lib/highlight";
-import { CATEGORY_LABELS, FAIL_REASON_LABELS, SEVERITY_STYLES } from "../lib/categories";
 import { useLoad } from "../lib/useLoad";
 
 interface Props {
   entryId: string;
   navigate: (s: Screen) => void;
+  showToast: (msg: string) => void;
 }
 
-function ScoreBar({ label, value }: { label: string; value: number }) {
-  const color = value >= 75 ? "bg-emerald-500" : value >= 50 ? "bg-amber-500" : "bg-red-500";
-  return (
-    <div>
-      <div className="mb-1 flex justify-between text-sm">
-        <span className="text-slate-600">{label}</span>
-        <span className="font-semibold">{value}</span>
-      </div>
-      <div className="h-2 rounded-full bg-slate-200">
-        <div className={`h-2 rounded-full ${color}`} style={{ width: `${value}%` }} />
-      </div>
-    </div>
-  );
+/** What to say about an entry that has no feedback yet, at A2+/B1. */
+function pendingMessage(entry: Entry): string {
+  if (entry.status === "analysing") {
+    return "We are checking your writing now. This takes a few minutes.";
+  }
+  if (entry.status === "queued") {
+    return "This writing is waiting to be checked. We will do it soon.";
+  }
+  return `${FAIL_REASON_MESSAGES[entry.failReason ?? "server"]} Your writing is safe below.`;
 }
 
-export default function FeedbackScreen({ entryId, navigate }: Props) {
+type Feedback = NonNullable<Entry["feedback"]>;
+type Card =
+  | { kind: "summary" }
+  | { kind: "watch" }
+  | { kind: "ambiguous" }
+  | { kind: "correction"; index: number }
+  | { kind: "fluency" }
+  | { kind: "vocabulary" }
+  | { kind: "drill"; index: number }
+  | { kind: "corrected" }
+  | { kind: "closing" };
+
+/**
+ * The card order is the teaching order: the teacher's message first, then
+ * each correction on its own, then practice, then the coach. Empty sections
+ * drop out rather than appearing as a card with a heading and nothing under
+ * it. Legacy-only sections (vocabulary, pattern watch, scores) appear only on
+ * entries that stored them.
+ */
+function buildCards(fb: Feedback): Card[] {
+  const cards: Card[] = [{ kind: "summary" }];
+  if (fb.pattern_watch) cards.push({ kind: "watch" });
+  if (fb.ambiguous && fb.ambiguous.length > 0) cards.push({ kind: "ambiguous" });
+  fb.corrections.forEach((_, index) => cards.push({ kind: "correction", index }));
+  if (fb.fluency_notes && fb.fluency_notes.length > 0) cards.push({ kind: "fluency" });
+  if (fb.vocabulary && fb.vocabulary.length > 0) cards.push({ kind: "vocabulary" });
+  (fb.drills ?? []).forEach((_, index) => cards.push({ kind: "drill", index }));
+  // Last before the closing card: by this point the learner has met every
+  // correction on its own, so the clean copy reads as the result.
+  if (fb.corrected_text) cards.push({ kind: "corrected" });
+  cards.push({ kind: "closing" });
+  return cards;
+}
+
+/** Errors per 100 words for one entry — the only number the app asks the learner to watch. */
+function per100(entry: Entry): number | null {
+  if (!entry.feedback || entry.wordCount === 0) return null;
+  return (entry.feedback.corrections.length / entry.wordCount) * 100;
+}
+
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return <span className="eyebrow block">{children}</span>;
+}
+
+export default function FeedbackScreen({ entryId, navigate, showToast }: Props) {
   const state = useLoad(() => getEntry(entryId), [entryId]);
+
+  const tryAgain = async (id: string) => {
+    try {
+      if (!(await requeueFailedEntry(id))) return;
+    } catch (err) {
+      console.error("Couldn't put the entry back in the queue:", err);
+      showToast("We could not save that on your device. Please try again.");
+      return;
+    }
+    navigate({ name: "history" });
+    void processQueue();
+  };
+
+  const entry = state.status === "ready" ? state.data : null;
+  const fb = entry?.feedback ?? null;
+  const cards = useMemo(() => (fb && fb.risk !== "acute" ? buildCards(fb) : []), [fb]);
+
+  const [i, setI] = useState(0);
+  const [dx, setDx] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const startX = useRef(0);
+
+  const go = (d: number) => {
+    setDx(0);
+    setDragging(false);
+    setI((prev) => Math.min(cards.length - 1, Math.max(0, prev + d)));
+  };
 
   const back = (
     <button
       type="button"
       onClick={() => navigate({ name: "history" })}
-      className="min-h-11 rounded-full bg-slate-200 px-4 text-sm font-medium"
+      className="min-h-11 text-sm text-ink-soft"
     >
-      ← Back
+      ‹ History
     </button>
   );
 
@@ -43,204 +114,599 @@ export default function FeedbackScreen({ entryId, navigate }: Props) {
   if (state.status === "error") {
     return (
       <div className="flex flex-col gap-4">
-        <header className="flex items-center gap-3">{back}</header>
+        <header>{back}</header>
         <ErrorNote message={state.message} />
       </div>
     );
   }
-
-  const entry = state.data;
   if (!entry) {
     return (
       <div className="flex flex-col gap-4">
-        <header className="flex items-center gap-3">{back}</header>
-        <p className="text-slate-600">Entry not found.</p>
+        <header>{back}</header>
+        <p className="text-ink-soft">Entry not found.</p>
       </div>
     );
   }
 
-  const fb = entry.feedback;
+  /* ---------------------------------------------------------------------
+     No feedback yet. Reassurance first, the attempt count as data, then the
+     writing itself — the learner's first question here is whether their
+     words are gone.
+  --------------------------------------------------------------------- */
+  if (!fb) {
+    const failed = entry.status === "failed";
+    return (
+      <div className="flex flex-col gap-4">
+        <header>{back}</header>
+        <section
+          className={`rounded-2xl border p-5 ${
+            failed ? "border-warn/25 bg-warn-soft" : "border-rule bg-card"
+          }`}
+        >
+          <Eyebrow>{failed ? "Not checked yet" : "In progress"}</Eyebrow>
+          <h1 className="mt-2.5 font-serif text-2xl leading-snug text-ink">
+            {failed ? "The server had a problem. Your writing is safe." : "We are on it."}
+          </h1>
+          <p className="mt-3 text-[14.5px] leading-relaxed text-ink-muted">
+            {pendingMessage(entry)}
+          </p>
+          {canRequeue(entry) && (
+            <button
+              type="button"
+              onClick={() => void tryAgain(entry.id)}
+              className="mt-4 min-h-11 rounded-full bg-accent px-6 text-sm font-semibold text-paper focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              Try again
+            </button>
+          )}
+          <dl className="mt-4 flex gap-6 border-t border-rule pt-3.5">
+            <div>
+              <dd className="tnum font-mono text-[15px] font-medium text-ink">
+                {entry.attempts ?? 0}
+              </dd>
+              <dt className="eyebrow mt-1">Attempts</dt>
+            </div>
+            <div>
+              <dd className="tnum font-mono text-[15px] font-medium text-ink">
+                {new Date(entry.createdAt).toLocaleDateString(undefined, {
+                  day: "numeric",
+                  month: "short",
+                })}
+              </dd>
+              <dt className="eyebrow mt-1">Written</dt>
+            </div>
+            <div>
+              <dd className="tnum font-mono text-[15px] font-medium text-ink">
+                {entry.wordCount}
+              </dd>
+              <dt className="eyebrow mt-1">Words</dt>
+            </div>
+          </dl>
+        </section>
+        <section className="rounded-2xl border border-rule bg-card p-5">
+          <Eyebrow>Your writing</Eyebrow>
+          <p className="mt-3 whitespace-pre-wrap font-serif text-[16.5px] leading-[1.75] text-ink">
+            {entry.text}
+          </p>
+        </section>
+      </div>
+    );
+  }
+
+  /* ---------------------------------------------------------------------
+     Acute distress. The app deliberately produced no grammar feedback for
+     this entry — a crisis is never turned into a grammar lesson. The coach's
+     wellbeing reply, then resources, then their own writing, kept safe.
+  --------------------------------------------------------------------- */
+  if (fb.risk === "acute") {
+    return (
+      <div className="flex flex-col gap-4">
+        <header>{back}</header>
+        <section className="rounded-2xl border border-rule bg-card p-5">
+          <Eyebrow>About this entry</Eyebrow>
+          <h1 className="mt-2.5 font-serif text-2xl leading-snug text-ink">
+            What you wrote sounds heavy.
+          </h1>
+          {fb.coach_reply && (
+            <p className="mt-4 font-serif text-[16px] leading-[1.7] text-ink">
+              {fb.coach_reply}
+            </p>
+          )}
+          <p className="mt-4 text-[14.5px] leading-relaxed text-ink-muted">
+            We did not check the grammar of this entry, on purpose. Your writing is safe and
+            nothing is lost.
+          </p>
+        </section>
+        <section className="rounded-2xl border border-accent/25 bg-accent-soft p-5">
+          <Eyebrow>If you need someone now</Eyebrow>
+          <p className="mt-3 text-[15px] leading-relaxed text-ink">
+            If you are in danger right now, please call your local emergency number.
+          </p>
+          <p className="mt-3 text-[15px] leading-relaxed text-ink">
+            You can find a free, confidential helpline for your country at{" "}
+            <strong className="font-semibold">findahelpline.com</strong>. Talking to a person you
+            trust — a friend, family, a doctor — can help more than writing alone.
+          </p>
+        </section>
+        <section className="rounded-2xl border border-rule bg-card p-5">
+          <Eyebrow>Your writing</Eyebrow>
+          <p className="mt-3 whitespace-pre-wrap font-serif text-[16.5px] leading-[1.75] text-ink">
+            {entry.text}
+          </p>
+        </section>
+      </div>
+    );
+  }
+
+  const card = cards[i];
+  const rate = per100(entry);
+  const highlightedSet = new Set(fb.highlighted ?? []);
 
   return (
-    <div className="flex flex-col gap-4">
-      <header className="flex items-center gap-3">
-        {back}
-        <h1 className="text-xl font-bold">Feedback</h1>
-      </header>
+    <div
+      className="flex h-full flex-col"
+      onPointerDown={(e) => {
+        if ((e.target as HTMLElement).closest("button")) return;
+        startX.current = e.clientX;
+        setDragging(true);
+        setDx(0);
+      }}
+      onPointerMove={(e) => dragging && setDx(e.clientX - startX.current)}
+      onPointerUp={() => {
+        if (!dragging) return;
+        if (dx < -60) go(1);
+        else if (dx > 60) go(-1);
+        else {
+          setDx(0);
+          setDragging(false);
+        }
+      }}
+      onPointerCancel={() => {
+        setDx(0);
+        setDragging(false);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowRight") go(1);
+        if (e.key === "ArrowLeft") go(-1);
+      }}
+      style={{ touchAction: "pan-y" }}
+    >
+      <div className="flex items-center justify-between">
+        <button type="button" onClick={() => navigate({ name: "history" })} className="min-h-11 text-xs text-ink-soft">
+          Close
+        </button>
+        <span className="eyebrow tnum">
+          Card {String(i + 1).padStart(2, "0")} / {String(cards.length).padStart(2, "0")}
+        </span>
+      </div>
 
-      {!fb ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 text-slate-600">
-          {entry.status === "queued"
-            ? "This entry is waiting to be analysed."
-            : `${FAIL_REASON_LABELS[entry.failReason ?? "server"] ?? "Couldn't analyse"} — your text is safe below.`}
-          <p className="mt-3 whitespace-pre-wrap text-slate-800">{entry.text}</p>
+      <ol className="mt-3 flex gap-1.5" aria-hidden>
+        {cards.map((_, n) => (
+          <li key={n} className="h-[3px] flex-1 rounded-sm bg-rule">
+            <span className={`block h-[3px] rounded-sm bg-accent ${n <= i ? "w-full" : "w-0"}`} />
+          </li>
+        ))}
+      </ol>
+
+      <div className="relative mt-5 min-h-0 flex-1">
+        {i < cards.length - 1 && (
+          <div aria-hidden className="absolute inset-x-3.5 -bottom-0 top-2.5 rounded-[20px] border border-rule bg-sunk" />
+        )}
+        {i < cards.length - 2 && (
+          <div aria-hidden className="absolute inset-x-1.5 -bottom-0 top-1 rounded-[20px] border border-rule bg-[#f6f3ec]" />
+        )}
+
+        <article
+          className="relative box-border h-full overflow-y-auto rounded-[20px] border border-rule bg-card p-6 shadow-[0_6px_18px_rgba(30,26,20,0.07)]"
+          style={{
+            transform: `translateX(${dx}px) rotate(${dx * 0.012}deg)`,
+            transition: dragging ? "none" : "transform .28s cubic-bezier(.32,.72,0,1)",
+            opacity: dragging ? Math.max(0.55, 1 - Math.abs(dx) / 420) : 1,
+          }}
+        >
+          {card.kind === "summary" && (
+            <>
+              <Eyebrow>
+                {new Date(entry.createdAt).toLocaleDateString(undefined, {
+                  weekday: "short",
+                  day: "numeric",
+                  month: "short",
+                })}{" "}
+                · {entry.wordCount} words
+              </Eyebrow>
+              <h1 className="mt-3 font-serif text-[27px] leading-[1.14] text-pretty">
+                {fb.corrections.length}{" "}
+                {fb.corrections.length === 1 ? "correction" : "corrections"} to read.
+              </h1>
+              <dl className="mt-6 flex border-y border-rule">
+                <div className="flex-1 py-4">
+                  <dd className="tnum font-mono text-[30px] leading-none">
+                    {rate === null ? "—" : rate.toFixed(1)}
+                  </dd>
+                  <dt className="eyebrow mt-1.5">Per 100 words</dt>
+                </div>
+                {fb.cefr_estimate && (
+                  <div className="flex-1 border-l border-rule py-4 pl-4">
+                    <dd className="tnum font-mono text-[30px] leading-none">{fb.cefr_estimate}</dd>
+                    <dt className="eyebrow mt-1.5">This entry</dt>
+                  </div>
+                )}
+              </dl>
+              {/* The teacher's message is the feedback the learner actually
+                  experiences; the cards after it are the reference copy. */}
+              {fb.teacher_feedback ? (
+                <div className="mt-5 border-l-2 border-accent pl-3.5">
+                  <Eyebrow>From your teacher</Eyebrow>
+                  <p className="mt-2 whitespace-pre-wrap font-serif text-[16px] leading-[1.65]">
+                    {fb.teacher_feedback}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {fb.one_thing_to_fix && (
+                    <div className="mt-5 border-l-2 border-accent pl-3.5">
+                      <Eyebrow>One thing to fix</Eyebrow>
+                      <p className="mt-2 font-serif text-[17px] leading-[1.5]">
+                        {fb.one_thing_to_fix}
+                      </p>
+                    </div>
+                  )}
+                  {fb.what_went_well && (
+                    <div className="mt-5">
+                      <Eyebrow>What went well</Eyebrow>
+                      <p className="mt-2 text-[14.5px] leading-relaxed text-ink-muted">
+                        {fb.what_went_well}
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {card.kind === "ambiguous" && (
+            <>
+              <Eyebrow>We did not guess</Eyebrow>
+              <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">
+                {fb.ambiguous!.length === 1
+                  ? "One sentence could mean two things"
+                  : "Some sentences could mean two things"}
+              </h2>
+              <p className="mt-3 text-[14.5px] leading-relaxed text-ink-muted">
+                We left these unchanged instead of choosing for you. Next entry, you could say it
+                the way you meant it.
+              </p>
+              <ul className="mt-5 flex flex-col divide-y divide-rule">
+                {fb.ambiguous!.map((a, k) => (
+                  <li key={k} className="py-4 first:pt-0 last:pb-0">
+                    <p className="font-serif text-[15.5px] leading-[1.6] text-ink">{a.question}</p>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {card.kind === "correction" && (() => {
+            const c = fb.corrections[card.index];
+            const legacyPattern = fb.patterns?.find((p) => p.category === c.category);
+            return (
+              <>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="eyebrow text-accent">{labelFor(c.category)}</span>
+                  <span className="eyebrow tnum shrink-0">
+                    {card.index + 1} of {fb.corrections.length}
+                  </span>
+                </div>
+                {(highlightedSet.has(card.index) || c.pattern_id !== undefined) && (
+                  <p className="mt-2 flex flex-wrap gap-1.5">
+                    {highlightedSet.has(card.index) && (
+                      <span className="rounded-full bg-accent px-2.5 py-1 text-[11px] font-medium text-paper">
+                        Your teacher picked this one
+                      </span>
+                    )}
+                    {c.pattern_id !== undefined && (
+                      <span className="tnum rounded-full bg-ink/5 px-2.5 py-1 text-[11px] text-ink-soft">
+                        #{c.pattern_id} on your checklist
+                      </span>
+                    )}
+                  </p>
+                )}
+                <div className="mt-5 border-l-2 border-accent pl-3.5">
+                  <p className="font-serif text-lg leading-[30px]">
+                    <EditSpan original={c.original} corrected={c.corrected} />
+                  </p>
+                </div>
+                <div className="mt-5 rounded-2xl bg-sunk p-4">
+                  <Eyebrow>The rule</Eyebrow>
+                  <p className="mt-2 text-[14.5px] leading-relaxed text-ink-muted">
+                    {c.explanation ?? c.rule}
+                  </p>
+                </div>
+                {legacyPattern && legacyPattern.explanation && (
+                  <div className="mt-5">
+                    <Eyebrow>Why it keeps happening</Eyebrow>
+                    <p className="mt-2 font-serif text-[15px] leading-[1.6] text-ink-soft">
+                      {legacyPattern.explanation}
+                    </p>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+
+          {card.kind === "fluency" && (
+            <>
+              <Eyebrow>Nothing was wrong here</Eyebrow>
+              <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">
+                These would sound more natural
+              </h2>
+              <ul className="mt-5 flex flex-col divide-y divide-rule">
+                {(fb.fluency_notes ?? []).map((n, k) => (
+                  <li key={k} className="py-4 first:pt-0 last:pb-0">
+                    <p className="font-serif text-[17px] leading-[1.5]">
+                      <span className="text-ink-ghost line-through">{n.before}</span>{" "}
+                      <span className="text-accent">{n.after}</span>
+                    </p>
+                    <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-soft">{n.why}</p>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {card.kind === "vocabulary" && (
+            <>
+              <Eyebrow>Words to learn</Eyebrow>
+              <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">
+                From what you were writing about
+              </h2>
+              <ul className="mt-5 flex flex-col divide-y divide-rule">
+                {(fb.vocabulary ?? []).map((v, k) => (
+                  <li key={k} className="py-4 first:pt-0 last:pb-0">
+                    <p className="font-serif text-[19px] leading-tight">{v.term}</p>
+                    <p className="mt-1 font-mono text-[12.5px] text-accent">
+                      <span className="sr-only">Say it as </span>
+                      {v.stress}
+                    </p>
+                    <p className="mt-2 text-[14px] leading-relaxed text-ink-muted">{v.meaning}</p>
+                    <p className="mt-1 font-serif text-[14px] italic leading-relaxed text-ink-soft">
+                      {v.example}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {card.kind === "drill" && (() => {
+            const d = (fb.drills ?? [])[card.index];
+            return (
+              <Drill
+                prompt={d.prompt}
+                hint={d.hint}
+                answer={d.answer}
+                distractors={d.distractors ?? []}
+                n={card.index + 1}
+                of={(fb.drills ?? []).length}
+              />
+            );
+          })()}
+
+          {card.kind === "watch" && fb.pattern_watch && (
+            <div className="flex h-full flex-col">
+              <Eyebrow>This one came back</Eyebrow>
+              <h2 className="mt-3 font-serif text-[26px] leading-[1.16] text-pretty">
+                {labelFor(fb.pattern_watch.category)}
+              </h2>
+              <p className="mt-2 text-[14.5px] text-ink-soft">
+                {fb.pattern_watch.entries_clean}{" "}
+                {fb.pattern_watch.entries_clean === 1 ? "entry" : "entries"} without it before
+                this one.
+              </p>
+              <p className="mt-4 text-[15px] leading-relaxed text-ink-muted">
+                {fb.pattern_watch.note}
+              </p>
+              <div className="mt-5 border-l-2 border-accent bg-accent-soft px-4 py-3.5">
+                <Eyebrow>Say this out loud</Eyebrow>
+                <p className="mt-2 text-[15px] leading-relaxed text-ink">
+                  {fb.pattern_watch.practice}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {card.kind === "corrected" && (
+            <div className="flex h-full flex-col">
+              <Eyebrow>Your writing, put right</Eyebrow>
+              <h2 className="mt-3 font-serif text-[22px] leading-[1.2] text-pretty">
+                Every change, in one piece.
+              </h2>
+              <p className="mt-4 overflow-y-auto whitespace-pre-wrap font-serif text-[16.5px] leading-[1.75] text-ink">
+                {buildSegments(
+                  fb.corrected_text,
+                  fb.corrections.map((c) => c.corrected)
+                ).map((seg, k) =>
+                  seg.highlighted ? <mark key={k}>{seg.text}</mark> : <span key={k}>{seg.text}</span>
+                )}
+              </p>
+            </div>
+          )}
+
+          {card.kind === "closing" && (
+            <div className="flex h-full flex-col">
+              <Eyebrow>End of this entry</Eyebrow>
+              <h2 className="mt-3 font-serif text-[26px] leading-[1.16] text-pretty">
+                {rate === null
+                  ? "That is everything for this entry."
+                  : `${rate.toFixed(1)} errors per 100 words this time.`}
+              </h2>
+              {fb.scores && (
+                <dl className="mt-6 flex border-y border-rule">
+                  <div className="flex-1 py-4">
+                    <dd className="tnum font-mono text-[26px] leading-none">{fb.scores.grammar}</dd>
+                    <dt className="eyebrow mt-1.5">Grammar</dt>
+                  </div>
+                  <div className="flex-1 border-l border-rule py-4 pl-4">
+                    <dd className="tnum font-mono text-[26px] leading-none">
+                      {fb.scores.vocabulary}
+                    </dd>
+                    <dt className="eyebrow mt-1.5">Vocabulary</dt>
+                  </div>
+                  <div className="flex-1 border-l border-rule py-4 pl-4">
+                    <dd className="tnum font-mono text-[26px] leading-none">
+                      {fb.scores.naturalness}
+                    </dd>
+                    <dt className="eyebrow mt-1.5">Natural</dt>
+                  </div>
+                </dl>
+              )}
+              {fb.coach_reply && (
+                <div className="mt-5 rounded-2xl bg-accent-soft p-4">
+                  <p className="font-serif text-[15px] italic leading-[1.65] text-ink-muted">
+                    {fb.coach_reply}
+                  </p>
+                  <Eyebrow>Your coach</Eyebrow>
+                </div>
+              )}
+              <div className="mt-auto flex flex-col gap-2.5 pt-5">
+                <button
+                  type="button"
+                  onClick={() => navigate({ name: "write" })}
+                  className="min-h-11 rounded-full bg-accent font-semibold text-paper"
+                >
+                  Write the next entry
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate({ name: "log" })}
+                  className="min-h-11 rounded-full border border-rule-strong text-sm font-medium text-ink-muted"
+                >
+                  See all your patterns
+                </button>
+              </div>
+            </div>
+          )}
+        </article>
+      </div>
+
+      <div className="flex items-center justify-between py-4">
+        <span className="text-[12.5px] text-ink-faint">
+          {i === cards.length - 1 ? "That is everything" : "Drag the card, or use ← →"}
+        </span>
+        <div className="flex gap-2.5">
+          <button
+            type="button"
+            onClick={() => go(-1)}
+            disabled={i === 0}
+            aria-label="Previous card"
+            className="flex size-11 items-center justify-center rounded-full border border-rule-strong text-ink-soft disabled:opacity-35"
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            onClick={() => go(1)}
+            disabled={i === cards.length - 1}
+            aria-label="Next card"
+            className="flex size-11 items-center justify-center rounded-full bg-accent text-paper disabled:opacity-35"
+          >
+            ›
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A drill with real distractors is a choice, not a recall test — the learner
+ * taps an option and finds out. Options are sorted alphabetically so the
+ * right answer has no positional tell. Legacy drills have no distractors and
+ * fall back to the old show-the-answer flow.
+ */
+function Drill({
+  prompt,
+  hint,
+  answer,
+  distractors,
+  n,
+  of,
+}: {
+  prompt: string;
+  hint: string;
+  answer: string;
+  distractors: string[];
+  n: number;
+  of: number;
+}) {
+  const [picked, setPicked] = useState<string | null>(null);
+  const [shown, setShown] = useState(false);
+  const options = useMemo(
+    () => (distractors.length > 0 ? [answer, ...distractors].sort((a, b) => a.localeCompare(b)) : []),
+    [answer, distractors]
+  );
+  const solved = picked === answer || shown;
+  return (
+    <>
+      <span className="eyebrow block text-accent">
+        Practice · {n} of {of}
+      </span>
+      <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">Try this one</h2>
+      <div className="mt-5 rounded-2xl bg-sunk p-4">
+        <p className="font-serif text-lg leading-[1.7]">{prompt}</p>
+      </div>
+      {options.length > 0 ? (
+        <div className="mt-5">
+          <Eyebrow>Pick the right one</Eyebrow>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            {options.map((opt) => {
+              const isPicked = picked === opt;
+              const cls = !isPicked
+                ? "border-rule-strong text-ink"
+                : opt === answer
+                  ? "border-accent bg-accent text-paper"
+                  : "border-warn/40 bg-warn-soft text-warn line-through";
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setPicked(opt)}
+                  className={`min-h-11 rounded-full border px-4 font-serif text-[15.5px] ${cls}`}
+                >
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+          {picked !== null && picked !== answer && (
+            <p className="mt-3 text-[13.5px] text-ink-soft">Not that one — try again.</p>
+          )}
+          {picked === answer && (
+            <p className="mt-3 text-[13.5px] font-medium text-accent">
+              Yes — “{answer}”.
+            </p>
+          )}
         </div>
       ) : (
-        <>
-          {/* 1. One thing to fix */}
-          <section className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
-            <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-amber-800">
-              One thing to fix
-            </h2>
-            <p className="text-amber-900">{fb.one_thing_to_fix}</p>
-          </section>
-
-          {/* 2. Corrected text with changed segments highlighted */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">
-              Corrected text
-            </h2>
-            <p className="whitespace-pre-wrap leading-relaxed">
-              {buildSegments(
-                fb.corrected_text,
-                fb.corrections.map((c) => c.corrected)
-              ).map((seg, i) =>
-                seg.highlighted ? <mark key={i}>{seg.text}</mark> : <span key={i}>{seg.text}</span>
-              )}
-            </p>
-          </section>
-
-          {/* 3. Corrections list */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">
-              Corrections ({fb.corrections.length})
-            </h2>
-            <div className="flex flex-col divide-y divide-slate-100">
-              {fb.corrections.map((c, i) => (
-                <details key={i} className="group py-1">
-                  <summary className="flex min-h-11 cursor-pointer list-none items-start gap-2 py-1.5">
-                    <span
-                      aria-hidden
-                      className="mt-1 shrink-0 text-xs text-slate-400 transition-transform group-open:rotate-90"
-                    >
-                      ▸
-                    </span>
-                    <span className="flex-1 py-0.5">
-                      <span className="block">
-                        <EditSpan original={c.original} corrected={c.corrected} />
-                      </span>
-                      <span
-                        className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${SEVERITY_STYLES[c.severity]}`}
-                      >
-                        {CATEGORY_LABELS[c.category]}
-                      </span>
-                    </span>
-                  </summary>
-                  <p className="ml-5 mt-1 rounded-lg bg-slate-50 p-2 text-sm text-slate-700">{c.rule}</p>
-                </details>
-              ))}
-            </div>
-          </section>
-
-          {/* 3.5 Fluency notes — nothing was wrong, just less native-sounding */}
-          {fb.fluency_notes && fb.fluency_notes.length > 0 && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">
-                Sounds more natural
-              </h2>
-              <div className="flex flex-col gap-3">
-                {fb.fluency_notes.map((n, i) => (
-                  <div key={i}>
-                    <p>
-                      <span className="text-slate-500">{n.before}</span>{" "}
-                      <span className="font-medium text-blue-700">→ {n.after}</span>
-                    </p>
-                    <p className="text-sm text-slate-600">{n.why}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
+        <div className="mt-5 border-t border-rule pt-3.5">
+          <Eyebrow>Answer</Eyebrow>
+          {solved ? (
+            <p className="mt-2 font-serif text-[17px] leading-[1.5] text-accent">{answer}</p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShown(true)}
+              className="mt-2 min-h-11 text-[13px] font-medium text-accent"
+            >
+              Show it after you have tried
+            </button>
           )}
-
-          {/* 4. Patterns in this entry */}
-          {fb.patterns.length > 0 && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">
-                Patterns in this entry
-              </h2>
-              <div className="flex flex-col gap-3">
-                {fb.patterns.map((p, i) => (
-                  <div key={i}>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">{CATEGORY_LABELS[p.category]}</span>
-                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
-                        {p.count}
-                      </span>
-                    </div>
-                    <p className="text-sm text-slate-600">{p.explanation}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* 5. Scores */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">Scores</h2>
-            <div className="flex flex-col gap-3">
-              <ScoreBar label="Grammar" value={fb.scores.grammar} />
-              <ScoreBar label="Vocabulary" value={fb.scores.vocabulary} />
-              <ScoreBar label="Naturalness" value={fb.scores.naturalness} />
-            </div>
-          </section>
-
-          {/* 6. CEFR estimate + what went well */}
-          <section className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4">
-            <span className="rounded-xl bg-blue-700 px-3 py-2 text-lg font-bold text-white">
-              {fb.cefr_estimate}
-            </span>
-            <div className="text-sm text-slate-600">
-              Estimated CEFR level for this entry. Target: C1 (IELTS 7.5).
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-            <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-emerald-700">
-              What went well
-            </h2>
-            <p className="text-emerald-900">{fb.what_went_well}</p>
-          </section>
-
-          {/* 7. Practice — targets the learner's worst category, using this entry's own vocabulary */}
-          {fb.drills && fb.drills.length > 0 && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">
-                Practice
-              </h2>
-              <div className="flex flex-col divide-y divide-slate-100">
-                {fb.drills.map((d, i) => (
-                  <details key={i} className="group py-1">
-                    <summary className="flex min-h-11 cursor-pointer list-none items-start gap-2 py-1.5">
-                      <span
-                        aria-hidden
-                        className="mt-1 shrink-0 text-xs text-slate-400 transition-transform group-open:rotate-90"
-                      >
-                        ▸
-                      </span>
-                      <span className="flex-1 py-0.5">
-                        <p>{d.prompt}</p>
-                        <p className="mt-1 text-xs text-slate-500">{d.hint}</p>
-                      </span>
-                    </summary>
-                    <p className="ml-5 mt-1 rounded-lg bg-emerald-50 p-2 text-sm text-emerald-800">
-                      <span className="font-semibold">Answer: </span>
-                      {d.answer}
-                    </p>
-                  </details>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* 8. Coach reply — a personal note about the content, deliberately not styled
-              like the teaching cards above it */}
-          {fb.coach_reply && (
-            <section className="rounded-2xl bg-slate-100 p-4">
-              <p className="text-sm italic leading-relaxed text-slate-700">{fb.coach_reply}</p>
-            </section>
-          )}
-        </>
+        </div>
       )}
-    </div>
+      <div className="mt-5 border-l-2 border-accent/40 pl-3.5">
+        <Eyebrow>Hint</Eyebrow>
+        <p className="mt-2 font-serif text-[14.5px] italic leading-[1.55] text-ink-soft">{hint}</p>
+      </div>
+    </>
   );
 }

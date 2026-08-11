@@ -86,86 +86,101 @@ async function chargeQuota(env: Env, ip: string): Promise<boolean> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const allowOrigin = resolveOrigin(env.ALLOWED_ORIGIN, request.headers.get("Origin"));
-
-    if (request.method === "OPTIONS") {
-      // Preflight for a disallowed origin still answers, without the grant.
-      return new Response(null, { status: 204, headers: corsHeaders(allowOrigin) });
+    try {
+      return await handle(request, env, allowOrigin);
+    } catch (err) {
+      // Without this the runtime answers with its own 500: no CORS grant, so
+      // the browser reports a CORS failure, and no `retryable`, so the client
+      // cannot tell an outage from a permanently broken entry. Reachable via
+      // a client disconnect mid-body, a KV fault, or a missing API-key secret
+      // — the last of which throws *after* quota has been charged.
+      console.error("unhandled:", err instanceof Error ? err.constructor.name : "unknown");
+      return fail(allowOrigin, 500, "internal", true);
     }
-
-    const url = new URL(request.url);
-
-    // Unauthenticated liveness probe — useful for verifying a deploy without
-    // spending a token. Reveals no configuration.
-    if (request.method === "GET" && url.pathname === "/health") {
-      return json(allowOrigin, 200, {
-        status: "ok",
-        model: MODEL_ID,
-        promptVersion: PROMPT_VERSION,
-      });
-    }
-
-    if (request.method !== "POST" || url.pathname !== "/analyze") {
-      return fail(allowOrigin, 404, "not_found", false);
-    }
-
-    // An unrecognised origin gets nothing. This is the difference between a
-    // proxy your app can use and an open relay in front of a paid API key.
-    if (allowOrigin === null) {
-      return fail(allowOrigin, 403, "origin_not_allowed", false);
-    }
-
-    if (env.APP_KEY && !safeEqual(request.headers.get("X-App-Key") ?? "", env.APP_KEY)) {
-      return fail(allowOrigin, 403, "forbidden", false);
-    }
-
-    const contentType = request.headers.get("Content-Type") ?? "";
-    if (!contentType.includes("application/json")) {
-      return fail(allowOrigin, 415, "expected_json", false);
-    }
-
-    const bytes = await request.arrayBuffer();
-    const body = parseAnalyzeBody(
-      new TextDecoder().decode(bytes),
-      bytes.byteLength,
-      MAX_BODY_BYTES
-    );
-    if (!body.ok) return fail(allowOrigin, body.status, body.error, false);
-    const { text, history } = body;
-
-    // Only a request we are actually about to pay for costs quota. The
-    // pipeline below may make up to three Anthropic calls to fulfil this one
-    // already-charged request — that internal retrying never charges again.
-    const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
-    if (!(await chargeQuota(env, ip))) {
-      return fail(allowOrigin, 429, "rate_limited", true);
-    }
-
-    const client = new Anthropic({
-      apiKey: env.ANTHROPIC_API_KEY,
-      timeout: UPSTREAM_TIMEOUT_MS,
-    });
-
-    const result = await runPipeline(client, text, history);
-
-    if (!result.ok) {
-      if (result.kind === "refusal") {
-        return json(allowOrigin, 200, { status: "refusal" });
-      }
-      // Truncation is deterministic for a given entry, so it must not be
-      // sold to the client as a transient failure it should keep retrying.
-      if (result.kind === "truncated") {
-        return fail(allowOrigin, 502, "too_long_to_analyse", false);
-      }
-      return fail(allowOrigin, 502, "upstream", result.retryable);
-    }
-
-    return json(allowOrigin, 200, {
-      status: "ok",
-      feedback: result.value.feedback,
-      model: MODEL_ID,
-      promptVersion: PROMPT_VERSION,
-      // Criterion 7: from the second request onward cache.read should be > 0.
-      cache: result.value.cache,
-    });
   },
 };
+
+async function handle(
+  request: Request,
+  env: Env,
+  allowOrigin: string | null
+): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    // Preflight for a disallowed origin still answers, without the grant.
+    return new Response(null, { status: 204, headers: corsHeaders(allowOrigin) });
+  }
+
+  const url = new URL(request.url);
+
+  // Unauthenticated liveness probe — useful for verifying a deploy without
+  // spending a token. Reveals no configuration.
+  if (request.method === "GET" && url.pathname === "/health") {
+    return json(allowOrigin, 200, {
+      status: "ok",
+      model: MODEL_ID,
+      promptVersion: PROMPT_VERSION,
+    });
+  }
+
+  if (request.method !== "POST" || url.pathname !== "/analyze") {
+    return fail(allowOrigin, 404, "not_found", false);
+  }
+
+  // An unrecognised origin gets nothing. This is the difference between a
+  // proxy your app can use and an open relay in front of a paid API key.
+  if (allowOrigin === null) {
+    return fail(allowOrigin, 403, "origin_not_allowed", false);
+  }
+
+  if (env.APP_KEY && !safeEqual(request.headers.get("X-App-Key") ?? "", env.APP_KEY)) {
+    return fail(allowOrigin, 403, "forbidden", false);
+  }
+
+  const contentType = request.headers.get("Content-Type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return fail(allowOrigin, 415, "expected_json", false);
+  }
+
+  const bytes = await request.arrayBuffer();
+  const body = parseAnalyzeBody(
+    new TextDecoder().decode(bytes),
+    bytes.byteLength,
+    MAX_BODY_BYTES
+  );
+  if (!body.ok) return fail(allowOrigin, body.status, body.error, false);
+
+  // Only a request we are actually about to pay for costs quota. The
+  // pipeline's internal over-rewrite retrying never charges again.
+  const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
+  if (!(await chargeQuota(env, ip))) {
+    return fail(allowOrigin, 429, "rate_limited", true);
+  }
+
+  const client = new Anthropic({
+    apiKey: env.ANTHROPIC_API_KEY,
+    timeout: UPSTREAM_TIMEOUT_MS,
+  });
+
+  const result = await runPipeline(client, body.text, body.history, body.profile, body.entryNumber);
+
+  if (!result.ok) {
+    if (result.kind === "refusal") {
+      return json(allowOrigin, 200, { status: "refusal" });
+    }
+    // Truncation is deterministic for a given entry, so it must not be
+    // sold to the client as a transient failure it should keep retrying.
+    if (result.kind === "truncated") {
+      return fail(allowOrigin, 502, "too_long_to_analyse", false);
+    }
+    return fail(allowOrigin, 502, "upstream", result.retryable);
+  }
+
+  return json(allowOrigin, 200, {
+    status: "ok",
+    feedback: result.value.feedback,
+    model: MODEL_ID,
+    promptVersion: PROMPT_VERSION,
+    // From the second request onward cache.read should be > 0.
+    cache: result.value.cache,
+  });
+}

@@ -4,6 +4,23 @@ export interface Segment {
 }
 
 /**
+ * A span always covers whole words, because every span originates as a run of
+ * whitespace-delimited tokens from `worker/src/diff.ts`. Matching it as a bare
+ * substring marks the wrong letters: the article "a" lands inside "make", and
+ * the pronoun "he" inside "The" — and short spans like those are exactly this
+ * learner's most frequent corrections.
+ */
+function indexOfWholeWord(text: string, span: string, from: number): number {
+  for (let at = text.indexOf(span, from); at !== -1; at = text.indexOf(span, at + 1)) {
+    const startsWord = at === 0 || /\s/.test(text[at - 1]!);
+    const end = at + span.length;
+    const endsWord = end === text.length || /\s/.test(text[end]!);
+    if (startsWord && endsWord) return at;
+  }
+  return -1;
+}
+
+/**
  * Split `text` into segments, marking each span in `spans`. Overlapping
  * matches are merged. Used to mark changed segments in the corrected text
  * (§5.2) and erroneous spans in the original.
@@ -19,7 +36,7 @@ export function buildSegments(text: string, spans: string[]): Segment[] {
 
   for (const span of spans) {
     if (!span) continue;
-    const forward = text.indexOf(span, cursor);
+    const forward = indexOfWholeWord(text, span, cursor);
     if (forward !== -1) {
       ranges.push([forward, forward + span.length]);
       cursor = forward + span.length;
@@ -27,7 +44,7 @@ export function buildSegments(text: string, spans: string[]): Segment[] {
     }
     // Corrections are not guaranteed to arrive in document order, so a span
     // that isn't ahead of the cursor may still be present behind it.
-    const anywhere = text.indexOf(span);
+    const anywhere = indexOfWholeWord(text, span, 0);
     if (anywhere !== -1) ranges.push([anywhere, anywhere + span.length]);
   }
 

@@ -12,11 +12,9 @@ enabled = true
 
 [vars]
 # Comma-separated origin allowlist. "*" allows every origin, which turns this
-# worker into an open relay in front of your paid API key — set your real app
-# origin BEFORE the first deploy, e.g.:
-#   ALLOWED_ORIGIN = "https://english-feedback.pages.dev"
+# worker into an open relay in front of your paid API key.
 # Multiple origins are allowed: "https://a.pages.dev,https://b.example.com"
-ALLOWED_ORIGIN = "*"
+ALLOWED_ORIGIN = "https://english-feedback.pages.dev"
 
 # Optional second gate. If the APP_KEY secret is set, the worker requires a
 # matching X-App-Key header and the app must be built with the same value in
@@ -24,10 +22,7 @@ ALLOWED_ORIGIN = "*"
 # and scripted scraping — it is not a substitute for the origin allowlist and
 # it is not real authentication. Leave the secret unset to disable the check.
 
-# Durable per-IP rate limiting across isolates. Create the namespace with:
-#   npx wrangler kv namespace create RATE_LIMIT_KV
-# then paste the returned id below and uncomment. Until then the worker falls
-# back to best-effort in-memory (per-isolate) rate limiting.
-# [[kv_namespaces]]
-# binding = "RATE_LIMIT_KV"
-# id = "PASTE_KV_NAMESPACE_ID_HERE"
+# Durable per-IP rate limiting across isolates.
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "acf0bf89827340b19cd2a0846bcaed36"

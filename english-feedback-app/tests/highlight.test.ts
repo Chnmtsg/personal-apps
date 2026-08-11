@@ -60,3 +60,42 @@ test("handles a span at the very start and the very end", () => {
   assertLossless("start middle end", ["start", "end"]);
   assert.deepEqual(highlighted("start middle end", ["start", "end"]), ["start", "end"]);
 });
+
+// The bug these caught: `indexOf` matched inside a longer word, so a pronoun
+// correction on "he" marked the "he" in "The", and an article correction on
+// "a" marked the "a" in "make" — the two most frequent correction shapes for
+// this learner, both mis-teaching which word was actually wrong.
+test("a short span marks a whole word, never letters inside a longer one", () => {
+  const segments = assertLossless("The chief he check the data.", ["he"]);
+  assert.deepEqual(
+    segments.map((s) => s.text),
+    ["The chief ", "he", " check the data."]
+  );
+});
+
+test("a one-letter article span skips the same letter inside another word", () => {
+  assert.deepEqual(
+    assertLossless("I make a lot of sample.", ["a"]).map((s) => s.text),
+    ["I make ", "a", " lot of sample."]
+  );
+});
+
+test("a span still matches when a longer word contains it earlier in the text", () => {
+  assert.deepEqual(highlighted("I go to the theatre.", ["the"]), ["the"]);
+  assert.deepEqual(
+    assertLossless("I go to the theatre.", ["the"]).map((s) => s.text),
+    ["I go to ", "the", " theatre."]
+  );
+});
+
+test("a span carrying its sentence punctuation still matches", () => {
+  // diff.ts emits whitespace-delimited tokens, so trailing punctuation is
+  // part of the span — a naive \b word-boundary fix would break this.
+  assert.deepEqual(highlighted("I go to market.", ["market."]), ["market."]);
+});
+
+test("a span containing a line break matches the entry verbatim", () => {
+  // Pairs with diff.ts's verbatim `original`: an entry typed with a newline
+  // mid-sentence yields a span with that newline in it.
+  assert.deepEqual(highlighted("I am\nwork in the mine.", ["am\nwork"]), ["am\nwork"]);
+});

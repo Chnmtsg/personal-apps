@@ -1,5 +1,5 @@
 import { useEffect, useState, type DependencyList } from "react";
-import { StorageUnavailableError } from "./db";
+import { StorageBlockedError, StorageUnavailableError } from "./db";
 
 export type LoadState<T> =
   | { status: "loading" }
@@ -29,10 +29,14 @@ export function useLoad<T>(load: () => Promise<T>, deps: DependencyList): LoadSt
         if (!live) return;
         setState({
           status: "error",
+          // Most specific first: a blocked upgrade is the one the learner can
+          // fix, and telling them "private browsing" for it is a wrong answer.
           message:
-            err instanceof StorageUnavailableError
-              ? "This browser won't let the app store data. Private browsing mode is the usual cause."
-              : "Something went wrong loading your data.",
+            err instanceof StorageBlockedError
+              ? "The app is open in another tab, and that tab is blocking an update. Close the other tabs, then reload this one."
+              : err instanceof StorageUnavailableError
+                ? "This browser will not let the app save your writing. Private browsing is the usual reason. Try opening the app in a normal window."
+                : "We could not open your writing. Please try again.",
         });
       }
     );

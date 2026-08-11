@@ -1,14 +1,56 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Design tokens. The palette is one ink accent (#33418f) on warm paper; there
+   is no second accent by design, so a new colour here is a decision, not a
+   convenience.
+--------------------------------------------------------------------------- */
+@theme {
+  --color-paper: #faf8f3;
+  --color-card: #fffdf8;
+  --color-sunk: #f4f1ea;
+  --color-ink: #1c1a17;
+  --color-ink-muted: #3a352e;
+  --color-ink-soft: #5c564c;
+  --color-ink-faint: #8b8578;
+  --color-ink-ghost: #a09a8c;
+  --color-rule: rgba(28, 26, 23, 0.12);
+  --color-rule-strong: rgba(28, 26, 23, 0.22);
+  --color-accent: #33418f;
+  --color-accent-soft: rgba(51, 65, 143, 0.09);
+  --color-warn: #8a3324;
+  --color-warn-soft: rgba(138, 51, 36, 0.07);
+
+  --font-serif: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
 }
 
 body {
-  @apply bg-slate-50 text-slate-900;
+  @apply bg-paper text-ink font-sans;
   overscroll-behavior-y: none;
+  /* A long technical compound or a pasted URL, in the learner's own text or
+     inside a correction, would otherwise push the column past the viewport
+     and slide the page under the fixed tab bar. */
+  overflow-wrap: anywhere;
 }
 
+/* Corrections read as ink annotation, not as highlighter. */
 mark {
-  @apply rounded bg-amber-200 px-0.5 text-inherit;
+  @apply bg-transparent text-accent;
+  border-bottom: 1.5px solid rgba(51, 65, 143, 0.4);
+}
+
+/* A label in the small mono caps used for every metadata line in the app. */
+.eyebrow {
+  @apply font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-ink-faint;
+}
+
+/* Tabular figures everywhere a number is meant to be compared down a column. */
+.tnum {
+  font-variant-numeric: tabular-nums;
 }

@@ -33,17 +33,17 @@ export default class ErrorBoundary extends Component<Props, State> {
 
     return (
       <div className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-4 p-6">
-        <h1 className="text-xl font-bold">Something broke</h1>
-        <p className="text-slate-700">
-          The app hit an error it couldn't recover from. Your entries are still stored on this
-          device — reloading usually clears it.
+        <h1 className="font-serif text-3xl">Something went wrong</h1>
+        <p className="text-ink-muted">
+          The app has a problem and cannot continue. Your writing is still safe on this device.
+          Please tap Reload. This usually fixes it.
         </p>
-        <p className="rounded-lg bg-slate-100 p-3 font-mono text-xs text-slate-600">
+        <p className="rounded-lg bg-sunk p-3 font-mono text-xs text-ink-soft">
           {error.message}
         </p>
         <button
           onClick={() => window.location.reload()}
-          className="min-h-11 self-start rounded-full bg-blue-700 px-6 font-semibold text-white"
+          className="min-h-11 self-start rounded-full bg-accent px-6 font-semibold text-paper"
         >
           Reload
         </button>

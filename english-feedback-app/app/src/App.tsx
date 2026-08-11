@@ -13,11 +13,13 @@ export type Screen =
   | { name: "history" }
   | { name: "settings" };
 
-const TABS: Array<{ name: Screen["name"]; label: string; icon: string }> = [
-  { name: "write", label: "Write", icon: "✍️" },
-  { name: "log", label: "Errors", icon: "📊" },
-  { name: "history", label: "History", icon: "🕘" },
-  { name: "settings", label: "Settings", icon: "⚙️" },
+/* No icons. The four words are short, and an emoji beside each one was the
+   loudest thing on a screen whose whole subject is careful writing. */
+const TABS: Array<{ name: Screen["name"]; label: string }> = [
+  { name: "write", label: "Write" },
+  { name: "log", label: "Patterns" },
+  { name: "history", label: "History" },
+  { name: "settings", label: "Settings" },
 ];
 
 export default function App() {
@@ -31,31 +33,49 @@ export default function App() {
   }, []);
 
   // Analyse queued entries on launch and whenever the connection returns (§3.3).
+  //
+  // Also on a timer and on regaining focus, because neither of those two
+  // events is guaranteed to happen again: a device that never went offline
+  // never fires `online`, so a rate limit, a server blip, or a claim left
+  // behind by a killed tab would otherwise wait for a full relaunch.
   useEffect(() => {
     const run = async () => {
       const analysed = await processQueue();
       if (analysed > 0) {
-        showToast(`${analysed} queued ${analysed === 1 ? "entry" : "entries"} analysed`);
+        showToast(`We checked ${analysed} saved ${analysed === 1 ? "entry" : "entries"}.`);
         setRefreshKey((k) => k + 1);
       }
     };
+    const runIfVisible = () => {
+      if (document.visibilityState === "visible") void run();
+    };
     void run();
+    const timer = window.setInterval(runIfVisible, 60_000);
     window.addEventListener("online", run);
-    return () => window.removeEventListener("online", run);
+    document.addEventListener("visibilitychange", runIfVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("online", run);
+      document.removeEventListener("visibilitychange", runIfVisible);
+    };
   }, [showToast]);
 
   const activeTab = screen.name === "feedback" ? "history" : screen.name;
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-xl flex-col">
-      <main className="flex-1 px-4 pb-24 pt-4">
+      {/* The nav is 56px plus the home-indicator inset, so both the padding
+          here and the toast below have to clear the inset as well — at a
+          fixed 5rem the toast sits behind the tab bar on any device with
+          one. */}
+      <main className="flex-1 px-6 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
         {screen.name === "write" && (
           <WriteScreen navigate={setScreen} showToast={showToast} />
         )}
         {screen.name === "feedback" && (
-          <FeedbackScreen entryId={screen.entryId} navigate={setScreen} />
+          <FeedbackScreen entryId={screen.entryId} navigate={setScreen} showToast={showToast} />
         )}
-        {screen.name === "log" && <ErrorLogScreen key={refreshKey} />}
+        {screen.name === "log" && <ErrorLogScreen key={refreshKey} showToast={showToast} />}
         {screen.name === "history" && (
           <HistoryScreen key={refreshKey} navigate={setScreen} />
         )}
@@ -66,26 +86,35 @@ export default function App() {
         <div
           role="status"
           aria-live="polite"
-          className="fixed bottom-20 left-1/2 z-20 max-w-[90vw] -translate-x-1/2 rounded-2xl bg-slate-900 px-4 py-2 text-center text-sm text-white shadow-lg"
+          className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] left-1/2 z-20 max-w-[90vw] -translate-x-1/2 rounded-full bg-ink px-5 py-2.5 text-center text-sm text-paper shadow-lg"
         >
           {toast}
         </div>
       )}
 
-      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)]">
-        <div className="mx-auto flex max-w-xl">
+      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-rule bg-sunk pb-[env(safe-area-inset-bottom)]">
+        <div className="mx-auto flex max-w-xl px-2">
           {TABS.map((tab) => (
             <button
               key={tab.name}
               type="button"
               onClick={() => setScreen({ name: tab.name } as Screen)}
               aria-current={activeTab === tab.name ? "page" : undefined}
-              className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs ${
-                activeTab === tab.name ? "font-semibold text-blue-700" : "text-slate-600"
-              }`}
+              className="flex min-h-14 flex-1 flex-col items-center gap-1.5 pt-3"
             >
-              <span aria-hidden className="text-lg leading-none">{tab.icon}</span>
-              {tab.label}
+              {/* The active marker is a rule above the label rather than a
+                  filled pill: it reads at a glance and costs no colour. */}
+              <span
+                aria-hidden
+                className={`h-0.5 w-5.5 ${activeTab === tab.name ? "bg-accent" : "bg-transparent"}`}
+              />
+              <span
+                className={`text-[11px] ${
+                  activeTab === tab.name ? "font-semibold text-accent" : "text-ink-faint"
+                }`}
+              >
+                {tab.label}
+              </span>
             </button>
           ))}
         </div>

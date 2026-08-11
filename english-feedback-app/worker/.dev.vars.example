@@ -1,3 +1,9 @@
 # Copy to `.dev.vars` (git-ignored) for local `wrangler dev`.
 # In production use: npx wrangler secret put ANTHROPIC_API_KEY
 ANTHROPIC_API_KEY=sk-ant-...
+
+# Values here override [vars] in wrangler.toml, but only for `wrangler dev`.
+# wrangler.toml carries the deployed origin, so without this line the local
+# app is correctly refused with 403 origin_not_allowed. Keep localhost here
+# rather than widening the deployed allowlist.
+ALLOWED_ORIGIN=http://localhost:5173
