@@ -3,7 +3,8 @@
  *
  *   policy (index.ts) → split (code) → pattern matcher (code) →
  *   THE TEACHER (llm: risk check · minimal correction · ambiguity ·
- *   per-change notes · teacher message) → diff (code) → labelling (code) →
+ *   per-change notes · teacher message · optional alternatives) →
+ *   diff (code) → labelling (code) → alternatives bounding (code) →
  *   assembled Feedback
  *
  * The model never produces the error list: spans come from diffing its
@@ -13,12 +14,19 @@
  * pair-based explanation rather than inventing anything. Pattern-sourced
  * edits are labelled straight from the taxonomy with no model involvement.
  *
+ * A note may also carry `alternatives` — "you could also say" rephrasings
+ * (ADR 0002 Part B). Unlike a correction these are asserted, not diffed, so
+ * they never enter `corrections`: `alternatives.ts` bounds them in code into
+ * a parallel `feedback.alternatives` array that carries no category,
+ * severity or pattern_id and so has no route into any statistic.
+ *
  * `risk: "acute"` short-circuits: no corrections, no teacher message — the
  * client renders the wellbeing screen. Never a grammar lesson for a crisis.
  *
  * Not pure — this is the Anthropic SDK plus Worker runtime, untested for the
  * same reason index.ts is (needs Miniflare). The pure pieces it leans on —
- * patterns.ts, diff.ts, sentences.ts, policy.ts, learner.ts — are tested.
+ * patterns.ts, diff.ts, sentences.ts, policy.ts, learner.ts, alternatives.ts
+ * — are tested.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -38,6 +46,7 @@ import { splitSentences, reconstructText } from "./sentences";
 import { extractEdits, rewriteRatio, MAX_REWRITE_RATIO } from "./diff";
 import { applyPatterns, findMatchingHit, labelForHit, type PatternHit } from "./patterns";
 import { effectiveLevel, l1NotesFor, learnerContext } from "./learner.ts";
+import { attachAlternatives, type AlternativeCandidate } from "./alternatives.ts";
 
 // Covers thinking AND the response together — the response carries the
 // corrected sentences, the notes, and a ≤160-word message. Unmeasured.
@@ -232,16 +241,25 @@ export async function runPipeline(
   // Notes queued per sentence, consumed in reading order by the model's own
   // edits. Pattern-sourced edits never consume one: the model did not make
   // those changes, so it wrote no note for them.
-  const noteQueues = new Map<number, Array<{ category: string; rule: string }>>();
+  const noteQueues = new Map<
+    number,
+    Array<{ category: string; rule: string; alternatives?: string[] }>
+  >();
   for (const n of agent.notes) {
     if (n.index < 0 || n.index >= sentences.length) continue;
     const q = noteQueues.get(n.index) ?? [];
-    q.push({ category: n.category, rule: n.rule });
+    q.push({ category: n.category, rule: n.rule, alternatives: n.alternatives });
     noteQueues.set(n.index, q);
   }
 
+  // Raw candidates for "You could also say…", keyed to the position each
+  // model-sourced correction ends up at in `corrections` below — the same
+  // reading-order zip that labels the correction also owns its alternatives.
+  // Bounded in code, not trusted from the model: see alternatives.ts.
+  const alternativeCandidates: AlternativeCandidate[] = [];
+
   const level = effectiveLevel(profile);
-  const corrections: AnalyzeFeedback["corrections"] = edits.map((edit) => {
+  const corrections: AnalyzeFeedback["corrections"] = edits.map((edit, correctionIndex) => {
     const hit = findMatchingHit(edit, hitsBySentence[edit.sentIdx] ?? []);
     if (hit) {
       const l = labelForHit(hit, level);
@@ -261,6 +279,9 @@ export async function runPipeline(
       note?.rule ??
       ruleFor(category, level) ??
       `In English this is written “${edit.corrected || "(nothing)"}”, not “${edit.original || "(nothing)"}”.`;
+    if (note?.alternatives && note.alternatives.length > 0) {
+      alternativeCandidates.push({ for: correctionIndex, phrasings: note.alternatives });
+    }
     return {
       original: edit.original,
       corrected: edit.corrected,
@@ -271,6 +292,7 @@ export async function runPipeline(
     };
   });
 
+  const alternatives = attachAlternatives(alternativeCandidates, corrections);
   const ambiguous = agent.ambiguous.filter((a) => a.index >= 0 && a.index < sentences.length);
   const teacherFeedback = agent.feedback.trim();
 
@@ -280,6 +302,7 @@ export async function runPipeline(
     corrections,
     ...(teacherFeedback ? { teacher_feedback: teacherFeedback } : {}),
     ...(ambiguous.length > 0 ? { ambiguous } : {}),
+    ...(alternatives.length > 0 ? { alternatives } : {}),
   };
 
   return { ok: true, value: { feedback, cache: usage }, calls: callsMade };

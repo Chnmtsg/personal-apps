@@ -43,6 +43,11 @@ All paths in this file are relative to `english-feedback-app/`.
     correction's `original`/`corrected` text provably correct, computed from
     the two texts rather than asserted by a model.
   - `src/sentences.ts` — pure sentence splitting and reassembly.
+  - `src/alternatives.ts` — pure bounding of the teacher's optional
+    "You could also say…" phrasings (ADR 0002 Part B): drops an out-of-range
+    `for`, a phrasing attached to a pattern-sourced correction, and an
+    over-long phrasing (never truncated); caps the list at 3. The one other
+    control besides the prompt — there is deliberately no verification stage.
   - `src/learner.ts` — pure assembly of the per-user blocks (level, l1 notes
     and bridges) that go in USER messages, never in system prompts.
   - `src/policy.ts` — pure request-policy decisions (origin, key, body)
@@ -258,6 +263,24 @@ invent one. This is what replaced the old design's exact-substring risk (the
 client's `FeedbackSchema` substring check in `api.ts` is now a regression
 guard, not an active risk).
 
+**No unverified model text may live inside a `Correction`.** ADR 0002 Part B's
+alternative phrasings ("You could also say…") are, by definition, model-
+asserted free text no diff can verify — the opposite of the invariant above.
+They ride the note the teacher already writes per change, but `shared/schema.ts`
+keeps them in a parallel top-level `alternatives: [{ for, phrasings }]` array,
+never inside `CorrectionSchema` or `StoredCorrection`. An alternative therefore
+carries no `category`, `severity` or `pattern_id`, so there is no route by
+which one could reach the taxonomy, `getErrorCounts`, `getPatternMap`,
+`per100`, the trend, or `formatErrorLog` — not a discipline to remember, a
+shape those functions cannot reach because they only ever iterate
+`corrections`. `worker/src/alternatives.ts` bounds what the model returns in
+code before it reaches `FeedbackSchema`: an out-of-range `for`, a phrasing
+attached to a pattern-sourced correction, and an over-long phrasing are all
+dropped — never truncated, since a phrasing cut mid-word is broken English
+shown to a learner as a model of good English. The UI renders them as passive
+reading only, visually subordinate to the correction they ride (no `EditSpan`,
+no accent rule bar, no tick) — never anything interactive.
+
 **A claim about the learner's history is computed, never asserted.** The same
 rule as the one above, applied to time rather than text. `cleanStreak` comes
 from `stats.ts`, counted over stored entries; `pattern_watch.entries_clean`
@@ -363,11 +386,15 @@ Current, honest state. Update this list rather than letting it rot.
   than the agent declared, the leftovers get `category: "other"` with a
   pair-based explanation — never invented, but unlabelled. Watch how often
   "other" appears in real entries; a high rate means the zip needs work or
-  the tutor agent should return.
+  the tutor agent should return. Alternative phrasings (ADR 0002 Part B) now
+  ride the same zip — a mis-zip can only move an alternative onto a
+  different edit *within the same sentence*, never onto the wrong sentence,
+  so the blast radius stays bounded.
 - The Worker's `fetch` handler and `worker/src/pipeline.ts` have no
   integration test — testing them needs Miniflare. Only the pure pieces
   (`patterns.ts`, `diff.ts`, `sentences.ts`, `policy.ts`, `learner.ts`,
-  `importEntries.ts`) are tested. Every React screen is also untested (no DOM
+  `alternatives.ts`, `importEntries.ts`) are tested. Every React screen is
+  also untested (no DOM
   library); the acute wellbeing screen, the pattern grid, the drill MCQ and
   the Settings import path have all been verified by typecheck and by hand,
   not by an automated suite.

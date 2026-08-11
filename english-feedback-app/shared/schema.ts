@@ -24,7 +24,9 @@ export const MODEL_ID = "claude-opus-5";
 // 6: the 9-agent pipeline; taxonomy v2.
 // 7: collapsed to the single teacher agent (ADR 0001) — inline risk check,
 //    minimal correction, per-change notes, teacher message in one call.
-export const PROMPT_VERSION = 7;
+// 8: a note may carry optional `alternatives` — at most 2 other correct ways
+//    to write that sentence, on at most the 3 changes taught (ADR 0002 B).
+export const PROMPT_VERSION = 8;
 
 // Mirrors the client-side minimum in Write.tsx, enforced again server-side as
 // defense-in-depth against a bypassed or future client — validate before
@@ -83,6 +85,22 @@ const AmbiguitySchema = z.object({
   question: z.string(),
 });
 
+/**
+ * "You could also say…" — at most 2 complete, model-written rephrasings of
+ * a taught correction's sentence. NOT diff-verified: unlike `Correction`,
+ * this is asserted free text, so it lives in its own array, never inside
+ * `CorrectionSchema` (ADR 0002 Part B). `for` is an index into `corrections`,
+ * assigned by the same reading-order notes→edits zip that labels corrections
+ * themselves; `worker/src/alternatives.ts` bounds this in code before it
+ * reaches `FeedbackSchema` — dropping an out-of-range `for` or an over-long
+ * phrasing rather than truncating it, since a phrasing cut mid-word is
+ * broken English shown to a learner as a model of good English.
+ */
+const AlternativeSchema = z.object({
+  for: z.number().int().min(0),
+  phrasings: z.array(z.string().max(120)).min(1).max(2),
+});
+
 const FluencyNoteSchema = z.object({
   before: z.string(),
   after: z.string(),
@@ -106,6 +124,10 @@ export const FeedbackSchema = z.object({
   /** 9-agent era: indices the teacher voice chose. No longer written. */
   highlighted: z.array(z.number().int().min(0)).optional(),
   ambiguous: z.array(AmbiguitySchema).optional(),
+  /** Parallel to `corrections`, never inside it — see `AlternativeSchema`.
+   * Bounded to at most 3 by `worker/src/alternatives.ts` before this is
+   * ever populated; absent on every entry stored before PROMPT_VERSION 8. */
+  alternatives: z.array(AlternativeSchema).max(3).optional(),
   /** 9-agent era fields — still valid stored data, no longer written. */
   fluency_notes: z.array(FluencyNoteSchema).optional(),
   drills: z.array(DrillSchema).optional(),
@@ -203,6 +225,11 @@ export const AgentOutputSchema = z.object({
       index: z.number().int().min(0),
       category: CategoryEnum,
       rule: z.string(),
+      /** Optional and loose on purpose: a bad value must degrade, not fail
+       * the parse and cost a retry. `worker/src/alternatives.ts` applies the
+       * strict bounds (length cap, range check, the 3-entry ceiling) after
+       * this has already parsed successfully. */
+      alternatives: z.array(z.string()).max(2).optional(),
     })
   ),
   feedback: z.string(),
@@ -236,7 +263,10 @@ export type LearnerProfile = z.infer<typeof LearnerProfileSchema>;
 // below are generated from the taxonomy — static for every request.
 // ---------------------------------------------------------------------------
 
-const RULE_CARDS = (Object.keys(TAXONOMY) as CategoryId[])
+// Exported so tests/schema.test.ts can rebuild the exact mirrored prompt from
+// prompts/teacher.md and its placeholders, rather than re-deriving rule cards
+// with a second, potentially drifting implementation.
+export const RULE_CARDS = (Object.keys(TAXONOMY) as CategoryId[])
   .filter((id) => TAXONOMY[id].ruleA2 ?? TAXONOMY[id].ruleB1)
   .map((id) => {
     const t = TAXONOMY[id];
@@ -274,6 +304,12 @@ ${CATEGORY_IDS.join(", ")}
 <rules>
 ${RULE_CARDS}
 </rules>
+
+"alternatives" is OPTIONAL, and belongs only on the at most 3 changes you actually teach in "feedback" — never on the others, and never more than 2 on one note. It is the one place you show the writer another way to say what they already wrote.
+
+Each alternative is a COMPLETE sentence, correct on its own, that the writer could have written instead of your corrected sentence — not a fragment, not a phrase, not a rule. It means exactly the same thing: correction rule 2 still holds, so it adds no information, opinion or detail, and drops nothing. It stays in the writer's own words and register at their level, as in correction rule 3 — a word they do not have yet teaches nothing and reads as a rebuke. It must differ from your correction in a real way — a different word order, a different everyday word, a different structure — never only in punctuation or capitalisation. Never a translation, and never a "better" version of a sentence that was already fine. Keep each one short, under 120 characters, so it can be read at a glance. If you teach two changes in the same sentence, put alternatives on one of them only; the writer does not need the same sentence rephrased twice.
+
+Most sentences have one natural phrasing, and then you leave "alternatives" out. That is the normal answer, not a gap — none at all is better than one invented to fill the field. Two is a ceiling, never a target. When "risk" is "acute" there are no notes and no feedback, so there are no alternatives either.
 </notes>
 
 <feedback>
@@ -286,10 +322,10 @@ Tone: warm and direct — a good teacher, not a cheerleader and not a red pen. N
 </feedback>
 
 Return JSON only:
-{"risk": "none", "corrected": ["...", "..."], "ambiguous": [], "notes": [{"index": 0, "category": "...", "rule": "..."}], "feedback": "..."}
+{"risk": "none", "corrected": ["...", "..."], "ambiguous": [], "notes": [{"index": 0, "category": "...", "rule": "...", "alternatives": ["..."]}], "feedback": "..."}
 
-Example — note the second sentence comes back untouched, not "improved":
+Example — note the second sentence comes back untouched, not "improved", and that only one note carries "alternatives":
 Input: {"sentences": ["Yesterday I go to shop with my sister.", "The weather was very cold and windy."]}
-Output: {"risk": "none", "corrected": ["Yesterday I went to the shop with my sister.", "The weather was very cold and windy."], "ambiguous": [], "notes": [{"index": 0, "category": "verb_tense", "rule": "For finished past actions, use the past form: go becomes went."}, {"index": 0, "category": "article", "rule": "English needs 'the' before a place you and the reader both know."}], "feedback": "Good clear entry — your weather sentence is exactly right. One thing: for yesterday's actions, use the past form: go becomes went. And English needs 'the' before a known place: to the shop. What did you buy?"}
+Output: {"risk": "none", "corrected": ["Yesterday I went to the shop with my sister.", "The weather was very cold and windy."], "ambiguous": [], "notes": [{"index": 0, "category": "verb_tense", "rule": "For finished past actions, use the past form: go becomes went.", "alternatives": ["I went to the shop with my sister yesterday.", "Yesterday I went to the store with my sister."]}, {"index": 0, "category": "article", "rule": "English needs 'the' before a place you and the reader both know."}], "feedback": "Good clear entry — your weather sentence is exactly right. One thing: for yesterday's actions, use the past form: go becomes went. And English needs 'the' before a known place: to the shop. What did you buy?"}
 
 The user message may also contain a KNOWN ERROR PATTERNS section: examples of mistakes this learner's history makes likely. They are reference material — the sentences to correct are only the ones in the "sentences" array.`;

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -5,6 +6,8 @@ import {
   ERROR_CATEGORIES,
   FeedbackSchema,
   LearnerProfileSchema,
+  RULE_CARDS,
+  TEACHER_SYSTEM_PROMPT,
 } from "../shared/schema.ts";
 import { CATEGORY_IDS } from "../shared/taxonomy.ts";
 
@@ -205,4 +208,141 @@ test("over-long profile fields are rejected at the boundary", () => {
   assert.ok(!LearnerProfileSchema.safeParse({ nativeLanguage: "x".repeat(41) }).success);
   assert.ok(LearnerProfileSchema.safeParse({ nativeLanguage: "x".repeat(40) }).success);
   assert.ok(!LearnerProfileSchema.safeParse({ goal: "x".repeat(121) }).success);
+});
+
+// ADR 0002 Part B — alternative phrasings. They ride the existing note
+// (AgentOutputSchema) but live OUTSIDE CorrectionSchema on the network
+// boundary (FeedbackSchema): a parallel `alternatives` array with no
+// category, severity or pattern_id, so there is no route into the taxonomy
+// or any statistic. worker/src/alternatives.ts (tests/alternatives.test.ts)
+// applies the strict bounds; these tests only pin the shape of the boundary
+// itself.
+
+test("a note's alternatives are optional and absent by default", () => {
+  const withoutAlternatives = minimalAgentOutput();
+  assert.ok(AgentOutputSchema.safeParse(withoutAlternatives).success);
+});
+
+test("a note may carry up to 2 alternatives, loosely — a bad value must degrade, not fail the parse", () => {
+  const withTwo = {
+    ...minimalAgentOutput(),
+    notes: [
+      {
+        index: 0,
+        category: "article",
+        rule: "English needs an article here.",
+        alternatives: ["A geologist, that's me.", "I work as a geologist."],
+      },
+    ],
+  };
+  const parsed = AgentOutputSchema.safeParse(withTwo);
+  assert.ok(parsed.success);
+  assert.equal(parsed.data.notes[0]!.alternatives?.length, 2);
+
+  // More than 2 fails the parse (the agent's own contract); a retry costs
+  // money, but this is a shape the prompt should never produce.
+  const withThree = {
+    ...minimalAgentOutput(),
+    notes: [
+      {
+        index: 0,
+        category: "article",
+        rule: "r",
+        alternatives: ["one", "two", "three"],
+      },
+    ],
+  };
+  assert.ok(!AgentOutputSchema.safeParse(withThree).success);
+
+  // No length cap at this layer — that bound lives in worker/src/alternatives.ts,
+  // downstream of this schema, so an over-long phrasing degrades rather than
+  // failing the whole call.
+  const withLongPhrasing = {
+    ...minimalAgentOutput(),
+    notes: [
+      { index: 0, category: "article", rule: "r", alternatives: ["x".repeat(500)] },
+    ],
+  };
+  assert.ok(AgentOutputSchema.safeParse(withLongPhrasing).success);
+});
+
+test("FeedbackSchema's alternatives is a parallel array, not part of a correction", () => {
+  const body = minimalFeedback();
+  (body.corrections as Array<Record<string, unknown>>)[0].alternatives = ["should not exist here"];
+  const parsed = FeedbackSchema.safeParse(body);
+  // Zod strips unknown keys rather than rejecting — so this parses, but the
+  // stray field on the correction must not survive.
+  assert.ok(parsed.success);
+  assert.ok(!("alternatives" in parsed.data.corrections[0]!));
+});
+
+test("a top-level alternatives entry needs a valid `for` and 1-2 short phrasings", () => {
+  const withAlternatives = {
+    ...minimalFeedback(),
+    alternatives: [{ for: 0, phrasings: ["I am a geologist by training."] }],
+  };
+  const parsed = FeedbackSchema.safeParse(withAlternatives);
+  assert.ok(parsed.success);
+  assert.deepEqual(parsed.data.alternatives, [{ for: 0, phrasings: ["I am a geologist by training."] }]);
+
+  assert.ok(
+    !FeedbackSchema.safeParse({
+      ...minimalFeedback(),
+      alternatives: [{ for: 0, phrasings: [] }],
+    }).success,
+    "zero phrasings must be rejected"
+  );
+  assert.ok(
+    !FeedbackSchema.safeParse({
+      ...minimalFeedback(),
+      alternatives: [{ for: 0, phrasings: ["a", "b", "c"] }],
+    }).success,
+    "more than 2 phrasings must be rejected"
+  );
+  assert.ok(
+    !FeedbackSchema.safeParse({
+      ...minimalFeedback(),
+      alternatives: [{ for: 0, phrasings: ["x".repeat(121)] }],
+    }).success,
+    "a phrasing over 120 characters must be rejected"
+  );
+  assert.ok(
+    !FeedbackSchema.safeParse({
+      ...minimalFeedback(),
+      alternatives: [{ for: -1, phrasings: ["a"] }],
+    }).success,
+    "a negative `for` must be rejected"
+  );
+});
+
+test("an old entry with no alternatives at all still parses", () => {
+  assert.ok(FeedbackSchema.safeParse(minimalFeedback()).success);
+});
+
+// This is the mirror gap the prompt engineer found: nothing in tests/ read
+// prompts/teacher.md, so it and TEACHER_SYSTEM_PROMPT could drift apart with
+// `npm run verify` fully green. This rebuilds the mirror from the source and
+// pins byte-equality.
+test("prompts/teacher.md and TEACHER_SYSTEM_PROMPT (shared/schema.ts) are byte-identical mirrors", () => {
+  const raw = readFileSync(new URL("../prompts/teacher.md", import.meta.url), "utf8");
+
+  // Strip the frontmatter block (--- ... ---) and its trailing blank line.
+  const frontmatterEnd = raw.indexOf("\n---", 3);
+  assert.ok(frontmatterEnd !== -1, "prompts/teacher.md must have a closing --- frontmatter fence");
+  const body = raw
+    .slice(frontmatterEnd + "\n---".length)
+    .replace(/^\n+/, "")
+    .replace(/\n+$/, "");
+
+  const rebuilt = body
+    .replaceAll("{{CATEGORY_IDS}}", CATEGORY_IDS.join(", "))
+    .replaceAll("{{RULE_CARDS}}", RULE_CARDS);
+
+  assert.equal(
+    rebuilt,
+    TEACHER_SYSTEM_PROMPT,
+    "prompts/teacher.md and TEACHER_SYSTEM_PROMPT in shared/schema.ts have drifted — " +
+      "edit prompts/teacher.md first, mirror the change into TEACHER_SYSTEM_PROMPT, " +
+      "and bump PROMPT_VERSION."
+  );
 });

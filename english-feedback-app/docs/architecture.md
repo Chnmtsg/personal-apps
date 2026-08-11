@@ -13,12 +13,17 @@ client ── POST /analyze ──▶ policy (code)          validate before spe
                             THE TEACHER (llm)      the one runtime agent:
                                                    risk check · minimal correction
                                                    · ambiguity · per-change notes
-                                                   · teacher message
+                                                   · teacher message · optional
+                                                   alternative phrasings
                             diff (code)            edits vs the ORIGINAL text —
                                                    the model never produces the
                                                    error list
                             label (code)           pattern edits from taxonomy;
                                                    model edits from the notes zip
+                            alternatives (code)     bounds "you could also say"
+                                                   phrasings; alternatives.ts —
+                                                   parallel to Feedback, never
+                                                   inside a Correction
                             assemble ──▶ Feedback (client validates, stores)
 ```
 

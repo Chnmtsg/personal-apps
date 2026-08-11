@@ -61,6 +61,15 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
     () => (entry && historyState.status === "ready" ? previousRate(historyState.data, entry.id) : null),
     [entry, historyState]
   );
+  // "You could also say…" phrasings, keyed by the index into fb.corrections
+  // they belong to (ADR 0002 Part B). Lives outside `Correction` on purpose —
+  // see shared/schema.ts's AlternativeSchema — so this lookup is the only
+  // place the two are joined back together, for rendering only.
+  const altsByIndex = useMemo(() => {
+    const map = new Map<number, string[]>();
+    for (const a of fb?.alternatives ?? []) map.set(a.for, a.phrasings);
+    return map;
+  }, [fb]);
 
   const [i, setI] = useState(0);
   const [dx, setDx] = useState(0);
@@ -405,6 +414,28 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
                             {c.explanation ?? c.rule}
                           </p>
                         </div>
+                        {/* "You could also say" — passive reading only, never
+                            a choice (ADR 0002 Part B). Deliberately no
+                            EditSpan, no accent rule bar, no tick: this is not
+                            a correction and must never look like one.
+                            Pattern-sourced rows never reach here — they
+                            consumed no note, so they have no entry in
+                            altsByIndex. */}
+                        {altsByIndex.has(index) && (
+                          <div className="mt-3">
+                            <Eyebrow>You could also say</Eyebrow>
+                            <ul className="mt-2 flex flex-col gap-1">
+                              {altsByIndex.get(index)!.map((phrasing, k) => (
+                                <li
+                                  key={k}
+                                  className="font-serif text-[14.5px] italic leading-[1.6] text-ink-soft"
+                                >
+                                  {phrasing}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                         {legacyPattern && legacyPattern.explanation && (
                           <div className="mt-3">
                             <Eyebrow>Why it keeps happening</Eyebrow>
