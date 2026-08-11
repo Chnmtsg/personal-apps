@@ -396,10 +396,10 @@ Current, honest state. Update this list rather than letting it rot.
   made this error" explanation is the model's own contrastive knowledge,
   unverified by us. Adding a language means adding note/bridge fields per
   category — write them only from real contrastive knowledge.
-- `English-Teacher-Bot-Prompt.md` is the older chat-assistant prompt this
-  app grew out of. The agent library and YAML files supersede it as the
-  app's source material; it stays only as the user's personal document for
-  chat assistants and is no longer kept in sync.
+- `knowledge/English-Teacher-Bot-Prompt.md` is the older chat-assistant
+  prompt this app grew out of. The agent library and YAML files supersede it
+  as the app's source material; it stays only as the user's personal document
+  for chat assistants and is no longer kept in sync.
 - **The corrector's over-rewrite threshold (`MAX_REWRITE_RATIO = 0.45`) is
   untuned.** It now measures only the model's edits (pattern fixes are
   applied before the corrector runs), which should trip it less often —
