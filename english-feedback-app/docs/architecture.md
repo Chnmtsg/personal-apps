@@ -50,7 +50,14 @@ pattern.
 
 ## Client (app/)
 
-React PWA. Write → claim → analyse → Feedback card stack; Patterns derives
-everything (counts, trend, clean streaks, the pattern map scoped to the 49
-deterministically-detectable patterns) from stored entries on read. Offline
-queue with bounded, classified retries.
+React PWA. Write → claim → analyse → Feedback: a fixed four-card stack
+(ADR 0002 Part A) built by the pure `buildFeedbackCards`
+(`app/src/lib/cards.ts`) — the teacher's message, every change as one
+scrollable list in diff order (`ambiguous` folds in as a trailing block),
+the corrected text, then closing. Card count is a function of stored data,
+never of correction count. A legacy appendix card (fluency notes,
+vocabulary, drills, pattern watch) inserts before closing only on entries
+that predate ADR 0001, so nothing analysed today exceeds four cards. Patterns
+derives everything (counts, trend, clean streaks, the pattern map scoped to
+the 49 deterministically-detectable patterns) from stored entries on read.
+Offline queue with bounded, classified retries.

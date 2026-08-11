@@ -7,6 +7,7 @@ import { processQueue } from "../lib/queue";
 import { canRequeue } from "../lib/claim";
 import { FAIL_REASON_MESSAGES, labelFor } from "../lib/categories";
 import { buildSegments } from "../lib/highlight";
+import { buildFeedbackCards } from "../lib/cards";
 import { useLoad } from "../lib/useLoad";
 
 interface Props {
@@ -24,40 +25,6 @@ function pendingMessage(entry: Entry): string {
     return "This writing is waiting to be checked. We will do it soon.";
   }
   return `${FAIL_REASON_MESSAGES[entry.failReason ?? "server"]} Your writing is safe below.`;
-}
-
-type Feedback = NonNullable<Entry["feedback"]>;
-type Card =
-  | { kind: "summary" }
-  | { kind: "watch" }
-  | { kind: "ambiguous" }
-  | { kind: "correction"; index: number }
-  | { kind: "fluency" }
-  | { kind: "vocabulary" }
-  | { kind: "drill"; index: number }
-  | { kind: "corrected" }
-  | { kind: "closing" };
-
-/**
- * The card order is the teaching order: the teacher's message first, then
- * each correction on its own, then practice, then the coach. Empty sections
- * drop out rather than appearing as a card with a heading and nothing under
- * it. Legacy-only sections (vocabulary, pattern watch, scores) appear only on
- * entries that stored them.
- */
-function buildCards(fb: Feedback): Card[] {
-  const cards: Card[] = [{ kind: "summary" }];
-  if (fb.pattern_watch) cards.push({ kind: "watch" });
-  if (fb.ambiguous && fb.ambiguous.length > 0) cards.push({ kind: "ambiguous" });
-  fb.corrections.forEach((_, index) => cards.push({ kind: "correction", index }));
-  if (fb.fluency_notes && fb.fluency_notes.length > 0) cards.push({ kind: "fluency" });
-  if (fb.vocabulary && fb.vocabulary.length > 0) cards.push({ kind: "vocabulary" });
-  (fb.drills ?? []).forEach((_, index) => cards.push({ kind: "drill", index }));
-  // Last before the closing card: by this point the learner has met every
-  // correction on its own, so the clean copy reads as the result.
-  if (fb.corrected_text) cards.push({ kind: "corrected" });
-  cards.push({ kind: "closing" });
-  return cards;
 }
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
@@ -89,7 +56,7 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
   // and deliberately neither does the acute branch, which must never receive
   // focus stolen onto a crisis screen.
   const isNormalEntry = fb !== null && fb.risk !== "acute";
-  const cards = useMemo(() => (fb && isNormalEntry ? buildCards(fb) : []), [fb, isNormalEntry]);
+  const cards = useMemo(() => (fb && isNormalEntry ? buildFeedbackCards(fb) : []), [fb, isNormalEntry]);
   const priorRate = useMemo(
     () => (entry && historyState.status === "ready" ? previousRate(historyState.data, entry.id) : null),
     [entry, historyState]
@@ -339,7 +306,7 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
             opacity: dragging ? Math.max(0.55, 1 - Math.abs(dx) / 420) : 1,
           }}
         >
-          {card.kind === "summary" && (
+          {card.kind === "message" && (
             <>
               {/* The teacher's message is the feedback the learner actually
                   experiences, so it leads the card; the count that used to
@@ -386,158 +353,196 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
             </>
           )}
 
-          {card.kind === "ambiguous" && (
-            <>
-              <Eyebrow>We did not guess</Eyebrow>
+          {/* Card 2: every change as one scrollable list, in diff order — the
+              reading order of the learner's own text, never re-sorted by
+              severity, so this list reads line for line with card 3.
+              `ambiguous` folds in as a trailing block rather than earning
+              its own card (ADR 0002 Part A). */}
+          {card.kind === "changes" && (
+            <div className="flex h-full flex-col">
+              <Eyebrow>
+                {fb.corrections.length} {fb.corrections.length === 1 ? "change" : "changes"}
+              </Eyebrow>
               <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">
-                {fb.ambiguous!.length === 1
-                  ? "One sentence could mean two things"
-                  : "Some sentences could mean two things"}
+                Every change, one by one.
               </h2>
-              <p className="mt-3 text-[14.5px] leading-relaxed text-ink-muted">
-                We left these unchanged instead of choosing for you. Next entry, you could say it
-                the way you meant it.
-              </p>
-              <ul className="mt-5 flex flex-col divide-y divide-rule">
-                {fb.ambiguous!.map((a, k) => (
-                  <li key={k} className="py-4 first:pt-0 last:pb-0">
-                    <p className="font-serif text-[15.5px] leading-[1.6] text-ink">{a.question}</p>
-                  </li>
-                ))}
-              </ul>
-            </>
+              {fb.corrections.length > 0 && (
+                <ul className="mt-5 flex flex-col divide-y divide-rule">
+                  {fb.corrections.map((c, index) => {
+                    const legacyPattern = fb.patterns?.find((p) => p.category === c.category);
+                    return (
+                      <li key={index} className="py-5 first:pt-0 last:pb-0">
+                        <div className="flex items-baseline justify-between gap-3">
+                          {/* `!` forces this above .eyebrow's own text-ink-faint: both
+                              land in the same Tailwind layer, and .eyebrow is emitted
+                              later in the compiled CSS, so without it .eyebrow's
+                              color would silently win (same bug as ErrorLog.tsx's
+                              accent heading — WORK-04/WORK-21 follow-up). */}
+                          <span className="eyebrow text-accent!">{labelFor(c.category)}</span>
+                        </div>
+                        {(highlightedSet.has(index) || c.pattern_id !== undefined) && (
+                          <p className="mt-2 flex flex-wrap gap-1.5">
+                            {highlightedSet.has(index) && (
+                              <span className="rounded-full bg-accent px-2.5 py-1 text-[11px] font-medium text-paper">
+                                Your teacher picked this one
+                              </span>
+                            )}
+                            {c.pattern_id !== undefined && (
+                              <span className="tnum rounded-full bg-ink/5 px-2.5 py-1 text-[11px] text-ink-soft">
+                                #{c.pattern_id} on your checklist
+                              </span>
+                            )}
+                          </p>
+                        )}
+                        <div className="mt-3 border-l-2 border-accent pl-3.5">
+                          <p className="font-serif text-lg leading-[30px]">
+                            <EditSpan original={c.original} corrected={c.corrected} />
+                          </p>
+                        </div>
+                        <div className="mt-3 rounded-2xl bg-sunk p-4">
+                          <Eyebrow>The rule</Eyebrow>
+                          <p className="mt-2 text-[14.5px] leading-relaxed text-ink-muted">
+                            {c.explanation ?? c.rule}
+                          </p>
+                        </div>
+                        {legacyPattern && legacyPattern.explanation && (
+                          <div className="mt-3">
+                            <Eyebrow>Why it keeps happening</Eyebrow>
+                            <p className="mt-2 font-serif text-[15px] leading-[1.6] text-ink-soft">
+                              {legacyPattern.explanation}
+                            </p>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {fb.corrections.length === 0 && !(fb.ambiguous && fb.ambiguous.length > 0) && (
+                <p className="mt-5 text-[14.5px] leading-relaxed text-ink-muted">
+                  Nothing to correct this time.
+                </p>
+              )}
+              {fb.ambiguous && fb.ambiguous.length > 0 && (
+                <div className={fb.corrections.length > 0 ? "mt-5 border-t border-rule pt-5" : "mt-5"}>
+                  <Eyebrow>We did not guess</Eyebrow>
+                  <h3 className="mt-2 font-serif text-[19px] leading-[1.25] text-pretty">
+                    {fb.ambiguous.length === 1
+                      ? "One sentence could mean two things"
+                      : "Some sentences could mean two things"}
+                  </h3>
+                  <p className="mt-2 text-[13.5px] leading-relaxed text-ink-muted">
+                    We left these unchanged instead of choosing for you. Next entry, you could say
+                    it the way you meant it.
+                  </p>
+                  <ul className="mt-3 flex flex-col divide-y divide-rule">
+                    {fb.ambiguous.map((a, k) => (
+                      <li key={k} className="py-3 first:pt-0 last:pb-0">
+                        <p className="font-serif text-[15px] leading-[1.55] text-ink">
+                          {a.question}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           )}
 
-          {card.kind === "correction" && (() => {
-            const c = fb.corrections[card.index];
-            const legacyPattern = fb.patterns?.find((p) => p.category === c.category);
-            return (
-              <>
-                <div className="flex items-baseline justify-between gap-3">
-                  {/* `!` forces this above .eyebrow's own text-ink-faint: both
-                      land in the same Tailwind layer, and .eyebrow is emitted
-                      later in the compiled CSS, so without it .eyebrow's
-                      color would silently win (same bug as ErrorLog.tsx's
-                      accent heading — WORK-04/WORK-21 follow-up). */}
-                  <span className="eyebrow text-accent!">{labelFor(c.category)}</span>
-                  <span className="eyebrow tnum shrink-0">
-                    {card.index + 1} of {fb.corrections.length}
-                  </span>
-                </div>
-                {(highlightedSet.has(card.index) || c.pattern_id !== undefined) && (
-                  <p className="mt-2 flex flex-wrap gap-1.5">
-                    {highlightedSet.has(card.index) && (
-                      <span className="rounded-full bg-accent px-2.5 py-1 text-[11px] font-medium text-paper">
-                        Your teacher picked this one
-                      </span>
-                    )}
-                    {c.pattern_id !== undefined && (
-                      <span className="tnum rounded-full bg-ink/5 px-2.5 py-1 text-[11px] text-ink-soft">
-                        #{c.pattern_id} on your checklist
-                      </span>
-                    )}
+          {/* Legacy appendix (ADR 0002 Part A): the 9-agent-era sections no
+              current entry can produce, folded into one card before closing
+              rather than each earning its own. Shown only when at least one
+              is present — `buildFeedbackCards` already gates this. */}
+          {card.kind === "appendix" && (
+            <div className="flex h-full flex-col">
+              {fb.pattern_watch && (
+                <div className="border-t border-rule pt-6 first:border-t-0 first:pt-0">
+                  <Eyebrow>This one came back</Eyebrow>
+                  <h2 className="mt-2 font-serif text-[22px] leading-[1.2] text-pretty">
+                    {labelFor(fb.pattern_watch.category)}
+                  </h2>
+                  <p className="mt-2 text-[14.5px] text-ink-soft">
+                    {fb.pattern_watch.entries_clean}{" "}
+                    {fb.pattern_watch.entries_clean === 1 ? "entry" : "entries"} without it before
+                    this one.
                   </p>
-                )}
-                <div className="mt-5 border-l-2 border-accent pl-3.5">
-                  <p className="font-serif text-lg leading-[30px]">
-                    <EditSpan original={c.original} corrected={c.corrected} />
+                  <p className="mt-3 text-[15px] leading-relaxed text-ink-muted">
+                    {fb.pattern_watch.note}
                   </p>
-                </div>
-                <div className="mt-5 rounded-2xl bg-sunk p-4">
-                  <Eyebrow>The rule</Eyebrow>
-                  <p className="mt-2 text-[14.5px] leading-relaxed text-ink-muted">
-                    {c.explanation ?? c.rule}
-                  </p>
-                </div>
-                {legacyPattern && legacyPattern.explanation && (
-                  <div className="mt-5">
-                    <Eyebrow>Why it keeps happening</Eyebrow>
-                    <p className="mt-2 font-serif text-[15px] leading-[1.6] text-ink-soft">
-                      {legacyPattern.explanation}
+                  <div className="mt-4 border-l-2 border-accent bg-accent-soft px-4 py-3.5">
+                    <Eyebrow>Say this out loud</Eyebrow>
+                    <p className="mt-2 text-[15px] leading-relaxed text-ink">
+                      {fb.pattern_watch.practice}
                     </p>
                   </div>
-                )}
-              </>
-            );
-          })()}
-
-          {card.kind === "fluency" && (
-            <>
-              <Eyebrow>Nothing was wrong here</Eyebrow>
-              <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">
-                These would sound more natural
-              </h2>
-              <ul className="mt-5 flex flex-col divide-y divide-rule">
-                {(fb.fluency_notes ?? []).map((n, k) => (
-                  <li key={k} className="py-4 first:pt-0 last:pb-0">
-                    <p className="font-serif text-[17px] leading-[1.5]">
-                      <EditSpan original={n.before} corrected={n.after} tone="improvement" />
-                    </p>
-                    <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-soft">{n.why}</p>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          {card.kind === "vocabulary" && (
-            <>
-              <Eyebrow>Words to learn</Eyebrow>
-              <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">
-                From what you were writing about
-              </h2>
-              <ul className="mt-5 flex flex-col divide-y divide-rule">
-                {(fb.vocabulary ?? []).map((v, k) => (
-                  <li key={k} className="py-4 first:pt-0 last:pb-0">
-                    <p className="font-serif text-[19px] leading-tight">{v.term}</p>
-                    <p className="mt-1 font-mono text-[12.5px] text-accent">
-                      <span className="sr-only">Say it as </span>
-                      {v.stress}
-                    </p>
-                    <p className="mt-2 text-[14px] leading-relaxed text-ink-muted">{v.meaning}</p>
-                    <p className="mt-1 font-serif text-[14px] italic leading-relaxed text-ink-soft">
-                      {v.example}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          {card.kind === "drill" && (() => {
-            const d = (fb.drills ?? [])[card.index];
-            return (
-              <Drill
-                prompt={d.prompt}
-                hint={d.hint}
-                answer={d.answer}
-                distractors={d.distractors ?? []}
-                n={card.index + 1}
-                of={(fb.drills ?? []).length}
-              />
-            );
-          })()}
-
-          {card.kind === "watch" && fb.pattern_watch && (
-            <div className="flex h-full flex-col">
-              <Eyebrow>This one came back</Eyebrow>
-              <h2 className="mt-3 font-serif text-[26px] leading-[1.16] text-pretty">
-                {labelFor(fb.pattern_watch.category)}
-              </h2>
-              <p className="mt-2 text-[14.5px] text-ink-soft">
-                {fb.pattern_watch.entries_clean}{" "}
-                {fb.pattern_watch.entries_clean === 1 ? "entry" : "entries"} without it before
-                this one.
-              </p>
-              <p className="mt-4 text-[15px] leading-relaxed text-ink-muted">
-                {fb.pattern_watch.note}
-              </p>
-              <div className="mt-5 border-l-2 border-accent bg-accent-soft px-4 py-3.5">
-                <Eyebrow>Say this out loud</Eyebrow>
-                <p className="mt-2 text-[15px] leading-relaxed text-ink">
-                  {fb.pattern_watch.practice}
-                </p>
-              </div>
+                </div>
+              )}
+              {fb.fluency_notes && fb.fluency_notes.length > 0 && (
+                <div className="border-t border-rule pt-6 first:border-t-0 first:pt-0">
+                  <Eyebrow>Nothing was wrong here</Eyebrow>
+                  <h2 className="mt-2 font-serif text-[22px] leading-[1.2] text-pretty">
+                    These would sound more natural
+                  </h2>
+                  <ul className="mt-4 flex flex-col divide-y divide-rule">
+                    {fb.fluency_notes.map((n, k) => (
+                      <li key={k} className="py-4 first:pt-0 last:pb-0">
+                        <p className="font-serif text-[17px] leading-[1.5]">
+                          <EditSpan original={n.before} corrected={n.after} tone="improvement" />
+                        </p>
+                        <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-soft">
+                          {n.why}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {fb.vocabulary && fb.vocabulary.length > 0 && (
+                <div className="border-t border-rule pt-6 first:border-t-0 first:pt-0">
+                  <Eyebrow>Words to learn</Eyebrow>
+                  <h2 className="mt-2 font-serif text-[22px] leading-[1.2] text-pretty">
+                    From what you were writing about
+                  </h2>
+                  <ul className="mt-4 flex flex-col divide-y divide-rule">
+                    {fb.vocabulary.map((v, k) => (
+                      <li key={k} className="py-4 first:pt-0 last:pb-0">
+                        <p className="font-serif text-[19px] leading-tight">{v.term}</p>
+                        <p className="mt-1 font-mono text-[12.5px] text-accent">
+                          <span className="sr-only">Say it as </span>
+                          {v.stress}
+                        </p>
+                        <p className="mt-2 text-[14px] leading-relaxed text-ink-muted">
+                          {v.meaning}
+                        </p>
+                        <p className="mt-1 font-serif text-[14px] italic leading-relaxed text-ink-soft">
+                          {v.example}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {fb.drills && fb.drills.length > 0 && (
+                <div className="border-t border-rule pt-6 first:border-t-0 first:pt-0">
+                  {/* Each Drill already carries its own "Practice · n of of"
+                      eyebrow and heading — no wrapper heading here, so the
+                      word "Practice" is not said twice in a row. */}
+                  <ul className="flex flex-col divide-y divide-rule">
+                    {fb.drills.map((d, k) => (
+                      <li key={k} className="py-5 first:pt-0 last:pb-0">
+                        <Drill
+                          prompt={d.prompt}
+                          hint={d.hint}
+                          answer={d.answer}
+                          distractors={d.distractors ?? []}
+                          n={k + 1}
+                          of={fb.drills!.length}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 

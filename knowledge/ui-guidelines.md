@@ -75,12 +75,24 @@ shadow, so its `<article>` carries none.
 
 Most important information first.
 
-Feedback is a swipeable card stack, and the card order is the teaching order:
-what to fix, then one card per correction, then fluency, words to learn and
-drills, then the whole corrected text, then the closing card. Scores live on
-the closing card — after the teaching, never before it.
+Feedback is a swipeable, **fixed** card stack (ADR 0002): the teacher's
+message, then every change in the entry as one scrollable list — in diff
+order, the reading order of the learner's own text, never re-sorted by
+severity — then the whole corrected text, then the closing card. `ambiguous`
+folds into the changes card as a trailing block rather than earning its own.
+Scores live on the closing card — after the teaching, never before it. Card
+count does not grow with how many corrections an entry has; a 12-error entry
+and a 1-error entry are both this same four-card stack.
 
-One idea per card. If a card needs a scrollbar to make sense, it is two cards.
+One idea per card, but a card *may* scroll to repeat that one idea — "every
+change in this entry" is one idea said N times, not N ideas. What a card must
+never do is scroll to reveal a *different kind* of content partway down; if a
+card mixes two topics, it is two cards. The one named exception is the
+legacy appendix card: entries analysed before ADR 0001 carry 9-agent-era
+sections (fluency notes, vocabulary, drills, pattern watch) with no home in
+the fixed four, so they share one appendix card before closing, shown only
+when present. It is accepted as a legacy artefact, not a pattern to repeat,
+and it shrinks out of the app as those entries age out.
 
 Reduce visual clutter.
 
