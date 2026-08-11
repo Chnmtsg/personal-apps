@@ -1,0 +1,12 @@
+# Bytecode. Regenerated on every run and specific to one interpreter version,
+# so committing it only produces diffs nobody can read.
+__pycache__/
+*.py[cod]
+
+# The SDK and langgraph are the only dependencies, and neither is needed by the
+# deterministic core — see requirements.txt.
+.venv/
+venv/
+
+# Nothing here writes to disk yet. When a store lands, its local fixtures go
+# below this line rather than into the package.
