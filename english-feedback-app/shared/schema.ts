@@ -128,9 +128,32 @@ export interface LegacyFeedbackFields {
   pattern_watch?: { category: string; entries_clean: number; note: string; practice: string };
 }
 
-/** A stored correction may be legacy: `rule` instead of `explanation`, no
- * `source`, legacy category/severity names. */
-export type StoredCorrection = z.infer<typeof CorrectionSchema> & { rule?: string };
+/**
+ * The shape a correction actually has once it is read back OUT of
+ * IndexedDB, as opposed to `CorrectionSchema`'s inferred type, which is only
+ * ever true of a fresh /analyze response crossing the network boundary.
+ *
+ * `category` and `severity` are deliberately `string`, not the v2 enums: a
+ * correction stored before taxonomy v2 carries a legacy name the current
+ * enum does not have, so a caller MUST route it through `normalizeCategory`
+ * / `normalizeSeverity` (shared/taxonomy.ts) rather than trust the type.
+ * `explanation` and `source` are optional for the same reason — pre-v2
+ * entries have `rule` instead of `explanation`, and no `source` at all.
+ */
+export type StoredCorrection = {
+  original: string;
+  corrected: string;
+  category: string;
+  severity: string;
+  /** v2: the one-sentence rule. Absent on pre-v2 entries — see `rule`. */
+  explanation?: string;
+  /** Pre-v2 name for the same field. */
+  rule?: string;
+  /** Absent on every entry stored before PROMPT_VERSION 7. */
+  source?: "pattern" | "model";
+  /** Checklist number when `source` is "pattern". */
+  pattern_id?: number;
+};
 
 /** Stored feedback: v2 fields, `risk` absent on pre-v2 entries, corrections
  * possibly legacy-shaped. The network schema above stays strict; this type is
@@ -141,6 +164,17 @@ export type Feedback = Omit<z.infer<typeof FeedbackSchema>, "corrections" | "ris
 } & LegacyFeedbackFields;
 
 export type Drill = z.infer<typeof DrillSchema>;
+
+/**
+ * The exact, strict shape the Worker computes for one /analyze response's
+ * `feedback` field — `FeedbackSchema`'s inferred type, used only at that
+ * network boundary (worker/src/pipeline.ts). Every field the schema
+ * requires is required here too, unlike `Feedback` above, which is what a
+ * screen reads back OUT of IndexedDB and must tolerate being legacy or
+ * partial. Not named `AnalyzeResult` — `app/src/lib/api.ts` already uses
+ * that name for `analyzeText`'s own success/failure union.
+ */
+export type AnalyzeFeedback = z.infer<typeof FeedbackSchema>;
 
 /** A learner's recurring-category counts, computed client-side from their own
  * entries and sent as request context (never stored server-side). */

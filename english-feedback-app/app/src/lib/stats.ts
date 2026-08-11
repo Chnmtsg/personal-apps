@@ -1,6 +1,7 @@
 import type { ErrorCategory, RecurringCategory } from "../../../shared/schema";
 import { normalizeCategory } from "../../../shared/taxonomy.ts";
-import { JOURNAL_PATTERNS } from "../../../shared/patterns.ts";
+import { DETERMINISTIC_PATTERNS } from "../../../shared/patterns.ts";
+import { labelFor } from "./categories.ts";
 import type { Entry } from "./db";
 
 /**
@@ -15,8 +16,46 @@ import type { Entry } from "./db";
  * without an IndexedDB — db.ts opens a database the moment it is imported.
  */
 
+// An acute entry is stored with status "analysed" and corrections: [] — the
+// Worker deliberately never grades a crisis. Left in this predicate, it would
+// read back as a flawless entry: 0.0 errors per 100 words, a clean-streak
+// increment, a "your last entry was 0.0" comparison right after a crisis
+// entry. Excluding risk === "acute" here is a read-time fix only — nothing
+// stored changes, and the entry still appears in History and is still
+// readable; it just stops being counted as graded writing.
 const analysed = (entries: Entry[]) =>
-  entries.filter((e) => e.status === "analysed" && e.feedback);
+  entries.filter((e) => e.status === "analysed" && e.feedback && e.feedback.risk !== "acute");
+
+/** Errors per 100 words for one entry — comparable between a 60-word note and
+ * a 400-word summary. The one number the History row and the Feedback card
+ * both show, so it lives here rather than being defined twice. Null for an
+ * acute entry: it was deliberately never graded, so "0.0" would read as a
+ * perfect score rather than as ungraded. */
+export function per100(entry: Entry): number | null {
+  if (!entry.feedback || entry.feedback.risk === "acute" || entry.wordCount === 0) return null;
+  return (entry.feedback.corrections.length / entry.wordCount) * 100;
+}
+
+/**
+ * The most recent OTHER analysed entry's rate before the given one — what
+ * lets the closing card say whether this entry improved on the last, instead
+ * of reporting a number with no reference point. `entries` must be
+ * newest-first, as `getEntries()` returns them; a queued or failed entry
+ * between the two says nothing about the learner's writing, so it is skipped
+ * rather than breaking the comparison — and so is an acute entry, which was
+ * never graded and must never be offered as a "last entry was 0.0" baseline.
+ */
+export function previousRate(entries: Entry[], entryId: string): number | null {
+  const index = entries.findIndex((e) => e.id === entryId);
+  if (index === -1) return null;
+  for (let i = index + 1; i < entries.length; i++) {
+    const e = entries[i];
+    if (e.status === "analysed" && e.feedback && e.feedback.risk !== "acute") {
+      return per100(e);
+    }
+  }
+  return null;
+}
 
 export function getErrorCounts(entries: Entry[]): Map<ErrorCategory, number> {
   const counts = new Map<ErrorCategory, number>();
@@ -70,6 +109,23 @@ export function getRecurringCategories(entries: Entry[], limit = 5): RecurringCa
       count,
       cleanStreak: cleanStreakFor(analysedEntries, category),
     }));
+}
+
+/** The two categories that cost one entry the most, for a History row's
+ * second line. Grouped from the entry's own corrections, so it works for
+ * entries from every prompt version. */
+export function topCategories(entry: Entry): string {
+  if (!entry.feedback) return "";
+  const counts = new Map<string, number>();
+  for (const c of entry.feedback.corrections) {
+    const key = normalizeCategory(c.category);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([cat, n]) => `${labelFor(cat).split(" (")[0]} ×${n}`)
+    .join(" · ");
 }
 
 /** How many of the most recent analysed entries are free of this category. */
@@ -149,9 +205,16 @@ export function getExamples(entries: Entry[], category: ErrorCategory): Category
 }
 
 // ---------------------------------------------------------------------------
-// The Top-100 progress map. A streak measures attendance; "you have fixed 34
-// of the 100 most common errors" measures competence against a finite,
-// visible list the learner can see the end of.
+// The progress map. A streak measures attendance; "you have fixed 34 of the
+// 49 traps the app can catch automatically" measures competence against a
+// finite, visible list the learner can see the end of.
+//
+// This maps DETERMINISTIC_PATTERNS (49), not the full Top-100 checklist
+// (WORK-11 / ruling C2): `pattern_id` is only ever written by the
+// deterministic matcher (worker/src/patterns.ts), so the other ~50
+// checklist entries could never leave "unseen" — a denominator the code
+// cannot deliver. Contracting the map to what can actually be detected is
+// honesty, not a smaller feature.
 // ---------------------------------------------------------------------------
 
 export type PatternStatus = "unseen" | "active" | "fading";
@@ -186,7 +249,7 @@ export function getPatternMap(entries: Entry[]): PatternCell[] {
       if (!lastSeenIndex.has(c.pattern_id)) lastSeenIndex.set(c.pattern_id, index);
     }
   });
-  return JOURNAL_PATTERNS.map((p) => {
+  return DETERMINISTIC_PATTERNS.map((p) => {
     const last = lastSeenIndex.get(p.id);
     const status: PatternStatus =
       last === undefined ? "unseen" : last < PATTERN_ACTIVE_WINDOW ? "active" : "fading";

@@ -1,8 +1,15 @@
+import { useState } from "react";
 import type { Screen } from "../App";
 import ErrorNote from "../components/ErrorNote";
-import { FAIL_REASON_LABELS, labelFor, normalizeCategory } from "../lib/categories";
-import { getEntries, type Entry } from "../lib/db";
+import { FAIL_REASON_LABELS } from "../lib/categories";
+import { getEntries, per100, topCategories, type Entry } from "../lib/db";
 import { useLoad } from "../lib/useLoad";
+import { MIN_WORDS } from "../../../shared/schema.ts";
+
+// No virtualisation library (chief-architect: off limits for a list-length
+// problem a slice solves) — a plain cap with an appending "show more" keeps
+// the DOM small on a long history without adding a dependency.
+const PAGE_SIZE = 50;
 
 interface Props {
   navigate: (s: Screen) => void;
@@ -26,33 +33,20 @@ function badgeFor(entry: Entry): { label: string; cls: string } | null {
   return null;
 }
 
-/** Errors per 100 words — comparable between a 60-word note and a 400-word summary. */
-function per100(entry: Entry): number | null {
-  if (!entry.feedback || entry.wordCount === 0) return null;
-  return (entry.feedback.corrections.length / entry.wordCount) * 100;
-}
-
-/** The two categories that cost this entry the most, for the row's second
- * line. Grouped from the corrections themselves, so it works for entries from
- * every prompt version. */
-function topCategories(entry: Entry): string {
-  if (!entry.feedback) return "";
-  const counts = new Map<string, number>();
-  for (const c of entry.feedback.corrections) {
-    const key = normalizeCategory(c.category);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 2)
-    .map(([cat, n]) => `${labelFor(cat).split(" (")[0]} ×${n}`)
-    .join(" · ");
-}
-
 export default function HistoryScreen({ navigate }: Props) {
   const state = useLoad(() => getEntries(), []);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  if (state.status === "loading") return null;
+  if (state.status === "loading") {
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="font-serif text-3xl">History</h1>
+        <p role="status" className="text-sm text-ink-soft">
+          Loading your entries…
+        </p>
+      </div>
+    );
+  }
   if (state.status === "error") {
     return (
       <div className="flex flex-col gap-4">
@@ -64,6 +58,8 @@ export default function HistoryScreen({ navigate }: Props) {
 
   const entries = state.data;
   const words = entries.reduce((sum, e) => sum + e.wordCount, 0);
+  // getEntries() is already newest-first, so a slice is the right entries.
+  const visible = entries.slice(0, visibleCount);
 
   return (
     <div className="flex flex-col">
@@ -78,7 +74,7 @@ export default function HistoryScreen({ navigate }: Props) {
       {entries.length === 0 ? (
         <p className="mt-6 font-serif text-[17px] leading-relaxed text-ink-soft text-pretty">
           Nothing here yet. Tap <strong className="font-semibold text-ink">Write</strong> to add
-          your first piece of writing — fifty words is enough.
+          your first piece of writing — {MIN_WORDS} words is enough.
         </p>
       ) : (
         <>
@@ -88,10 +84,10 @@ export default function HistoryScreen({ navigate }: Props) {
             <span className="eyebrow w-14">Date</span>
             <span className="eyebrow flex-1">First line</span>
             <span className="eyebrow w-10 text-right">Words</span>
-            <span className="eyebrow w-12 text-right">/100w</span>
+            <span className="eyebrow w-16 text-right">Per 100 words</span>
           </div>
           <ol>
-            {entries.map((entry) => {
+            {visible.map((entry) => {
               const badge = badgeFor(entry);
               const rate = per100(entry);
               const cats = topCategories(entry);
@@ -133,7 +129,7 @@ export default function HistoryScreen({ navigate }: Props) {
                       {entry.wordCount}
                     </span>
                     <span
-                      className={`tnum w-12 pt-0.5 text-right font-mono text-[12px] ${
+                      className={`tnum w-16 pt-0.5 text-right font-mono text-[12px] ${
                         rate === null ? "text-ink-ghost" : "font-medium text-ink"
                       }`}
                     >
@@ -144,6 +140,15 @@ export default function HistoryScreen({ navigate }: Props) {
               );
             })}
           </ol>
+          {entries.length > visible.length && (
+            <button
+              type="button"
+              onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+              className="mt-4 min-h-11 w-full rounded-full border border-rule-strong text-sm font-medium text-ink-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              Show {Math.min(PAGE_SIZE, entries.length - visible.length)} more
+            </button>
+          )}
         </>
       )}
     </div>

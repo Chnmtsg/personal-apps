@@ -28,12 +28,12 @@ import {
   MODEL_ID,
   TEACHER_SYSTEM_PROMPT,
   type AgentOutput,
-  type Feedback,
+  type AnalyzeFeedback,
   type LearnerProfile,
   type RecurringCategory,
-} from "../../shared/schema";
-import { contextualExamplesFor } from "../../shared/patterns";
-import { TAXONOMY, ruleFor } from "../../shared/taxonomy";
+} from "../../shared/schema.ts";
+import { contextualExamplesFor } from "../../shared/patterns.ts";
+import { TAXONOMY, ruleFor } from "../../shared/taxonomy.ts";
 import { splitSentences, reconstructText } from "./sentences";
 import { extractEdits, rewriteRatio, MAX_REWRITE_RATIO } from "./diff";
 import { applyPatterns, findMatchingHit, labelForHit, type PatternHit } from "./patterns";
@@ -141,17 +141,28 @@ function buildUserContent(
 }
 
 export interface PipelineOutcome {
-  feedback: Feedback;
+  feedback: AnalyzeFeedback;
   cache: UsageInfo;
 }
 
+/**
+ * How many upstream Anthropic calls this run made — one per `callTeacher`
+ * attempt, including retries from the over-rewrite loop. `index.ts` charges
+ * one call up front, before this runs, and settles the difference against
+ * the global spend ceiling once it knows the real count. This module reports
+ * the number; it has no idea what a ceiling or a KV namespace is (ADR 0001's
+ * boundary: the pipeline is Env-free).
+ */
 export async function runPipeline(
   client: Anthropic,
   text: string,
   history: RecurringCategory[],
   profile: LearnerProfile | undefined,
   entryNumber?: number
-): Promise<{ ok: true; value: PipelineOutcome } | ({ ok: false } & StageFailure)> {
+): Promise<
+  | { ok: true; value: PipelineOutcome; calls: number }
+  | ({ ok: false; calls: number } & StageFailure)
+> {
   const sentences = splitSentences(text);
 
   // Deterministic pattern fixes first: zero cost, zero hallucination, and the
@@ -168,12 +179,14 @@ export async function runPipeline(
   let agent: AgentOutput | undefined;
   let usage: UsageInfo = { read: 0, write: 0 };
   let hint = "";
+  let callsMade = 0;
   for (let attempt = 0; attempt <= MAX_REWRITE_ATTEMPTS; attempt++) {
+    callsMade++;
     const result = await callTeacher(
       client,
       buildUserContent(patched, history, profile, entryNumber, allHits, hint)
     );
-    if (!result.ok) return result;
+    if (!result.ok) return { ...result, calls: callsMade };
     usage = { read: usage.read + result.usage.read, write: usage.write + result.usage.write };
 
     const isLastAttempt = attempt === MAX_REWRITE_ATTEMPTS;
@@ -184,7 +197,7 @@ export async function runPipeline(
     if (result.value.corrected.length !== patched.length) {
       // A shape problem, not a verdict on the text.
       if (!isLastAttempt) continue;
-      return { ok: false, kind: "upstream", retryable: true };
+      return { ok: false, kind: "upstream", retryable: true, calls: callsMade };
     }
     const ratio = rewriteRatio(patched, extractEdits(patched, result.value.corrected));
     if (ratio <= MAX_REWRITE_RATIO || isLastAttempt) {
@@ -209,6 +222,7 @@ export async function runPipeline(
         feedback: { risk: "acute", corrected_text: text, corrections: [] },
         cache: usage,
       },
+      calls: callsMade,
     };
   }
 
@@ -227,7 +241,7 @@ export async function runPipeline(
   }
 
   const level = effectiveLevel(profile);
-  const corrections: Feedback["corrections"] = edits.map((edit) => {
+  const corrections: AnalyzeFeedback["corrections"] = edits.map((edit) => {
     const hit = findMatchingHit(edit, hitsBySentence[edit.sentIdx] ?? []);
     if (hit) {
       const l = labelForHit(hit, level);
@@ -242,7 +256,7 @@ export async function runPipeline(
       };
     }
     const note = noteQueues.get(edit.sentIdx)?.shift();
-    const category = (note?.category ?? "other") as Feedback["corrections"][number]["category"];
+    const category = (note?.category ?? "other") as AnalyzeFeedback["corrections"][number]["category"];
     const explanation =
       note?.rule ??
       ruleFor(category, level) ??
@@ -260,7 +274,7 @@ export async function runPipeline(
   const ambiguous = agent.ambiguous.filter((a) => a.index >= 0 && a.index < sentences.length);
   const teacherFeedback = agent.feedback.trim();
 
-  const feedback: Feedback = {
+  const feedback: AnalyzeFeedback = {
     risk: "none",
     corrected_text: reconstructText(text, sentences, agent.corrected),
     corrections,
@@ -268,5 +282,5 @@ export async function runPipeline(
     ...(ambiguous.length > 0 ? { ambiguous } : {}),
   };
 
-  return { ok: true, value: { feedback, cache: usage } };
+  return { ok: true, value: { feedback, cache: usage }, calls: callsMade };
 }

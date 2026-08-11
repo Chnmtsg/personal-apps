@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import WriteScreen from "./screens/Write";
 import FeedbackScreen from "./screens/Feedback";
 import ErrorLogScreen from "./screens/ErrorLog";
@@ -26,10 +26,14 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "write" });
   const [toast, setToast] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const toastTimer = useRef<number>(undefined);
 
   const showToast = useCallback((message: string) => {
+    // Without clearing the previous timer, a second toast within 4s is
+    // dismissed by the FIRST toast's timer, not its own.
+    window.clearTimeout(toastTimer.current);
     setToast(message);
-    window.setTimeout(() => setToast(null), 4000);
+    toastTimer.current = window.setTimeout(() => setToast(null), 4000);
   }, []);
 
   // Analyse queued entries on launch and whenever the connection returns (§3.3).

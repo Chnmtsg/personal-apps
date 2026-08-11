@@ -50,6 +50,7 @@ pattern.
 
 ## Client (app/)
 
-React PWA. Write → claim → analyse → Feedback card stack; Error Log derives
-everything (counts, trend, clean streaks, the Top-100 progress map) from
-stored entries on read. Offline queue with bounded, classified retries.
+React PWA. Write → claim → analyse → Feedback card stack; Patterns derives
+everything (counts, trend, clean streaks, the pattern map scoped to the 49
+deterministically-detectable patterns) from stored entries on read. Offline
+queue with bounded, classified retries.

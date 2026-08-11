@@ -16,6 +16,14 @@ enabled = true
 # Multiple origins are allowed: "https://a.pages.dev,https://b.example.com"
 ALLOWED_ORIGIN = "https://english-feedback.pages.dev"
 
+# Total upstream Anthropic calls allowed per hour, across every caller — the
+# global spend ceiling (a limit, not a secret, so it lives here rather than
+# behind `wrangler secret put`). RATE_LIMIT_PER_HOUR in src/index.ts only
+# bounds one IP; this is what stands between a bug or an abuse spike and an
+# uncapped bill. Change it here and redeploy — no code edit needed. Missing
+# or unparseable falls back to DEFAULT_GLOBAL_HOURLY_CEILING in src/index.ts.
+GLOBAL_HOURLY_CEILING = "100"
+
 # Optional second gate. If the APP_KEY secret is set, the worker requires a
 # matching X-App-Key header and the app must be built with the same value in
 # VITE_APP_KEY. The key ships inside a public bundle, so it stops casual abuse

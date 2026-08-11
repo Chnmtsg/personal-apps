@@ -6,6 +6,7 @@ import {
   FeedbackSchema,
   LearnerProfileSchema,
 } from "../shared/schema.ts";
+import { CATEGORY_IDS } from "../shared/taxonomy.ts";
 
 // FeedbackSchema is the trust boundary for everything written permanently to
 // a learner's device: api.ts re-validates every Worker response against it
@@ -30,6 +31,40 @@ function minimalFeedback(): Record<string, unknown> {
     ],
   };
 }
+
+// The 25 v2 category ids are stored inside every past entry's corrections.
+// This pins the exact list and its order — a failure here means a category
+// was renamed or removed, which silently rewrites the meaning of every entry
+// already on a learner's device. That needs a migration, never a plain edit.
+test("the v2 category ids are exactly this list, in this order", () => {
+  assert.deepEqual(CATEGORY_IDS, [
+    "article",
+    "copula",
+    "subject_verb_agreement",
+    "pronoun",
+    "preposition",
+    "verb_tense",
+    "word_order",
+    "plural",
+    "question_form",
+    "countability",
+    "relative_clause",
+    "gerund_infinitive",
+    "collocation",
+    "verb_form",
+    "word_choice",
+    "conditional",
+    "possessive",
+    "run_on",
+    "capitalisation",
+    "spelling",
+    "punctuation",
+    "register",
+    "missing_word",
+    "extra_word",
+    "other",
+  ]);
+});
 
 test("a complete feedback response parses and survives unchanged", () => {
   const full = {

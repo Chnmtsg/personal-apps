@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Screen } from "../App";
 import ErrorNote from "../components/ErrorNote";
 import EditSpan from "../components/EditSpan";
-import { getEntry, requeueFailedEntry, type Entry } from "../lib/db";
+import { getEntries, getEntry, per100, previousRate, requeueFailedEntry, type Entry } from "../lib/db";
 import { processQueue } from "../lib/queue";
 import { canRequeue } from "../lib/claim";
 import { FAIL_REASON_MESSAGES, labelFor } from "../lib/categories";
@@ -60,18 +60,15 @@ function buildCards(fb: Feedback): Card[] {
   return cards;
 }
 
-/** Errors per 100 words for one entry — the only number the app asks the learner to watch. */
-function per100(entry: Entry): number | null {
-  if (!entry.feedback || entry.wordCount === 0) return null;
-  return (entry.feedback.corrections.length / entry.wordCount) * 100;
-}
-
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return <span className="eyebrow block">{children}</span>;
 }
 
 export default function FeedbackScreen({ entryId, navigate, showToast }: Props) {
   const state = useLoad(() => getEntry(entryId), [entryId]);
+  // Only for the closing card's "your last entry was…" sentence — best-effort,
+  // so a failure here degrades to no comparison rather than a broken screen.
+  const historyState = useLoad(() => getEntries(), []);
 
   const tryAgain = async (id: string) => {
     try {
@@ -87,12 +84,38 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
 
   const entry = state.status === "ready" ? state.data : null;
   const fb = entry?.feedback ?? null;
-  const cards = useMemo(() => (fb && fb.risk !== "acute" ? buildCards(fb) : []), [fb]);
+  // The one condition under which the branch far below actually renders the
+  // carousel that owns `stackRef` — loading/failed/pending screens don't,
+  // and deliberately neither does the acute branch, which must never receive
+  // focus stolen onto a crisis screen.
+  const isNormalEntry = fb !== null && fb.risk !== "acute";
+  const cards = useMemo(() => (fb && isNormalEntry ? buildCards(fb) : []), [fb, isNormalEntry]);
+  const priorRate = useMemo(
+    () => (entry && historyState.status === "ready" ? previousRate(historyState.data, entry.id) : null),
+    [entry, historyState]
+  );
 
   const [i, setI] = useState(0);
   const [dx, setDx] = useState(0);
   const [dragging, setDragging] = useState(false);
   const startX = useRef(0);
+  const stackRef = useRef<HTMLDivElement>(null);
+
+  // The instruction below reads "use ← →", so the container that handles
+  // those keys must actually be reachable and focused without the learner
+  // having to discover a button to Tab into first. Gated on `isNormalEntry`
+  // rather than running on mount: on mount the entry is still loading, the
+  // carousel branch below hasn't rendered, and `stackRef` is null, so an
+  // unconditional effect never actually focuses anything. Waiting for
+  // `isNormalEntry` to flip true — the moment the branch that owns
+  // `stackRef` is what's on screen — is what makes it fire. This is also
+  // the deliberate reason the acute branch never receives focus here: it is
+  // excluded from `isNormalEntry` by definition, not merely because it
+  // happens to render no `stackRef` node. Never remove that check to "fix"
+  // this effect — a crisis screen must not have focus moved onto it.
+  useEffect(() => {
+    if (isNormalEntry) stackRef.current?.focus();
+  }, [isNormalEntry]);
 
   const go = (d: number) => {
     setDx(0);
@@ -110,7 +133,16 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
     </button>
   );
 
-  if (state.status === "loading") return null;
+  if (state.status === "loading") {
+    return (
+      <div className="flex flex-col gap-4">
+        <header>{back}</header>
+        <p role="status" className="text-sm text-ink-soft">
+          Loading this entry…
+        </p>
+      </div>
+    );
+  }
   if (state.status === "error") {
     return (
       <div className="flex flex-col gap-4">
@@ -244,7 +276,12 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
 
   return (
     <div
-      className="flex h-full flex-col"
+      ref={stackRef}
+      tabIndex={0}
+      role="group"
+      aria-roledescription="carousel"
+      aria-label="Feedback cards"
+      className="flex h-full flex-col focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       onPointerDown={(e) => {
         if ((e.target as HTMLElement).closest("button")) return;
         startX.current = e.clientX;
@@ -272,10 +309,8 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
       style={{ touchAction: "pan-y" }}
     >
       <div className="flex items-center justify-between">
-        <button type="button" onClick={() => navigate({ name: "history" })} className="min-h-11 text-xs text-ink-soft">
-          Close
-        </button>
-        <span className="eyebrow tnum">
+        {back}
+        <span className="eyebrow tnum" aria-live="polite">
           Card {String(i + 1).padStart(2, "0")} / {String(cards.length).padStart(2, "0")}
         </span>
       </div>
@@ -293,11 +328,11 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
           <div aria-hidden className="absolute inset-x-3.5 -bottom-0 top-2.5 rounded-[20px] border border-rule bg-sunk" />
         )}
         {i < cards.length - 2 && (
-          <div aria-hidden className="absolute inset-x-1.5 -bottom-0 top-1 rounded-[20px] border border-rule bg-[#f6f3ec]" />
+          <div aria-hidden className="absolute inset-x-1.5 -bottom-0 top-1 rounded-[20px] border border-rule bg-paper" />
         )}
 
         <article
-          className="relative box-border h-full overflow-y-auto rounded-[20px] border border-rule bg-card p-6 shadow-[0_6px_18px_rgba(30,26,20,0.07)]"
+          className="relative box-border h-full overflow-y-auto rounded-[20px] border border-rule bg-card p-6"
           style={{
             transform: `translateX(${dx}px) rotate(${dx * 0.012}deg)`,
             transition: dragging ? "none" : "transform .28s cubic-bezier(.32,.72,0,1)",
@@ -306,60 +341,47 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
         >
           {card.kind === "summary" && (
             <>
+              {/* The teacher's message is the feedback the learner actually
+                  experiences, so it leads the card; the count that used to
+                  head this card demotes to the eyebrow line beside it
+                  (ui-guidelines.md: never a scoreboard before the teaching). */}
               <Eyebrow>
                 {new Date(entry.createdAt).toLocaleDateString(undefined, {
                   weekday: "short",
                   day: "numeric",
                   month: "short",
                 })}{" "}
-                · {entry.wordCount} words
+                · {entry.wordCount} words · {fb.corrections.length}{" "}
+                {fb.corrections.length === 1 ? "correction" : "corrections"}
               </Eyebrow>
-              <h1 className="mt-3 font-serif text-[27px] leading-[1.14] text-pretty">
-                {fb.corrections.length}{" "}
-                {fb.corrections.length === 1 ? "correction" : "corrections"} to read.
-              </h1>
-              <dl className="mt-6 flex border-y border-rule">
-                <div className="flex-1 py-4">
-                  <dd className="tnum font-mono text-[30px] leading-none">
-                    {rate === null ? "—" : rate.toFixed(1)}
-                  </dd>
-                  <dt className="eyebrow mt-1.5">Per 100 words</dt>
-                </div>
-                {fb.cefr_estimate && (
-                  <div className="flex-1 border-l border-rule py-4 pl-4">
-                    <dd className="tnum font-mono text-[30px] leading-none">{fb.cefr_estimate}</dd>
-                    <dt className="eyebrow mt-1.5">This entry</dt>
-                  </div>
-                )}
-              </dl>
-              {/* The teacher's message is the feedback the learner actually
-                  experiences; the cards after it are the reference copy. */}
               {fb.teacher_feedback ? (
+                <h1 className="mt-3 whitespace-pre-wrap font-serif text-2xl leading-snug text-pretty">
+                  {fb.teacher_feedback}
+                </h1>
+              ) : (
+                <h1 className="mt-3 font-serif text-[27px] leading-[1.14] text-pretty">
+                  {fb.corrections.length === 0
+                    ? "Nothing to correct this time."
+                    : `${fb.corrections.length} ${fb.corrections.length === 1 ? "correction" : "corrections"} to read.`}
+                </h1>
+              )}
+              {/* Legacy-only fallback: entries with no teacher_feedback (pre
+                  PROMPT_VERSION 7) carry these fields instead. */}
+              {!fb.teacher_feedback && fb.one_thing_to_fix && (
                 <div className="mt-5 border-l-2 border-accent pl-3.5">
-                  <Eyebrow>From your teacher</Eyebrow>
-                  <p className="mt-2 whitespace-pre-wrap font-serif text-[16px] leading-[1.65]">
-                    {fb.teacher_feedback}
+                  <Eyebrow>One thing to fix</Eyebrow>
+                  <p className="mt-2 font-serif text-[17px] leading-[1.5]">
+                    {fb.one_thing_to_fix}
                   </p>
                 </div>
-              ) : (
-                <>
-                  {fb.one_thing_to_fix && (
-                    <div className="mt-5 border-l-2 border-accent pl-3.5">
-                      <Eyebrow>One thing to fix</Eyebrow>
-                      <p className="mt-2 font-serif text-[17px] leading-[1.5]">
-                        {fb.one_thing_to_fix}
-                      </p>
-                    </div>
-                  )}
-                  {fb.what_went_well && (
-                    <div className="mt-5">
-                      <Eyebrow>What went well</Eyebrow>
-                      <p className="mt-2 text-[14.5px] leading-relaxed text-ink-muted">
-                        {fb.what_went_well}
-                      </p>
-                    </div>
-                  )}
-                </>
+              )}
+              {!fb.teacher_feedback && fb.what_went_well && (
+                <div className="mt-5">
+                  <Eyebrow>What went well</Eyebrow>
+                  <p className="mt-2 text-[14.5px] leading-relaxed text-ink-muted">
+                    {fb.what_went_well}
+                  </p>
+                </div>
               )}
             </>
           )}
@@ -392,7 +414,12 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
             return (
               <>
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="eyebrow text-accent">{labelFor(c.category)}</span>
+                  {/* `!` forces this above .eyebrow's own text-ink-faint: both
+                      land in the same Tailwind layer, and .eyebrow is emitted
+                      later in the compiled CSS, so without it .eyebrow's
+                      color would silently win (same bug as ErrorLog.tsx's
+                      accent heading — WORK-04/WORK-21 follow-up). */}
+                  <span className="eyebrow text-accent!">{labelFor(c.category)}</span>
                   <span className="eyebrow tnum shrink-0">
                     {card.index + 1} of {fb.corrections.length}
                   </span>
@@ -444,8 +471,7 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
                 {(fb.fluency_notes ?? []).map((n, k) => (
                   <li key={k} className="py-4 first:pt-0 last:pb-0">
                     <p className="font-serif text-[17px] leading-[1.5]">
-                      <span className="text-ink-ghost line-through">{n.before}</span>{" "}
-                      <span className="text-accent">{n.after}</span>
+                      <EditSpan original={n.before} corrected={n.after} tone="improvement" />
                     </p>
                     <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-soft">{n.why}</p>
                   </li>
@@ -540,6 +566,25 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
                   ? "That is everything for this entry."
                   : `${rate.toFixed(1)} errors per 100 words this time.`}
               </h2>
+              <p className="mt-2 text-[13.5px] leading-relaxed text-ink-soft">
+                {priorRate === null
+                  ? "Lower is better — this counts mistakes fairly whether you write 50 words or 400."
+                  : `Your last entry was ${priorRate.toFixed(1)}. Lower is better — this counts mistakes fairly whether you write 50 words or 400.`}
+              </p>
+              <dl className="mt-6 flex border-y border-rule">
+                <div className="flex-1 py-4">
+                  <dd className="tnum font-mono text-[26px] leading-none">
+                    {rate === null ? "—" : rate.toFixed(1)}
+                  </dd>
+                  <dt className="eyebrow mt-1.5">Per 100 words</dt>
+                </div>
+                {fb.cefr_estimate && (
+                  <div className="flex-1 border-l border-rule py-4 pl-4">
+                    <dd className="tnum font-mono text-[26px] leading-none">{fb.cefr_estimate}</dd>
+                    <dt className="eyebrow mt-1.5">This entry</dt>
+                  </div>
+                )}
+              </dl>
               {fb.scores && (
                 <dl className="mt-6 flex border-y border-rule">
                   <div className="flex-1 py-4">
@@ -648,7 +693,9 @@ function Drill({
   const solved = picked === answer || shown;
   return (
     <>
-      <span className="eyebrow block text-accent">
+      {/* `!` forces this above .eyebrow's own text-ink-faint — see the same
+          note on the correction card's category label above. */}
+      <span className="eyebrow block text-accent!">
         Practice · {n} of {of}
       </span>
       <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">Try this one</h2>

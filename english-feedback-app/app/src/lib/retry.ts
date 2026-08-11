@@ -26,9 +26,14 @@ export function applyFailure(attempts: number, failure: AnalyzeFailure): Failure
   }
 
   if (!failure.retryable) {
+    // "too_long_to_analyse" is Anthropic rejecting the request; "too_large" is
+    // policy.ts rejecting an oversized body before it is ever sent. Both are
+    // the same verdict on the learner's text, and only one of them has a
+    // message that tells them what to do about it.
+    const tooLong = failure.code === "too_long_to_analyse" || failure.code === "too_large";
     return {
       status: "failed",
-      failReason: failure.code === "too_long_to_analyse" ? "too_long" : "rejected",
+      failReason: tooLong ? "too_long" : "rejected",
       attempts,
     };
   }

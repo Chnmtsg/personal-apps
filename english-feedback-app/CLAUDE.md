@@ -25,8 +25,8 @@ All paths in this file are relative to `english-feedback-app/`.
   - `src/index.css` — the design tokens. The palette is ink on warm paper with
     one accent; screens name tokens (`bg-paper`, `text-ink-soft`,
     `border-rule`) and never Tailwind palette steps.
-  - `src/lib/progress.ts` — orchestrates the two history-scoped agents (level
-    estimate every 7 analysed entries; user-triggered weekly review)
+  - `src/lib/importEntries.ts` — pure decision logic for restoring an exported
+    backup (Settings): additive, idempotent, never overwrites an existing id.
   - `vite.config.ts` — PWA manifest, the woff2 precache glob, **and** the
     production env guard
 - `worker/` — Cloudflare Worker proxy running the pipeline
@@ -46,7 +46,8 @@ All paths in this file are relative to `english-feedback-app/`.
   - `src/learner.ts` — pure assembly of the per-user blocks (level, l1 notes
     and bridges) that go in USER messages, never in system prompts.
   - `src/policy.ts` — pure request-policy decisions (origin, key, body)
-  - `wrangler.toml` — `ALLOWED_ORIGIN`, KV binding, observability
+  - `wrangler.toml` — `ALLOWED_ORIGIN`, `GLOBAL_HOURLY_CEILING`, KV binding,
+    observability
 - `shared/` — imported by both sides
   - `schema.ts` — Zod schemas for stored feedback and the agent's output, the
     teacher prompt (mirror of `prompts/teacher.md`), `MODEL_ID`,
@@ -192,7 +193,13 @@ else. `grep -ri "sk-ant" app/src` must stay empty.
 server-side and the matched origin is echoed back — never `*`. A request is fully
 validated *before* it charges quota, so malformed or rejected requests cost
 nothing. Optional `APP_KEY` adds a second gate; it ships in a public bundle, so
-it deters abuse rather than authenticating anyone.
+it deters abuse rather than authenticating anyone. Above the per-IP limit sits
+`GLOBAL_HOURLY_CEILING` (`wrangler.toml`, default 100/hour if unset) — the one
+number a per-IP cap behind a forgeable `Origin` header cannot provide: a ceiling
+on total spend regardless of how many distinct IPs are calling. Tripping it
+returns the existing `429 rate_limited, retryable: true`, never a new error
+code — a new code would fall through to `rejected`, which `canRequeue` makes
+final, dead-lettering every queued entry on every device during a spend spike.
 
 **An entry is never lost.** It is written to IndexedDB before any network call,
 and every failure path leaves the text readable in History. A storage failure
@@ -208,7 +215,9 @@ to nine minutes old and still carries `feedback: null`. A stored analysis is
 never downgraded. A claim outlives its holder if a tab is killed, so
 `processQueue` releases claims older than `STALE_CLAIM_MS` first. The rules are
 pure and live in `app/src/lib/claim.ts`; `db.ts` only supplies the transaction
-that makes them atomic.
+that makes them atomic. `getQueuedEntries`, `getAnalysingEntries` and
+`reclaimStaleAnalysing` read through IndexedDB's `by-status` index (schema
+version 2) rather than scanning every stored entry on each poll.
 
 **A dead-lettered entry has a way back.** Only `gave_up` — five transient
 failures say nothing about the writing. A refusal, a rejected request and an
@@ -228,7 +237,11 @@ one silently rewrites history — treat any change as a migration. Entries from
 before v2 carry the legacy 20-name taxonomy; `normalizeCategory` /
 `normalizeSeverity` map them at read time, and `LEGACY_CATEGORY_MAP` must
 never lose an entry. Each entry also records the `modelId` and
-`promptVersion` it was judged under; bump `PROMPT_VERSION` whenever any
+`promptVersion` it was judged under, plus the `taxonomyVersion`
+(`shared/taxonomy.ts`'s `TAXONOMY_VERSION`) in force when it was analysed —
+optional, absent on entries written before the field existed, never
+backfilled, and the last defence against a future v3 rename becoming
+undecidable for entries that predate it. Bump `PROMPT_VERSION` whenever any
 system prompt changes.
 
 **A crisis is never a grammar lesson.** The risk check runs inline in the one
@@ -269,12 +282,11 @@ into `stop_reason: "max_tokens"`. Truncation is reported as a *permanent*
 failure for the whole entry, because it is deterministic for a given call.
 
 **A refusal is a verdict, not an outage.** `stop_reason: "refusal"` arrives on an
-HTTP 200. Keep the entry, never retry it. A refusal from the corrector or
-synthesize call fails the whole entry, since `corrections`/`scores`/etc. are
-required fields; a refusal from the coach call degrades to an absent
-`coach_reply` instead, since it's the one optional field and needs only the
-raw text — losing it isn't worth discarding grammar teaching that already
-succeeded.
+HTTP 200. Keep the entry, never retry it. With one runtime agent (ADR 0001) a
+refusal fails the whole entry — there is no second call left to degrade
+gracefully into. (The 9-agent era's separate coach call, which degraded to an
+absent `coach_reply` on refusal rather than failing the entry, is retired; the
+field stays valid on entries that carry it.)
 
 **Derived data is computed on read, never stored.** Error counts, the trend, and
 per-category examples are recomputed from entries. They live in
@@ -289,8 +301,9 @@ explicit `.ts` extension so Node's runtime resolves it directly, which is why
 `worker/src/policy.ts`'s import of `countWords`/`MIN_WORDS` for the pattern.
 This is what lets `tests/` run under bare Node with no DOM shim.
 `lib/highlight.ts`, `lib/retry.ts`, `lib/failure.ts`, `lib/stats.ts`,
-`lib/claim.ts`, `worker/src/policy.ts`, `worker/src/diff.ts` and
-`worker/src/sentences.ts` all obey it. Keep it that way when adding logic.
+`lib/claim.ts`, `lib/importEntries.ts`, `worker/src/policy.ts`,
+`worker/src/diff.ts` and `worker/src/sentences.ts` all obey it. Keep it that
+way when adding logic.
 
 **`VITE_API_URL` is inlined at build time.** A wrong value is not a startup
 error — it is baked into an installed PWA that silently fails every analysis.
@@ -353,20 +366,29 @@ Current, honest state. Update this list rather than letting it rot.
   the tutor agent should return.
 - The Worker's `fetch` handler and `worker/src/pipeline.ts` have no
   integration test — testing them needs Miniflare. Only the pure pieces
-  (`patterns.ts`, `diff.ts`, `sentences.ts`, `policy.ts`, `learner.ts`) are
-  tested. Every React screen is also untested (no DOM library); the acute
-  wellbeing screen, the pattern grid, the MCQ drills and the weekly-review
-  card have all been verified by typecheck only.
+  (`patterns.ts`, `diff.ts`, `sentences.ts`, `policy.ts`, `learner.ts`,
+  `importEntries.ts`) are tested. Every React screen is also untested (no DOM
+  library); the acute wellbeing screen, the pattern grid, the drill MCQ and
+  the Settings import path have all been verified by typecheck and by hand,
+  not by an automated suite.
 - **The pattern map has no "fixed" state, on purpose.** integration.md's
   `fixed` status requires knowing the learner *attempted* a structure
   correctly, not merely avoided it, and nothing stored today can tell those
   apart. The map stops at unseen/active/fading rather than congratulating
-  avoidance.
+  avoidance. It is also deliberately scoped to the 49 `DETERMINISTIC_PATTERNS`
+  rather than the full 96-entry `JOURNAL_PATTERNS` list (WORK-11, ruling C2 in
+  `reports/chief-architect.md`): `pattern_id` is only ever written by the
+  deterministic matcher, so a wider grid would show a denominator ("N of 96")
+  the code can never fill in. The Patterns screen calls it "traps we catch
+  automatically", never "the top-100 map".
 - **Pattern-edit attribution is a containment heuristic.**
   `findMatchingHit` matches a word-diff edit back to the matcher hit that
   caused it by text containment; a coincidental model edit inside a matched
   phrase can inherit the pattern's label. The label's text is always
-  verbatim-correct; only its `source`/`pattern_id` can misattribute.
+  verbatim-correct; only its `source`/`pattern_id` can misattribute. Since
+  WORK-30, a claimed hit is spliced out of the sentence's hit list, so two
+  edits in one sentence can no longer both claim — and double-count — the
+  same hit.
 - The Top-100 port deliberately fixes less than the YAML promises in spots:
   pattern 22 fixes the noun and leaves the verb to the corrector; patterns
   whose YAML `replace` was null and needed a lemma table got one only where
@@ -382,10 +404,15 @@ Current, honest state. Update this list rather than letting it rot.
   weekly review — those agents are retired for now (ADR 0001). The screens
   render 9-agent-era entries that carry them, and the stored fields remain
   valid.
-- The Error Log's counts are all-time, so a pattern the learner has already
-  fixed outranks a current one forever. (The pattern map's active/fading
-  split now covers part of this; the ranked list still doesn't decay.)
-- The precache is ~950 KB across 20 entries: the JS bundle (dominated by
+- The Patterns screen's counts are all-time, so a pattern the learner has
+  already fixed outranks a current one forever. (The pattern map's
+  active/fading split now covers part of this; the ranked list still doesn't
+  decay.) The headline block now says "all time" explicitly (WORK-19) rather
+  than implying a current ranking. Ranking the headline over a recent window
+  instead is deferred until roughly 50 analysed entries exist (ruling C3);
+  when it returns it must reuse `PATTERN_ACTIVE_WINDOW` from `stats.ts`
+  rather than invent a second definition of "recent".
+- The precache is ~990 KB across 20 entries: the JS bundle (dominated by
   Recharts) plus ~270 KB of self-hosted woff2. Fine behind a warm service
   worker; worth code-splitting Recharts if first load matters.
 - Rate limiting is per-IP and read-then-write, so two simultaneous requests

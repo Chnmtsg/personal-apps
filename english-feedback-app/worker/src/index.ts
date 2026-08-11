@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { MODEL_ID, PROMPT_VERSION } from "../../shared/schema";
+import { MODEL_ID, PROMPT_VERSION } from "../../shared/schema.ts";
 import { corsHeaders, parseAnalyzeBody, resolveOrigin, safeEqual } from "./policy";
 import { runPipeline } from "./pipeline";
 
@@ -10,9 +10,22 @@ export interface Env {
   ALLOWED_ORIGIN?: string;
   /** Optional shared secret the app sends as X-App-Key. Unset = no check. */
   APP_KEY?: string;
+  /**
+   * Total upstream Anthropic calls allowed per hour, across every caller. A
+   * plain [vars] string (Wrangler vars arrive as strings), not a secret — a
+   * limit is meant to be changed without touching code. Missing or
+   * unparseable falls back to DEFAULT_GLOBAL_HOURLY_CEILING.
+   */
+  GLOBAL_HOURLY_CEILING?: string;
 }
 
 const RATE_LIMIT_PER_HOUR = 20;
+// The one number RATE_LIMIT_PER_HOUR cannot provide: a ceiling on total spend
+// regardless of how many distinct IPs are calling. A per-IP cap behind a
+// forgeable Origin header is not a spend ceiling by itself. Conservative
+// default for a single-learner app; raise it in wrangler.toml as real usage
+// is measured.
+const DEFAULT_GLOBAL_HOURLY_CEILING = 100;
 // 10 KB for the entry text, plus headroom for the `history` field (client-
 // computed recurring-category counts, at most one entry per category).
 const MAX_BODY_BYTES = 12 * 1024;
@@ -24,7 +37,29 @@ const MAX_BODY_BYTES = 12 * 1024;
 const UPSTREAM_TIMEOUT_MS = 120_000;
 
 // Fallback when the KV namespace isn't configured yet — per-isolate only.
+// Keyed by IP for the per-caller bucket, and by GLOBAL_BUCKET_KEY (chosen to
+// never collide with a real "CF-Connecting-IP" value) for the global one.
+const GLOBAL_BUCKET_KEY = "rl:global";
 const memoryCounts = new Map<string, { bucket: number; count: number }>();
+
+function globalHourlyCeiling(env: Env): number {
+  const configured = env.GLOBAL_HOURLY_CEILING ? Number(env.GLOBAL_HOURLY_CEILING) : NaN;
+  return Number.isInteger(configured) && configured > 0
+    ? configured
+    : DEFAULT_GLOBAL_HOURLY_CEILING;
+}
+
+/**
+ * Drop every in-memory bucket that is not the current hour. Without this the
+ * map gains one entry per distinct IP forever, for the life of the isolate —
+ * small per entry, unbounded over time (WORK-31). Called on every write, so
+ * eviction rides along with normal traffic rather than needing its own timer.
+ */
+function evictStaleBuckets(currentBucket: number): void {
+  for (const [key, entry] of memoryCounts) {
+    if (entry.bucket !== currentBucket) memoryCounts.delete(key);
+  }
+}
 
 function json(
   allowOrigin: string | null,
@@ -56,31 +91,71 @@ function fail(
 }
 
 /**
- * Per-IP hourly budget, charged immediately before the upstream call so that
- * rejected requests never consume it.
+ * Per-IP AND global hourly budgets, charged together immediately before the
+ * upstream call so that a rejected request never consumes either. Both are
+ * checked before either is written, so a request that would breach one limit
+ * never partially charges the other.
  *
- * KV is read-then-write, so two simultaneous requests can both observe the
- * same count and overshoot the limit by one. That is acceptable here — this
+ * KV is read-then-write, so concurrent requests can both observe the same
+ * count and overshoot a limit by a handful. That is acceptable here — this
  * caps sustained spend, it is not a security boundary. A hard limit would
  * need a Durable Object.
  */
 async function chargeQuota(env: Env, ip: string): Promise<boolean> {
   const bucket = Math.floor(Date.now() / 3_600_000);
+  const globalLimit = globalHourlyCeiling(env);
+
   if (env.RATE_LIMIT_KV) {
-    const key = `rl:${ip}:${bucket}`;
-    const count = parseInt((await env.RATE_LIMIT_KV.get(key)) ?? "0", 10);
-    if (count >= RATE_LIMIT_PER_HOUR) return false;
-    await env.RATE_LIMIT_KV.put(key, String(count + 1), { expirationTtl: 3700 });
+    const ipKey = `rl:${ip}:${bucket}`;
+    const globalKey = `rl:global:${bucket}`;
+    const [ipRaw, globalRaw] = await Promise.all([
+      env.RATE_LIMIT_KV.get(ipKey),
+      env.RATE_LIMIT_KV.get(globalKey),
+    ]);
+    const ipCount = parseInt(ipRaw ?? "0", 10);
+    const globalCount = parseInt(globalRaw ?? "0", 10);
+    if (ipCount >= RATE_LIMIT_PER_HOUR || globalCount >= globalLimit) return false;
+    await Promise.all([
+      env.RATE_LIMIT_KV.put(ipKey, String(ipCount + 1), { expirationTtl: 3700 }),
+      env.RATE_LIMIT_KV.put(globalKey, String(globalCount + 1), { expirationTtl: 3700 }),
+    ]);
     return true;
   }
-  const entry = memoryCounts.get(ip);
-  if (!entry || entry.bucket !== bucket) {
-    memoryCounts.set(ip, { bucket, count: 1 });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT_PER_HOUR) return false;
-  entry.count += 1;
+
+  evictStaleBuckets(bucket);
+  const ipEntry = memoryCounts.get(ip);
+  const ipCount = ipEntry && ipEntry.bucket === bucket ? ipEntry.count : 0;
+  const globalEntry = memoryCounts.get(GLOBAL_BUCKET_KEY);
+  const globalCount = globalEntry && globalEntry.bucket === bucket ? globalEntry.count : 0;
+  if (ipCount >= RATE_LIMIT_PER_HOUR || globalCount >= globalLimit) return false;
+  memoryCounts.set(ip, { bucket, count: ipCount + 1 });
+  memoryCounts.set(GLOBAL_BUCKET_KEY, { bucket, count: globalCount + 1 });
   return true;
+}
+
+/**
+ * Add calls the pipeline made beyond the one `chargeQuota` already approved.
+ * The over-rewrite retry loop can call the model up to three times inside a
+ * single already-approved request, and the global bucket only ever sees the
+ * first unless this runs. Best-effort and after the fact on purpose: the
+ * calls already happened, so there is nothing left to gate — only the count
+ * the NEXT request's check sees needs to be right. The per-IP bucket is left
+ * alone; it deliberately stays one-per-request (an abuse throttle), not a
+ * spend meter.
+ */
+async function settleGlobalQuota(env: Env, extraCalls: number): Promise<void> {
+  if (extraCalls <= 0) return;
+  const bucket = Math.floor(Date.now() / 3_600_000);
+  if (env.RATE_LIMIT_KV) {
+    const key = `rl:global:${bucket}`;
+    const current = parseInt((await env.RATE_LIMIT_KV.get(key)) ?? "0", 10);
+    await env.RATE_LIMIT_KV.put(key, String(current + extraCalls), { expirationTtl: 3700 });
+    return;
+  }
+  evictStaleBuckets(bucket);
+  const entry = memoryCounts.get(GLOBAL_BUCKET_KEY);
+  const count = entry && entry.bucket === bucket ? entry.count : 0;
+  memoryCounts.set(GLOBAL_BUCKET_KEY, { bucket, count: count + extraCalls });
 }
 
 export default {
@@ -150,7 +225,9 @@ async function handle(
   if (!body.ok) return fail(allowOrigin, body.status, body.error, false);
 
   // Only a request we are actually about to pay for costs quota. The
-  // pipeline's internal over-rewrite retrying never charges again.
+  // pipeline's internal over-rewrite retrying is never gated by a second
+  // chargeQuota check — it settles against the global bucket afterward
+  // instead (below), once the real call count is known.
   const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
   if (!(await chargeQuota(env, ip))) {
     return fail(allowOrigin, 429, "rate_limited", true);
@@ -162,6 +239,11 @@ async function handle(
   });
 
   const result = await runPipeline(client, body.text, body.history, body.profile, body.entryNumber);
+
+  // chargeQuota approved one call; settle whatever the retry loop spent
+  // beyond that against the global bucket, win or lose — a refusal or a
+  // truncation still paid for the upstream calls it took to discover that.
+  await settleGlobalQuota(env, result.calls - 1);
 
   if (!result.ok) {
     if (result.kind === "refusal") {

@@ -19,6 +19,12 @@ const tooLong: AnalyzeFailure = {
   retryable: false,
   code: "too_long_to_analyse",
 };
+const tooLarge: AnalyzeFailure = {
+  ok: false,
+  kind: "server",
+  retryable: false,
+  code: "too_large",
+};
 
 test("a refusal is final and does not spend an attempt", () => {
   assert.deepEqual(applyFailure(0, refusal), {
@@ -38,6 +44,15 @@ test("a permanently rejected request fails immediately", () => {
 
 test("truncation is reported as too_long rather than a generic rejection", () => {
   assert.equal(applyFailure(0, tooLong).failReason, "too_long");
+});
+
+// The bug this guards: policy.ts's own "too_large" (an oversized request body
+// rejected before ever reaching the model) fell through to the generic
+// "rejected" reason, which tells the learner nothing they can act on, while
+// the accurate "too long, try splitting it" message already existed for the
+// sibling case above.
+test("an oversized request body is reported as too_long, not a generic rejection", () => {
+  assert.equal(applyFailure(0, tooLarge).failReason, "too_long");
 });
 
 test("rate limiting requeues without spending an attempt", () => {

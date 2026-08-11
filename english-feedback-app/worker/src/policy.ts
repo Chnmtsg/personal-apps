@@ -58,7 +58,12 @@ export function corsHeaders(allowOrigin: string | null): Record<string, string> 
   };
 }
 
-/** Length-independent comparison, so a wrong key leaks nothing via timing. */
+/**
+ * Content is compared in constant time so a wrong key leaks nothing about
+ * *where* it diverges via timing. Length is not secret here — the early
+ * `a.length !== b.length` return is standard and does not defeat this: an
+ * attacker who already knows the key's length gains nothing they didn't have.
+ */
 export function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
