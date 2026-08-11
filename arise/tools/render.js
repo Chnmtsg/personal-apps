@@ -141,7 +141,11 @@ console.log('\npopulated account');
 const t = S.today();
 const ex0 = S.get().exercises[0].id;
 for (let d = 0; d <= 6; d++) if (!S.get().plan[d].length) S.addToPlan(d, ex0);
-S.get().goals.forEach((g) => S.updateGoal(g.id, { startDate: A.addDays(t, -30) }));
+/* Straight onto the object, not through `updateGoal` — that refuses to move a
+   `startDate` so the app cannot drop lived days out of a goal. Here nothing has
+   been logged yet, so this is a fixture rather than an edit. */
+S.get().goals.forEach((g) => { g.startDate = A.addDays(t, -30); });
+S.commit({ type: 'fixture' });
 
 for (let i = 30; i >= 0; i--) {
   const k = A.addDays(t, -i);
@@ -738,6 +742,38 @@ behaves('a hostile reward name cannot inject markup', () => {
   const html = renderRoute('rewards');
   S.removeCustomReward(r.id);
   return html.indexOf('<img') < 0 ? '' : 'raw markup from a reward name';
+});
+
+/* A sheet this file renders directly is not thereby reachable. `openGoalLog`
+   was rendered on every run of this suite while nothing in the app produced a
+   `goal-log` action at all, so the value log — and with it skipping a day —
+   could not be opened. Assert the route, not just the markup. */
+behaves('the goal sheet can reach the value log', () => {
+  const gv = S.addGoal({ name: 'Reachable', unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5 });
+  sheetBody.innerHTML = '';
+  UI.openGoalDetail(gv.id, S.today());
+  const html = sheetBody.innerHTML;
+  S.removeGoal(gv.id);
+  return html.indexOf('data-act="goal-log"') >= 0 ? '' : 'no route in: the value log and skipping are unreachable';
+});
+
+behaves('a gated goal routes to its summary instead', () => {
+  const gg = S.activeGoals().find((x) => x.gate === 'summary');
+  if (!gg) return 'no gated goal to check';
+  sheetBody.innerHTML = '';
+  UI.openGoalDetail(gg.id, S.today());
+  const html = sheetBody.innerHTML;
+  if (html.indexOf('data-act="open-read"') < 0) return 'a gated goal offers no route to the summary it waits on';
+  return html.indexOf('data-act="goal-log"') < 0 ? '' : 'a gated goal offers a value log that cannot complete it';
+});
+
+behaves('a future day keeps the goal sheet read-only', () => {
+  const gv = S.addGoal({ name: 'Later', unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5 });
+  sheetBody.innerHTML = '';
+  UI.openGoalDetail(gv.id, A.addDays(S.today(), 3));
+  const html = sheetBody.innerHTML;
+  S.removeGoal(gv.id);
+  return html.indexOf('data-act="goal-log"') < 0 ? '' : 'a future day offers a way to log it';
 });
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

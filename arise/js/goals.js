@@ -147,6 +147,28 @@
   }
 
   /**
+   * Was this goal asking anything on that day?
+   *
+   * The single answer to that question, and the only one the ladder is allowed
+   * to use. Resolved from the dates the goal actually ran — never from its
+   * current archived flag, and never from a `startDate` that a re-baseline
+   * moved — so pausing or re-baselining today cannot reach back and change what
+   * a past day meant.
+   *
+   * It lives here rather than in `store.js` because it touches no storage, and
+   * because `timeline` and `streak` need it: they asked `isScheduled` alone,
+   * which knows about rest days but not about pauses, so a paused stretch was
+   * scored as a run of misses.
+   */
+  function askedOn(goal, dateKey) {
+    return (
+      A.daysBetween(goal.startDate, dateKey) >= 0 &&
+      !isArchived(goal, dateKey) &&
+      isScheduled(goal, dateKey)
+    );
+  }
+
+  /**
    * The baseline eras a goal has run through.
    *
    * Re-baselining closes the current era and opens a new one: the ladder restarts
@@ -236,7 +258,7 @@
     let guard = 0;
     while (guard++ < 4000 && A.daysBetween(cursor, today) > 0) {
       enterEra(cursor);
-      if (isScheduled(goal, cursor)) {
+      if (askedOn(goal, cursor)) {
         levelByDay[cursor] = level;
         const ask = valueAt(era.goal, level, mode);
         targetByDay[cursor] = ask;
@@ -258,7 +280,7 @@
 
     // Today: counts only if already satisfied, so it can lift you but never drop you.
     enterEra(today);
-    const todayScheduled = A.daysBetween(start, today) >= 0 && isScheduled(goal, today);
+    const todayScheduled = askedOn(goal, today); // the date clause is `askedOn`'s first test
     if (todayScheduled) {
       levelByDay[today] = level;
       const askToday = valueAt(era.goal, level, mode);
@@ -325,11 +347,11 @@
     let n = 0;
     let guard = 0;
 
-    if (isScheduled(goal, today) && !evaluate(goal, ctx.entry(today), targetOn(goal, today, tl, ctx.mode))) {
+    if (askedOn(goal, today) && !evaluate(goal, ctx.entry(today), targetOn(goal, today, tl, ctx.mode))) {
       cursor = A.addDays(today, -1); // today is still in play
     }
     while (guard++ < 2000 && A.daysBetween(start, cursor) >= 0) {
-      if (isScheduled(goal, cursor)) {
+      if (askedOn(goal, cursor)) {
         if (evaluate(goal, ctx.entry(cursor), targetOn(goal, cursor, tl, ctx.mode))) n++;
         else if (ctx.frozen && ctx.frozen(cursor)) {
           /* held, not counted */
@@ -361,7 +383,7 @@
   Object.assign(G, {
     DEFAULT_ADVANCE, DEFAULT_REGRESS,
     norm, denorm, roundValue, modeOf, stepFor, maxLevel, valueAt,
-    evaluate, isScheduled, scheduleOn, isArchived, erasOf, timeline, targetOn, streak, fromSeed
+    evaluate, isScheduled, scheduleOn, isArchived, askedOn, erasOf, timeline, targetOn, streak, fromSeed
   });
 
   A.Goals = G;

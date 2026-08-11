@@ -231,7 +231,8 @@
         UI.openGoalLog(id, sheetDate);
         break;
       case 'goal-detail':
-        UI.openGoalDetail(id);
+        // The day being viewed, so the sheet's day-level actions land on it.
+        UI.openGoalDetail(id, sheetDate);
         break;
       case 'goal-save-val': {
         const g = S.goalById(id);
@@ -349,7 +350,16 @@
           })
         );
         UI.closeSheet();
-        UI.toast('📖 <span>Summary saved — reading complete</span>', 'gold');
+        /* "Reading complete" is only true if the day's ask was actually met.
+           Saying it regardless made the app state something false in the
+           ordinary case — a summary written with no minutes logged. The value
+           path in `goal-save-val` already gets this right; this mirrors it. */
+        const readGoal = S.activeGoals().find((g) => g.gate === 'summary');
+        if (readGoal && S.goalDone(sheetDate, readGoal.id)) {
+          UI.toast('📖 <span>Summary saved — reading complete</span>', 'gold');
+        } else {
+          UI.toast('📖 <span>Summary saved</span>', 'gold');
+        }
         break;
       }
       case 'read-clear':
@@ -403,15 +413,21 @@
           const el = $(sel);
           return el ? A.hhmmToMin(el.value) : null;
         };
+        /* Stating where you actually are today is a re-baseline, so it goes
+           through `updateGoal`'s baseline path, which opens a dated era. It used
+           to pass `startDate: S.today()` as well; on an account that had already
+           been running, that dropped every day lived so far out of the goal.
+           `updateGoal` now refuses that field outright — this drops it too, so
+           the call says what it means. */
         if (wake) {
           const b = t('#ob_wake_now');
           const g2 = t('#ob_wake_goal');
-          if (b != null && g2 != null && b !== g2) S.updateGoal(wake.id, { baseline: b, target: g2, startDate: S.today() });
+          if (b != null && g2 != null && b !== g2) S.updateGoal(wake.id, { baseline: b, target: g2 });
         }
         if (bed) {
           const b = t('#ob_bed_now');
           const g2 = t('#ob_bed_goal');
-          if (b != null && g2 != null && b !== g2) S.updateGoal(bed.id, { baseline: b, target: g2, startDate: S.today() });
+          if (b != null && g2 != null && b !== g2) S.updateGoal(bed.id, { baseline: b, target: g2 });
         }
         const picked = document.querySelector('input[name="ob_mode"]:checked');
         S.completeOnboarding({
@@ -744,9 +760,13 @@
       }
       case 'import':
         pickFile((text) => {
+          /* Restoring replaces every byte on the device and there is no undo, so
+             it is checked before it is trusted and confirmed before it runs —
+             Reset, the identically irreversible action one row below, has always
+             asked. The order matters: read the file, then ask, then commit. */
+          let info;
           try {
-            S.importJson(text);
-            UI.toast('✅ <span>Data restored</span>');
+            info = S.inspectBackup(text);
           } catch (err) {
             // An import failure must stay legible — the toast is transient, so the
             // reason goes in a sheet the user can actually read and dismiss.
@@ -755,7 +775,31 @@
               body: `${err.message}\n\nYour existing data has not been touched. Pick a file exported from Arise with More → Export.`,
               confirmLabel: 'OK'
             });
+            return;
           }
+          const held = [
+            `${info.days} logged ${info.days === 1 ? 'day' : 'days'}`,
+            `${info.goals} ${info.goals === 1 ? 'goal' : 'goals'}`,
+            `${info.summaries} ${info.summaries === 1 ? 'summary' : 'summaries'}`
+          ].join(', ');
+          UI.openConfirm({
+            title: 'Restore this backup?',
+            body: `That file holds ${held}.\n\nRestoring it replaces everything currently on this device — your plan, logs, streaks, goals and journal. This cannot be undone.`,
+            confirmLabel: 'Replace my data',
+            danger: true,
+            onConfirm: () => {
+              try {
+                S.importJson(text);
+                UI.toast('✅ <span>Data restored</span>');
+              } catch (err) {
+                UI.openConfirm({
+                  title: 'That backup could not be restored',
+                  body: `${err.message}\n\nYour existing data has not been touched.`,
+                  confirmLabel: 'OK'
+                });
+              }
+            }
+          });
         });
         break;
       case 'reset':

@@ -484,17 +484,12 @@
   /**
    * Was this goal asking anything on that day?
    *
-   * Resolved from the dates the goal actually ran — never from its current
-   * archived flag, and never from a `startDate` that a re-baseline moved — so
-   * pausing or re-baselining today cannot reach back and change what a past day
-   * meant. This is the same rule `scheduleOn` already enforces for schedules.
+   * The answer lives in `goals.js` — it touches no storage, and the ladder needs
+   * the same answer this layer gives. Kept here as a delegate so the callers
+   * below read the same as they always did.
    */
   function askedOn(g, dateKey) {
-    return (
-      A.daysBetween(g.startDate, dateKey) >= 0 &&
-      !G.isArchived(g, dateKey) &&
-      G.isScheduled(g, dateKey)
-    );
+    return G.askedOn(g, dateKey);
   }
 
   /** Everything a given day actually asks of you, with its target frozen to that day. */
@@ -617,16 +612,39 @@
     else g.scheduleHistory.push({ from: from, schedule: next });
   }
 
+  /**
+   * Edit a goal, without any edit reaching backwards.
+   *
+   * Two fields cannot simply be assigned, and the guard lives here rather than
+   * at the call sites so a caller written later cannot reopen the hole:
+   *
+   * - `startDate` is rejected outright. It is where the goal's whole history
+   *   hangs from, so moving it forward drops every day already lived out of
+   *   `askedOn` — the record does not change, it just stops being counted.
+   *   Re-baselining is what callers actually wanted, and `restartGoal` does it.
+   * - `baseline` is diverted into `restartGoal`, which closes the era the goal
+   *   has been running in and opens a new one from today. Assigning it directly
+   *   re-runs the entire ladder as though the new number had always been true.
+   */
   function updateGoal(id, patch) {
     const g = goalById(id);
     if (!g) return;
+    const next = Object.assign({}, patch);
+    delete next.startDate;
+    const rebaseline =
+      Object.prototype.hasOwnProperty.call(next, 'baseline') && Number(next.baseline) !== Number(g.baseline);
+    const baseline = next.baseline;
+    delete next.baseline; // restartGoal applies it, after the old era is closed
+
     const previousSchedule = g.schedule;
-    Object.assign(g, patch);
+    Object.assign(g, next);
     if (g.schedule && g.schedule.type === 'weekdays' && !(g.schedule.days || []).length) {
       g.schedule = { type: 'daily' };
     }
     recordScheduleChange(g, previousSchedule);
-    commit({ type: 'goalUpdate', id });
+    // restartGoal commits, so the whole edit still lands in exactly one revision.
+    if (rebaseline) restartGoal(id, baseline);
+    else commit({ type: 'goalUpdate', id });
   }
 
   /**
@@ -709,7 +727,12 @@
       const e = ensureGoalLog(dateKey, g.id);
       if (has) {
         if (next.minutes != null) e.value = Number(next.minutes);
-        e.checked = true;
+        /* Writing the summary is what marks the day written. Whether the reading
+           GOAL was met is a separate question, and only a check-tracked goal is
+           met by the writing itself — a goal that asks for ten minutes has to be
+           given ten minutes. `checked` unconditionally meant a rung, its XP and
+           a streak day for a summary saved with the minutes box emptied. */
+        e.checked = g.track === 'check';
         e.skipped = false;
         e.at = e.at || Date.now();
       } else {
@@ -1418,9 +1441,74 @@
     return JSON.stringify(state, null, 2);
   }
 
+  /**
+   * Read a backup file and say whether it is one, without touching anything.
+   *
+   * Importing replaces every byte the user has, and `migrate` is deliberately
+   * forgiving — it fills in whatever is missing — so almost any JSON object used
+   * to sail through and silently become the user's account. This is the shape
+   * check that stands in front of it, and it is deliberately only a shape check:
+   * the containers must be the right *kind* of thing where they are present, and
+   * the two that have existed in every version of the format must be there at
+   * all. Anything stricter would reject a genuine old backup, which is a worse
+   * failure than the one being fixed.
+   *
+   * Throws an Error whose message can be shown to the user as-is.
+   * @returns {{version:number, days:number, goals:number, summaries:number}}
+   */
+  function inspectBackup(text) {
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      throw new Error('That file is not readable as JSON, so it is not an Arise backup.');
+    }
+    const isObj = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
+    if (!isObj(parsed)) throw new Error('Not an Arise backup file.');
+
+    // Present in every version of the format: without them this is some other file.
+    const missing = [];
+    if (!isObj(parsed.plan)) missing.push('the weekly plan');
+    if (!isObj(parsed.logs)) missing.push('the day logs');
+    if (missing.length) {
+      throw new Error(`This file is missing ${missing.join(' and ')}, so it is not an Arise backup.`);
+    }
+
+    // Added in later versions: absent is fine, wrong type is not.
+    const wrong = [];
+    if (parsed.goals != null && !Array.isArray(parsed.goals)) wrong.push('goals');
+    if (parsed.exercises != null && !Array.isArray(parsed.exercises)) wrong.push('exercises');
+    if (parsed.habits != null && !Array.isArray(parsed.habits)) wrong.push('habits');
+    if (parsed.customRewards != null && !Array.isArray(parsed.customRewards)) wrong.push('custom rewards');
+    if (parsed.challenges != null && !Array.isArray(parsed.challenges)) wrong.push('challenges');
+    if (parsed.goalLogs != null && !isObj(parsed.goalLogs)) wrong.push('goal logs');
+    if (parsed.reading != null && !isObj(parsed.reading)) wrong.push('reading');
+    if (parsed.journal != null && !isObj(parsed.journal)) wrong.push('journal');
+    if (parsed.settings != null && !isObj(parsed.settings)) wrong.push('settings');
+    if (wrong.length) {
+      throw new Error(`This backup is damaged — ${wrong.join(', ')} ${wrong.length > 1 ? 'are' : 'is'} not the right kind of data.`);
+    }
+
+    const v = parsed.version == null ? 1 : parsed.version;
+    if (typeof v !== 'number' || !isFinite(v)) throw new Error('This backup does not say which format it is in.');
+    if (v > STATE_VERSION) {
+      throw new Error(
+        `This backup was written by a newer version of Arise (format ${v}; this copy reads ${STATE_VERSION}). ` +
+          'Update Arise before restoring it — importing it here would drop whatever the newer version added.'
+      );
+    }
+
+    return {
+      version: v,
+      days: Object.keys(parsed.logs).length,
+      goals: Array.isArray(parsed.goals) ? parsed.goals.length : 0,
+      summaries: isObj(parsed.reading) ? Object.keys(parsed.reading).length : 0
+    };
+  }
+
   function importJson(text) {
+    inspectBackup(text); // never import anything that has not been shape-checked
     const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== 'object' || !parsed.plan) throw new Error('Not an Arise backup file.');
     state = migrate(parsed);
     // The user has chosen what their data should be, so the unreadable original
     // no longer needs protecting and writes may resume.
@@ -1451,6 +1539,6 @@
     addGoal, updateGoal, archiveGoal, removeGoal, restartGoal,
     readingEntry, setReading, readingDays, journalEntry, setJournal, journalDays,
     freezeStats, applyFreeze, clearFreeze,
-    updateSettings, exportJson, importJson, unreadableBackup, resetAll
+    updateSettings, exportJson, inspectBackup, importJson, unreadableBackup, resetAll
   };
 })(window);

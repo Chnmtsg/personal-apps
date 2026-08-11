@@ -65,6 +65,16 @@ function freshGoal(patch) {
   const g = S.addGoal(Object.assign({ name: 'Wake', unit: 'time', direction: 'down', baseline: 450, target: 360, step: 15 }, patch));
   return g;
 }
+
+/* Give a goal a past, for tests that need one.
+   This reaches past `updateGoal` on purpose: it refuses to move `startDate`
+   precisely so that nothing in the app can do this to a real account. Setting
+   the field before any day is logged is a fixture, not an edit — there is no
+   history yet for it to re-judge. */
+function backdate(id, key) {
+  S.goalById(id).startDate = key;
+  S.commit({ type: 'test' });
+}
 S.resetAll();
 S.get().goals = [];
 const wake = freshGoal({});
@@ -79,7 +89,7 @@ ok('hard mode cannot overshoot either', G.valueAt(wake, 99, 'hard') === 360, A.p
 
 /* ------------------------------------------------------------------ */
 section('progression is earned, not granted by the calendar');
-S.updateGoal(wake.id, { startDate: A.addDays(t, -5) });
+backdate(wake.id, A.addDays(t, -5));
 ok('a week passing alone changes nothing', S.goalTimeline(wake.id).level === 0, S.goalTimeline(wake.id).level);
 ok('and the target is still the baseline', S.goalTarget(wake.id) === 450, A.prettyTime(S.goalTarget(wake.id)));
 
@@ -94,7 +104,7 @@ ok('goal streak counts', tl.streak === 5, tl.streak);
 
 section('missing enough steps you back down');
 const slip = freshGoal({ name: 'Slip' });
-S.updateGoal(slip.id, { startDate: A.addDays(t, -8) });
+backdate(slip.id, A.addDays(t, -8));
 for (let i = 8; i >= 4; i--) {
   const k = A.addDays(t, -i);
   S.setGoalValue(k, slip.id, S.goalTargetOn(slip.id, k));
@@ -117,7 +127,7 @@ section('a full run reaches the target and stops');
 S.resetAll();
 S.get().goals = [];
 const marathon = freshGoal({ name: 'Marathon' });
-S.updateGoal(marathon.id, { startDate: A.addDays(t, -60) });
+backdate(marathon.id, A.addDays(t, -60));
 for (let i = 60; i >= 1; i--) {
   const k = A.addDays(t, -i);
   S.setGoalValue(k, marathon.id, S.goalTargetOn(marathon.id, k));
@@ -155,7 +165,7 @@ section('a completed day can never be un-completed later');
 S.resetAll();
 S.get().goals = [];
 const frozenAsk = freshGoal({ name: 'Frozen' });
-S.updateGoal(frozenAsk.id, { startDate: A.addDays(t, -10) });
+backdate(frozenAsk.id, A.addDays(t, -10));
 for (let i = 10; i >= 6; i--) {
   const k = A.addDays(t, -i);
   S.setGoalValue(k, frozenAsk.id, S.goalTargetOn(frozenAsk.id, k));
@@ -195,7 +205,7 @@ const gym = S.addGoal({
   name: 'Deep work', unit: 'minutes', direction: 'up', baseline: 25, target: 60, step: 5,
   schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] }
 });
-S.updateGoal(gym.id, { startDate: A.addDays(t, -21) });
+backdate(gym.id, A.addDays(t, -21));
 const sat = (() => { let k = t; while (A.weekday(k) !== 6) k = A.addDays(k, -1); return k; })();
 ok('not scheduled on Saturday', !G.isScheduled(S.goalById(gym.id), sat), sat);
 ok('Saturday is absent from the day list', !S.goalsForDay(sat).some((e) => e.goal.id === gym.id));
@@ -214,7 +224,7 @@ section('changing a schedule does not rewrite past days');
 S.resetAll();
 S.get().goals = [];
 const sch = S.addGoal({ name: 'Move', unit: 'minutes', direction: 'up', baseline: 10, target: 40, step: 5 });
-S.updateGoal(sch.id, { startDate: A.addDays(t, -21) });
+backdate(sch.id, A.addDays(t, -21));
 // Three weeks lived on a DAILY schedule, hitting every single day including weekends.
 for (let i = 21; i >= 1; i--) S.setGoalValue(A.addDays(t, -i), sch.id, S.goalTargetOn(sch.id, A.addDays(t, -i)));
 const beforeSwitch = S.goalTimeline(sch.id);
@@ -258,6 +268,26 @@ ok('summary earns xp', S.totalXp() >= A.XP.summary);
 S.setReading(t, { summary: '' });
 ok('clearing the summary un-completes the day', S.goalDone(t, read.id) === false);
 ok('and the reading record is gone', S.readingEntry(t) === null || !S.readingEntry(t).summary);
+
+/* Writing the summary marks the DAY written. It is not the same question as
+   whether the reading GOAL was met, and only a check-tracked goal is met by the
+   writing alone: a goal that asks for ten minutes has to be given ten minutes.
+   Marking the entry `checked` regardless handed out the rung, its XP and a
+   streak day for a summary with the minutes box emptied. */
+S.setReading(t, { book: 'Deep Work', minutes: null, summary: 'Wrote it up, but did not put the time in.' });
+ok('a summary with the minutes cleared does not complete a value-tracked goal',
+  S.goalDone(t, read.id) === false, JSON.stringify(S.goalEntry(t, read.id)));
+ok('though the day is still written down', !!S.readingEntry(t).summary);
+S.setReading(t, { minutes: 4, summary: 'Four minutes of it.' });
+ok('and neither does less than the ask', S.goalDone(t, read.id) === false, JSON.stringify(S.goalEntry(t, read.id)));
+S.setReading(t, { minutes: S.goalTargetOn(read.id, t), summary: 'Met the ask today.' });
+ok('meeting the ask completes it', S.goalDone(t, read.id) === true, JSON.stringify(S.goalEntry(t, read.id)));
+
+// The other half of the same rule: where writing IS the whole ask, it still counts.
+S.updateGoal(read.id, { track: 'check' });
+S.setReading(t, { minutes: null, summary: 'A check-tracked goal asks for the writing itself.' });
+ok('a check-tracked reading goal is still completed by the summary alone', S.goalDone(t, read.id) === true);
+S.updateGoal(read.id, { track: 'value' });
 
 section('journal is a separate thing from the reading summary');
 S.setReading(t, { summary: 'A summary of what I read.' });
@@ -337,7 +367,7 @@ section('history is never rewritten');
 S.resetAll();
 S.get().goals = [];
 const hist = freshGoal({ name: 'History' });
-S.updateGoal(hist.id, { startDate: A.addDays(t, -10) });
+backdate(hist.id, A.addDays(t, -10));
 for (let i = 10; i >= 1; i--) {
   const k = A.addDays(t, -i);
   S.setGoalValue(hist.id ? k : k, hist.id, S.goalTargetOn(hist.id, k));
@@ -384,7 +414,7 @@ section('a step back never claws xp back');
 S.resetAll();
 S.get().goals = [];
 const xpGoal = freshGoal({ name: 'XP' });
-S.updateGoal(xpGoal.id, { startDate: A.addDays(t, -12) });
+backdate(xpGoal.id, A.addDays(t, -12));
 for (let i = 12; i >= 8; i--) S.setGoalValue(A.addDays(t, -i), xpGoal.id, S.goalTargetOn(xpGoal.id, A.addDays(t, -i)));
 const peakXp = S.totalXp();
 ok('levelling up paid out', peakXp >= A.XP.levelUp, peakXp);
@@ -417,6 +447,39 @@ ok('import restores the journal', !!S.journalEntry(t));
 let threw = false;
 try { S.importJson('{"nope":1}'); } catch (e) { threw = true; }
 ok('import rejects junk', threw);
+
+/* Importing replaces every byte the user has and cannot be undone, while
+   `migrate` is forgiving by design — so almost any JSON object used to become
+   the account silently. The shape check stands in front of it. It stays a shape
+   check on purpose: reject what is not an Arise backup, never a real one. */
+function rejects(label, text) {
+  let msg = null;
+  try { S.inspectBackup(text); } catch (e) { msg = e.message; }
+  ok(label, msg !== null, 'it was accepted');
+  return msg || '';
+}
+const beforeCheck = S.exportJson();
+const okInfo = S.inspectBackup(beforeCheck);
+ok('a real export inspects cleanly',
+  okInfo && typeof okInfo.days === 'number' && okInfo.goals === S.goals().length, JSON.stringify(okInfo));
+rejects('rejects a file that is not JSON', 'this is my diary, not a backup');
+rejects('rejects a JSON array', '[]');
+rejects('rejects null', 'null');
+rejects('rejects a string', '"backup"');
+rejects('rejects a file with no weekly plan', JSON.stringify({ logs: {} }));
+rejects('rejects a file with no day logs', JSON.stringify({ plan: {} }));
+rejects('rejects goals that are not a list', JSON.stringify({ plan: {}, logs: {}, goals: 'all of them' }));
+rejects('rejects a journal that is not an object', JSON.stringify({ plan: {}, logs: {}, journal: [] }));
+const newer = rejects('rejects a backup from a newer version of Arise',
+  JSON.stringify({ plan: {}, logs: {}, version: 999 }));
+ok('and says so in a way that names both formats', newer.indexOf('999') > 0 && /newer version/i.test(newer), newer);
+
+// The guard is in the store, not only in the click handler that calls it.
+let blocked = false;
+try { S.importJson(JSON.stringify({ plan: {}, logs: {}, version: 999 })); } catch (e) { blocked = true; }
+ok('importJson refuses what inspectBackup rejected', blocked);
+ok('and the existing data is untouched after a refused import',
+  S.exportJson() === beforeCheck, 'state changed');
 
 section('migrating a v1 backup');
 const v1 = {
@@ -545,6 +608,99 @@ const xpWithPaused = S.totalXp();
 S.archiveGoal(kept.id, true);
 ok('pausing a goal never claws back its level-up XP', S.totalXp() === xpWithPaused, `${S.totalXp()} vs ${xpWithPaused}`);
 S.archiveGoal(kept.id, false);
+
+/* ------------------------------------------------------------------ */
+/* The pause tests above all read `dayStatus` and `goalsForDay`, which route
+   through `askedOn`. `timeline` and `streak` did not, so a paused stretch was
+   still scored as a run of misses — the ladder walked down and the streak broke
+   on days the goal was not asking anything. That is invisible to every
+   assertion above, which is why this section exists: it reads the numbers the
+   ladder itself is made of.
+
+   Note the ordering below. `activeHistory` is installed *before* the days after
+   the pause are logged, because `hitGoalTarget` freezes the ask as it stood when
+   the day was logged. Logging first and pausing afterwards would re-judge those
+   entries against a different ladder — the very bug this file is guarding. */
+section('a pause is skipped, not scored as a run of misses');
+
+S.resetAll();
+S.get().goals = [];
+S.get().habits = [];
+for (let d = 0; d <= 6; d++) S.get().plan[d] = [];
+
+const pFrom = A.addDays(S.today(), -20);
+const rung = S.addGoal({
+  name: 'Paused mid-ladder', unit: 'count', direction: 'up',
+  baseline: 1, target: 10, step: 1, startDate: pFrom
+});
+
+// Paused across T-7…T-4 — four days, one more than regress.misses (3).
+S.goalById(rung.id).activeHistory = [
+  { from: pFrom, archived: false },
+  { from: A.addDays(S.today(), -7), archived: true },
+  { from: A.addDays(S.today(), -3), archived: false }
+];
+S.commit({ type: 'test' });
+
+for (let i = 20; i >= 8; i--) S.hitGoalTarget(A.addDays(S.today(), -i), rung.id);  // 13 kept
+for (let i = 3; i >= 1; i--) S.hitGoalTarget(A.addDays(S.today(), -i), rung.id);   // 3 more after it resumes
+
+const pTl = S.goalTimeline(rung.id);
+// 13 hits = two level-ups with three banked; the four paused days must not touch
+// that, so the three days after the resume complete the third rung.
+ok('the ladder does not walk down over a pause', pTl.level === 3, `level ${pTl.level}`);
+ok('the paused days are not counted as asked',
+  pTl.scheduledDays === 17, `scheduledDays ${pTl.scheduledDays}`);
+ok('and the streak carries across the pause instead of breaking on it',
+  pTl.streak === 16, `streak ${pTl.streak}`);
+ok('every day it did ask was kept', pTl.doneDays === 16, `doneDays ${pTl.doneDays}`);
+
+/* ------------------------------------------------------------------ */
+/* `updateGoal` was a bare Object.assign, which made it the one function in the
+   data layer that could rewrite the past. Two ways: moving `startDate` forward
+   dropped every lived day out of `askedOn`, and changing `baseline` re-ran the
+   whole ladder from the new number as though it had always been that. Both are
+   reachable from the goal edit sheet, and onboarding did the first one on
+   purpose. The guard belongs here, not at the call sites — a caller added later
+   must not be able to reopen it. */
+section('updateGoal cannot rewrite a day already lived');
+
+S.resetAll();
+S.get().goals = [];
+S.get().habits = [];
+for (let d = 0; d <= 6; d++) S.get().plan[d] = [];
+
+const uFrom = A.addDays(S.today(), -10);
+const edited = S.addGoal({
+  name: 'Edited later', unit: 'count', direction: 'up',
+  baseline: 2, target: 10, step: 1, startDate: uFrom
+});
+for (let i = 10; i >= 6; i--) S.hitGoalTarget(A.addDays(S.today(), -i), edited.id);
+
+const uSample = A.addDays(S.today(), -8);
+const askBefore = S.goalTimeline(edited.id).targetByDay[uSample];
+const schedBefore = S.goalTimeline(edited.id).scheduledDays;
+ok('the sample day has a recorded ask to begin with', askBefore != null, String(askBefore));
+
+// WORK-02 — the patch that onboarding used to send.
+S.updateGoal(edited.id, { name: 'Renamed', startDate: S.today() });
+ok('updateGoal refuses to move startDate',
+  S.goalById(edited.id).startDate === uFrom, S.goalById(edited.id).startDate);
+ok('so the days already lived stay inside the goal',
+  S.goalTimeline(edited.id).scheduledDays === schedBefore,
+  `${S.goalTimeline(edited.id).scheduledDays} vs ${schedBefore}`);
+ok('and the rest of the patch still applies', S.goalById(edited.id).name === 'Renamed');
+
+// WORK-07 — a baseline edited from the goal sheet.
+S.updateGoal(edited.id, { baseline: 6 });
+const afterBase = S.goalTimeline(edited.id);
+ok('a changed baseline opens a dated era instead of rewriting the ladder',
+  Array.isArray(S.goalById(edited.id).baselineHistory) && S.goalById(edited.id).baselineHistory.length === 2,
+  JSON.stringify(S.goalById(edited.id).baselineHistory));
+ok('so a past day is still judged by the baseline it ran on',
+  afterBase.targetByDay[uSample] === askBefore, `${afterBase.targetByDay[uSample]} vs ${askBefore}`);
+ok('while today runs on the new one', afterBase.target === 6, afterBase.target);
+ok('and startDate never moved', S.goalById(edited.id).startDate === uFrom);
 
 /* ------------------------------------------------------------------ */
 section('the real ledger counts life, not points');
