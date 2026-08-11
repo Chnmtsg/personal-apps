@@ -19,6 +19,120 @@
   const esc = (s) =>
     String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  /* ---------- icons ----------
+   *
+   * Line icons, drawn rather than typed. An emoji is a picture of someone
+   * else's idea of the thing, rendered in the platform's own colours at the
+   * platform's own weight — six of them in a row is what made this app read as
+   * a toy. These are one stroke weight, one grid, and they take `currentColor`,
+   * so an icon is the same colour as the text beside it and inherits every
+   * theme change for free.
+   *
+   * 24x24 grid, 2px stroke, round caps. No files: an inline SVG ships with the
+   * markup, which keeps the "no assets, no network" rule intact.
+   */
+  const ICONS = {
+    /* A flame is a droplet unless it leans and its base is wider than its point,
+       so it carries one asymmetric lick. Proofed at 12px — the size the streak
+       pill uses — where a symmetric teardrop reads unmistakably as water. */
+    flame: '<path d="M12 2.6c.5 3 2.3 4.4 3.8 6.2C17.2 10.5 18 12 18 13.8a6 6 0 1 1-12 0c0-1.7.6-3.1 1.8-4.5.2 1 .6 1.7 1.3 2.1-.6-3 .1-5.9 2.9-8.8Z"/>',
+    check: '<path d="m4 12.5 5.2 5L20 7"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><path d="M12 7.6v.1"/>',
+    repeat: '<path d="M4 9a5 5 0 0 1 5-5h11m0 0-3-3m3 3-3 3"/><path d="M20 15a5 5 0 0 1-5 5H4m0 0 3 3m-3-3 3-3"/>',
+    // Difficulty reads as three ascending bars — the same shape the reference uses.
+    level: '<path d="M5 20v-5"/><path d="M12 20V9"/><path d="M19 20V4"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    /* Plan is the *weekly* training programme, so it takes a calendar rather
+       than a dumbbell. A dumbbell at 13px is a horizontal line with two ticks
+       and nothing more; this also says "a week" instead of "a weight", which is
+       what the screen actually is. */
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M8 3v4m8-4v4M3 10h18"/>',
+    // An open book, not a closed one: a rectangle with a line down it is a
+    // rectangle, and that is exactly what the first attempt looked like.
+    book: '<path d="M12 7v13"/><path d="M12 7a4.5 4.5 0 0 0-4.5-3H3v13h4.5a4.5 4.5 0 0 1 4.5 3"/><path d="M12 7a4.5 4.5 0 0 1 4.5-3H21v13h-4.5a4.5 4.5 0 0 0-4.5 3"/>',
+    chart: '<path d="M4 20V10m6 10V4m6 16v-7"/>',
+    trophy: '<path d="M7 3h10v5.5a5 5 0 0 1-10 0V3Z"/><path d="M7 5H4v1.5A3.5 3.5 0 0 0 7.5 10M17 5h3v1.5a3.5 3.5 0 0 1-3.5 3.5"/><path d="M12 13.5V17m-3.5 3.5h7"/>',
+    grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
+
+    /* Areas and categories. These stand in for the emoji a seed used to carry,
+       so there is one for every `SECTIONS` id and every exercise category. */
+    dumbbell: '<path d="M6.5 6.5v11m11-11v11M3.5 9.5v5m17-5v5M6.5 12h11"/>',
+    pulse: '<path d="M3 12h4l2.5-6 4 12L16 12h5"/>',
+    target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5"/>',
+    move: '<path d="M12 3v18M3 12h18"/><path d="m8.5 6.5 3.5-3.5 3.5 3.5m-7 11 3.5 3.5 3.5-3.5M6.5 8.5 3 12l3.5 3.5m11-7L21 12l-3.5 3.5"/>',
+    moon: '<path d="M20 14.6A8.5 8.5 0 0 1 9.4 4 8.5 8.5 0 1 0 20 14.6Z"/>',
+    bulb: '<path d="M9.5 17.5h5M10 20.5h4"/><path d="M12 3.2a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2h5c0-.8.4-1.5 1-2A6 6 0 0 0 12 3.2Z"/>',
+    heart: '<path d="M12 20.4S4.5 15.8 4.5 10.7A4.3 4.3 0 0 1 12 7.9a4.3 4.3 0 0 1 7.5 2.8c0 5.1-7.5 9.7-7.5 9.7Z"/>',
+    pen: '<path d="M14.6 4.4a4.5 4.5 0 0 0 5.6 5.6L9.9 20.3a2.6 2.6 0 0 1-3.7-3.7L14.6 4.4Z"/>',
+    star: '<path d="m12 3.6 2.6 5.5 6 .8-4.4 4.1 1.1 5.9-5.3-2.9-5.3 2.9 1.1-5.9L3.4 9.9l6-.8z"/>'
+  };
+
+  /* An exercise category and a goal area each stand for one drawn icon. */
+  const CATEGORY_ICON = { Strength: 'dumbbell', Cardio: 'pulse', Core: 'target', Mobility: 'move' };
+  const SECTION_ICON = {
+    sleep: 'moon', fitness: 'dumbbell', mind: 'bulb', reading: 'book',
+    health: 'heart', craft: 'pen', custom: 'star'
+  };
+
+  /**
+   * @param {string} name a key of ICONS
+   * @param {string} [cls] extra class names
+   * Decorative by default: every icon here sits beside its own label, so it is
+   * `aria-hidden` and the label carries the meaning. An icon that ever stands
+   * alone needs an `aria-label` on the control around it, not on the glyph.
+   */
+  function icon(name, cls) {
+    const d = ICONS[name];
+    if (!d) return '';
+    return `<svg class="ico${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${d}</svg>`;
+  }
+  UI.icon = icon;
+
+  /* ---------- an item's glyph ----------
+   *
+   * Exercises and goals each carry an `icon` field the user can edit. Chrome is
+   * drawn now, but that field is theirs, so the rule is: **a glyph the user
+   * chose wins; a glyph a seed handed them yields to the drawn icon for its
+   * category.** Nothing is deleted and nothing is migrated — which of the two it
+   * is gets *derived* by comparing against the seed, the same way day status is
+   * derived rather than stored.
+   *
+   * The editors' own placeholders count as stock too. A goal created and never
+   * given an icon carries `🎯` because the field defaulted to it, not because
+   * anybody picked it, and seven goals all showing the same target is exactly
+   * the noise this replaces.
+   */
+  const STOCK_GOAL_ICON = '🎯';
+  const STOCK_EX_ICON = '🏋️';
+  let stockByName = null;
+
+  function stockExIcon(name) {
+    if (!stockByName) {
+      stockByName = new Map();
+      (A.SEED_EXERCISES || []).forEach((e) => stockByName.set(e.name, e.icon));
+      (A.PROGRAM_EXERCISES || []).forEach((e) => stockByName.set(e.name, e.icon));
+    }
+    return stockByName.get(name);
+  }
+
+  /** @returns {string} ready-to-insert HTML — an escaped emoji, or an inline SVG. */
+  function exGlyph(ex) {
+    if (!ex) return icon('dumbbell');
+    const stock = stockExIcon(ex.name);
+    const chosen = ex.icon && ex.icon !== stock && ex.icon !== STOCK_EX_ICON;
+    return chosen ? esc(ex.icon) : icon(CATEGORY_ICON[ex.category] || 'dumbbell');
+  }
+
+  function goalGlyph(g) {
+    if (!g) return icon('star');
+    const seed = (A.SEED_GOALS || []).find((s) => s.key && s.key === g.key);
+    const chosen = g.icon && g.icon !== (seed && seed.icon) && g.icon !== STOCK_GOAL_ICON;
+    return chosen ? esc(g.icon) : icon(SECTION_ICON[g.section] || 'star');
+  }
+
+  /** The drawn icon for a goal area, used where a section labels a group. */
+  const sectionGlyph = (id) => icon(SECTION_ICON[id] || 'star');
+
   /* ---------- formatting ---------- */
 
   function dose(item, ex) {
@@ -35,8 +149,10 @@
 
   function planLine(item) {
     const ex = S.exerciseById(item.exerciseId);
-    if (!ex) return { icon: '❓', name: 'Removed exercise', sub: '', cat: 'Other' };
-    return { icon: ex.icon || '🏋️', name: ex.name, sub: `${dose(item, ex)} · ${ex.category}`, cat: ex.category };
+    // `icon` is ready-to-insert HTML from here down, so its call sites must not
+    // escape it a second time. Anything user-typed is escaped inside exGlyph.
+    if (!ex) return { icon: esc('❓'), name: 'Removed exercise', sub: '', cat: 'Other' };
+    return { icon: exGlyph(ex), name: ex.name, sub: `${dose(item, ex)} · ${ex.category}`, cat: ex.category };
   }
 
   const dayOrder = [1, 2, 3, 4, 5, 6, 0]; // Monday-first
@@ -139,20 +255,20 @@
     const stepPct = tl && !tl.atTarget ? (tl.windowHits / Math.max(1, tl.windowNeeded)) * 100 : 100;
 
     const meta = [
-      `<span>🔁 ${esc(scheduleText(g))}</span>`,
-      `<span>${mode.icon} ${esc(mode.name)}</span>`,
-      logged ? `<span>${esc(logged)} logged</span>` : ''
+      `<span>${icon('repeat')}${esc(scheduleText(g))}</span>`,
+      `<span>${icon('level')}${esc(mode.name)}</span>`,
+      logged ? `<span>${icon('check')}${esc(logged)} logged</span>` : ''
     ]
       .filter(Boolean)
-      .join('<i>·</i>');
+      .join('');
 
     return `<article class="gcard ${entry.done ? 'is-done' : ''} ${entry.skipped ? 'is-skipped' : ''} ${
       locked ? 'locked' : ''
     }" style="--hue:${hue}">
-      <span class="gcard-art" aria-hidden="true">${esc(g.icon || '🎯')}</span>
+      <span class="gcard-mono" aria-hidden="true">${esc((g.name || '?').trim().charAt(0).toUpperCase())}</span>
       <button type="button" class="gcard-open" data-act="goal-detail" data-id="${g.id}">
         <span class="gcard-badges">
-          ${entry.streak > 0 ? `<span class="gcard-streak">🔥 ${entry.streak}d</span>` : ''}
+          ${entry.streak > 0 ? `<span class="gcard-streak">${icon('flame')}${entry.streak}d</span>` : ''}
           ${entry.skipped ? '<span class="gcard-streak skip">Skipped</span>' : ''}
         </span>
         <span class="gcard-title">${esc(g.name)} ${esc(targetPhrase(g, entry.target))}</span>
@@ -240,13 +356,13 @@
             return `<div class="item ${done ? 'done' : ''} ${future ? 'locked' : ''}">
               <button type="button" class="item-main" data-act="toggle-ex" data-id="${i.id}" ${future ? 'disabled' : ''}>
                 <span class="tick" aria-hidden="true">✓</span>
-                <span class="emoji" aria-hidden="true">${esc(p.icon)}</span>
+                <span class="emoji" aria-hidden="true">${p.icon}</span>
                 <span class="body"><span class="name">${esc(p.name)}</span><span class="sub">${esc(p.sub)}${
               i.note ? ' · ' + esc(i.note) : ''
             }</span></span>
               </button>
               <button type="button" class="icon-btn" data-act="ex-how" data-id="${i.exerciseId}" data-item="${i.id}"
-                aria-label="How to do ${esc(p.name)}">ℹ️</button>
+                aria-label="How to do ${esc(p.name)}">${icon('info')}</button>
             </div>`;
           })
           .join('')
@@ -427,7 +543,7 @@
 
       ${
         offset === 0 && mLeft < 240
-          ? `<p class="faint" style="text-align:center;font-size:12px;margin:4px 0 0">⏳ ${mLeft} min left to log ${esc(
+          ? `<p class="faint" style="text-align:center;font-size:var(--fs-sm);margin:4px 0 0">⏳ ${mLeft} min left to log ${esc(
               relative.toLowerCase()
             )} — the day rolls over at ${esc(A.prettyTime(S.settings().dayBoundaryHour * 60))}.</p>`
           : ''
@@ -459,7 +575,7 @@
     const to = A.formatValue(g.unit, g.target);
     const pct = tl.maxLevel ? (tl.level / tl.maxLevel) * 100 : 100;
     return `<div class="row goal-manage ${g.archived ? 'is-archived' : ''}">
-      <span class="emoji" style="font-size:20px">${esc(g.icon || '🎯')}</span>
+      <span class="emoji" style="font-size:20px">${goalGlyph(g)}</span>
       <div class="body">
         <div class="name">${esc(g.name)} ${levelChip(tl)}</div>
         <div class="sub">${esc(from)} → ${esc(to)} · ${mode.icon} ${esc(mode.name)} · ${esc(scheduleText(g))}${
@@ -482,7 +598,7 @@
     const body = A.SECTIONS.filter((s) => groups[s.id])
       .map(
         (s) => `<div class="card flush">
-          <div class="plan-day-head"><h3>${s.icon} ${esc(s.name)}</h3><span class="count">${groups[s.id].length}</span></div>
+          <div class="plan-day-head"><h3>${sectionGlyph(s.id)} ${esc(s.name)}</h3><span class="count">${groups[s.id].length}</span></div>
           <div>${groups[s.id].map(goalManageRow).join('')}</div>
         </div>`
       )
@@ -492,7 +608,7 @@
       <div class="section-head"><h2>Goals</h2><button class="link" data-act="goal-new">＋ New goal</button></div>
       <div class="card" style="display:flex;gap:10px;align-items:center">
         <span style="font-size:22px">🎯</span>
-        <div class="muted" style="font-size:13px;flex:1">Each goal moves from where you are now to a target you set — and stops there.
+        <div class="muted" style="font-size:var(--fs-md);flex:1">Each goal moves from where you are now to a target you set — and stops there.
           You step up by <b>performing</b>, never because a week passed.</div>
       </div>
       ${body || `<div class="empty">No goals yet.</div>`}
@@ -515,7 +631,7 @@
                 const p = planLine(i);
                 return `<div class="plan-row">
                   <button type="button" class="plan-main" data-act="plan-edit" data-day="${d}" data-id="${i.id}">
-                    <span class="emoji" aria-hidden="true">${esc(p.icon)}</span>
+                    <span class="emoji" aria-hidden="true">${p.icon}</span>
                     <span class="body"><span class="name">${esc(p.name)}</span><span class="sub">${esc(p.sub)}${
                   i.note ? ' · ' + esc(i.note) : ''
                 }</span></span>
@@ -549,10 +665,10 @@
     return `
       ${goalManageBlock()}
 
-      <div class="section-head"><h2>Weekly plan</h2><span class="faint" style="font-size:12px">${active} training days · ${total} exercises</span></div>
+      <div class="section-head"><h2>Weekly plan</h2><span class="faint" style="font-size:var(--fs-sm)">${active} training days · ${total} exercises</span></div>
       <div class="card" style="display:flex;gap:10px;align-items:center">
         <span style="font-size:22px">🗓️</span>
-        <div class="muted" style="font-size:13px;flex:1">Set what you'll do on each weekday. Today's list shows up automatically on the Today tab, and changes never rewrite days you've already logged.</div>
+        <div class="muted" style="font-size:var(--fs-md);flex:1">Set what you'll do on each weekday. Today's list shows up automatically on the Today tab, and changes never rewrite days you've already logged.</div>
       </div>
       ${days}
     `;
@@ -597,7 +713,7 @@
       </div>
       <label class="field"><span>Summary — ${esc(A.promptForDay(dateKey))}</span>
         <textarea id="r_summary" rows="6" placeholder="A few honest sentences in your own words…">${esc(r.summary || '')}</textarea></label>
-      <p class="faint" style="font-size:12px;margin:-4px 0 12px">
+      <p class="faint" style="font-size:var(--fs-sm);margin:-4px 0 12px">
         Writing it is what marks the day done — there is no separate tick. Any length counts;
         a real sentence beats a long one you didn't mean.
       </p>
@@ -607,7 +723,7 @@
       </div>
       ${
         g && target != null
-          ? `<p class="faint" style="font-size:12px;margin:10px 0 0">Today's reading target: <b>${esc(
+          ? `<p class="faint" style="font-size:var(--fs-sm);margin:10px 0 0">Today's reading target: <b>${esc(
               targetPhrase(g, target)
             )}</b>. Logging fewer minutes saves the summary but leaves the goal unmet.</p>`
           : ''
@@ -652,7 +768,7 @@
 
     return `
       <div class="section-head"><h2>Reading</h2>${
-        tl ? `<span class="faint" style="font-size:12px">🔥 ${tl.streak} · ${esc(advanceHint(g, tl))}</span>` : ''
+        tl ? `<span class="faint" style="font-size:var(--fs-sm)">🔥 ${tl.streak} · ${esc(advanceHint(g, tl))}</span>` : ''
       }</div>
       <div class="card">${
         g
@@ -661,7 +777,7 @@
              <button class="link" data-act="goal-new">Create one →</button></div>`
       }</div>
 
-      <div class="section-head"><h2>Daily journal</h2><span class="faint" style="font-size:12px">separate from your summaries</span></div>
+      <div class="section-head"><h2>Daily journal</h2><span class="faint" style="font-size:var(--fs-sm)">separate from your summaries</span></div>
       <div class="card">
         <div class="mood-row">${MOODS.map(
           (m, i) =>
@@ -671,10 +787,10 @@
         <textarea id="dayNote" data-date="${k}" rows="5" placeholder="How did the day actually go?">${esc(j.text || '')}</textarea>
       </div>
 
-      <div class="section-head"><h2>Past summaries</h2><span class="faint" style="font-size:12px">${archiveCount(past.length)}</span></div>
+      <div class="section-head"><h2>Past summaries</h2><span class="faint" style="font-size:var(--fs-sm)">${archiveCount(past.length)}</span></div>
       <div class="card">${summaryList}</div>
 
-      <div class="section-head"><h2>Past journal</h2><span class="faint" style="font-size:12px">${archiveCount(jDays.length)}</span></div>
+      <div class="section-head"><h2>Past journal</h2><span class="faint" style="font-size:var(--fs-sm)">${archiveCount(jDays.length)}</span></div>
       <div class="card">${journalList}</div>
     `;
   }
@@ -782,7 +898,7 @@
                 .map(
                   (row) => `<div class="lifeitem">
                     <b>${esc(lifeAmount(row))}</b>
-                    <span>${esc(row.goal.icon || '🎯')} ${esc(row.goal.name)}</span>
+                    <span>${goalGlyph(row.goal)} ${esc(row.goal.name)}</span>
                   </div>`
                 )
                 .join('')}</div>`
@@ -802,10 +918,10 @@
       <div class="card">
         <div class="xpbar-top"><span>${prog.rank.icon} ${esc(prog.rank.name)} · Level ${prog.level}</span><span>${prog.into}/${prog.need} XP</span></div>
         ${bar(prog.pct)}
-        <div class="faint" style="font-size:12px;margin-top:8px">${prog.xp.toLocaleString()} XP earned all-time · ${(A.xpForLevel(prog.level + 1) - prog.xp).toLocaleString()} XP to level ${prog.level + 1}</div>
+        <div class="faint" style="font-size:var(--fs-sm);margin-top:8px">${prog.xp.toLocaleString()} XP earned all-time · ${(A.xpForLevel(prog.level + 1) - prog.xp).toLocaleString()} XP to level ${prog.level + 1}</div>
       </div>
 
-      <div class="section-head"><h2>Goal ladders</h2><span class="faint" style="font-size:12px">baseline → target</span></div>
+      <div class="section-head"><h2>Goal ladders</h2><span class="faint" style="font-size:var(--fs-sm)">baseline → target</span></div>
       <div class="card">${
         S.activeGoals().length
           ? S.activeGoals()
@@ -814,13 +930,13 @@
                 const pct = tl.maxLevel ? (tl.level / tl.maxLevel) * 100 : 100;
                 return `<div class="ladder">
                   <div class="ladder-top">
-                    <span>${esc(g.icon || '🎯')} <b>${esc(g.name)}</b></span>
+                    <span>${goalGlyph(g)} <b>${esc(g.name)}</b></span>
                     <span class="faint">${esc(A.formatValue(g.unit, g.baseline))} → <b>${esc(
                   A.formatValue(g.unit, tl.target)
                 )}</b> → ${esc(A.formatValue(g.unit, g.target))}</span>
                   </div>
                   ${bar(pct, tl.atTarget ? 'gold' : '')}
-                  <div class="faint" style="font-size:11.5px;margin-top:5px">${esc(advanceHint(g, tl))} · 🔥 ${tl.streak} · ${
+                  <div class="faint" style="font-size:var(--fs-xs);margin-top:5px">${esc(advanceHint(g, tl))} · 🔥 ${tl.streak} · ${
                   tl.doneDays
                 }/${tl.scheduledDays} days kept</div>
                 </div>`;
@@ -841,7 +957,7 @@
         </div>
       </div>
 
-      <div class="section-head"><h2>Weekly goal history</h2><span class="faint" style="font-size:12px">goal ${S.settings().goalPerWeek}/wk</span></div>
+      <div class="section-head"><h2>Weekly goal history</h2><span class="faint" style="font-size:var(--fs-sm)">goal ${S.settings().goalPerWeek}/wk</span></div>
       <div class="card"><div class="bars">${bars}</div></div>
 
       <div class="section-head"><h2>Training mix · 30 days</h2></div>
@@ -905,7 +1021,7 @@
     const v = Object.assign({ name: '', icon: '🎁', source: 'overall', goalId: null, days: 14 }, r || {}, draft || {});
     const goals = S.activeGoals();
     openSheet(r ? 'Edit reward' : 'New reward', `
-      <p class="muted" style="margin-top:0;font-size:13px">Name something you actually want, and what it costs in
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Name something you actually want, and what it costs in
         days. Arise will not buy it for you — it just refuses to say you earned it before you did.</p>
       <div class="grid-2">
         <label class="field"><span>Reward</span>
@@ -922,9 +1038,9 @@
       </select>${goals.length ? '' : '<small class="field-note">No goals yet — create one first.</small>'}</label>
       <label class="field"><span>Days needed</span>
         <input type="number" id="rw_days" min="1" max="999" value="${esc(v.days)}"></label>
-      <button class="btn primary block" data-act="reward-save" data-id="${r ? r.id : ''}" style="margin-top:8px">${
+      <div class="btn-row"><button class="btn primary block" data-act="reward-save" data-id="${r ? r.id : ''}">${
       r ? 'Save reward' : 'Add reward'
-    }</button>
+    }</button></div>
       ${r ? `<button class="btn ghost danger block" data-act="reward-delete" data-id="${r.id}" style="margin-top:8px">Delete</button>` : ''}
     `);
   }
@@ -979,7 +1095,7 @@
         ${wk.hit && !wk.claimed ? `<button class="btn primary block" data-act="claim-weekly" style="margin-top:12px">Open chest · +${A.XP.weeklyGoal} XP</button>` : ''}
       </div>
 
-      <div class="section-head"><h2>Streak milestones</h2><span class="faint" style="font-size:12px">🔥 ${streak} now · best ${best}</span></div>
+      <div class="section-head"><h2>Streak milestones</h2><span class="faint" style="font-size:var(--fs-sm)">🔥 ${streak} now · best ${best}</span></div>
       <div class="reward-grid">${grid}</div>
     `;
   }
@@ -995,7 +1111,7 @@
       : exs
       .map(
         (e) => `<div class="row">
-          <span class="emoji" style="font-size:20px">${esc(e.icon || '🏋️')}</span>
+          <span class="emoji" style="font-size:20px">${exGlyph(e)}</span>
           <div class="body"><div class="name">${esc(e.name)}</div><div class="sub">${esc(e.category)} · ${esc(
           e.unit === 'time' ? (e.minutes || 10) + ' min' : e.unit === 'distance' ? (e.km || 1) + ' km' : (e.sets || 3) + ' × ' + (e.reps || 10)
         )}</div></div>
@@ -1027,7 +1143,7 @@
         preview = `step ${A.formatValue(example.unit === 'time' ? 'minutes' : example.unit, step)}`;
       }
       return `<button type="button" class="mode-card ${s.mode === id ? 'on' : ''}" data-act="set-mode" data-mode="${id}">
-        <span class="ico">${m.icon}</span><b>${esc(m.name)}</b>
+        <span class="mode-glyph">${m.icon}</span><b>${esc(m.name)}</b>
         <small>${esc(m.blurb)}</small>
         ${preview ? `<i>${esc(example.name)}: ${esc(preview)}</i>` : ''}
       </button>`;
@@ -1036,7 +1152,7 @@
     return `
       <div class="section-head"><h2>Difficulty</h2></div>
       <div class="mode-grid">${modeCards}</div>
-      <p class="faint" style="font-size:12px;margin:2px 4px 0">
+      <p class="faint" style="font-size:var(--fs-sm);margin:2px 4px 0">
         Difficulty changes how <b>big</b> each step is, never how you earn one — you always advance by
         performing. Switching re-scores your record at the new step size: nothing is wiped, days you
         already completed stay completed, but the next ask can jump. Individual goals can override this.
@@ -1096,7 +1212,7 @@
           <div class="body"><div class="name">Nudge me while the app is open</div><div class="sub">A browser notification when a goal is still unlogged</div></div>
           <label class="switch"><input type="checkbox" data-set="reminders" ${s.reminders ? 'checked' : ''}><i></i></label>
         </div>
-        <p class="faint" style="font-size:12px;margin:10px 2px 0">
+        <p class="faint" style="font-size:var(--fs-sm);margin:10px 2px 0">
           Being straight with you: a web app <b>cannot</b> be an alarm clock. Browsers don't run timers in
           the background, and iOS only delivers web notifications to a home-screen install, unreliably.
           Arise <b>tracks</b> your wake-up; it can't wake you. Keep using your phone's alarm for that.
@@ -1139,7 +1255,7 @@
           <button class="btn danger" data-act="reset">Reset</button>
         </div>
       </div>
-      <p class="faint" style="text-align:center;font-size:11.5px;margin:18px 0 0">Arise · offline-first PWA · your data never leaves this device</p>
+      <p class="faint" style="text-align:center;font-size:var(--fs-xs);margin:18px 0 0">Arise · offline-first PWA · your data never leaves this device</p>
     `;
   }
 
@@ -1244,7 +1360,7 @@
             ? list
                 .map(
                   (e) => `<button type="button" class="item" data-act="pick-ex" data-id="${e.id}">
-                    <span class="emoji" aria-hidden="true">${esc(e.icon || '🏋️')}</span>
+                    <span class="emoji" aria-hidden="true">${exGlyph(e)}</span>
                     <span class="body"><span class="name">${esc(e.name)}</span><span class="sub">${esc(e.category)} · ${esc(
                     dose({}, e)
                   )}</span></span>
@@ -1334,13 +1450,13 @@
         }"></label>
       <label class="field"><span>How to do it — one step per line</span>
         <textarea id="e_how" rows="7" placeholder="Lie on the floor, knees bent…">${esc(v.how || '')}</textarea></label>
-      <button class="btn primary block" data-act="lib-save" data-id="${e ? e.id : ''}">${e ? 'Save changes' : 'Create exercise'}</button>
+      <div class="btn-row"><button class="btn primary block" data-act="lib-save" data-id="${e ? e.id : ''}">${e ? 'Save changes' : 'Create exercise'}</button></div>
     `);
   }
 
   function openCopyDay(target) {
     openSheet(`Copy into ${A.DAY_NAMES[target]}`, `
-      <p class="muted" style="margin-top:0;font-size:13px">Replaces ${esc(A.DAY_NAMES[target])} with a copy of another day.</p>
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Replaces ${esc(A.DAY_NAMES[target])} with a copy of another day.</p>
       <div class="list">${dayOrder
         .filter((d) => d !== target)
         .map((d) => {
@@ -1394,7 +1510,9 @@
       .filter(Boolean);
     const prescription = item ? dose(item, ex) : dose({}, ex);
 
-    openSheet(`${ex.icon || '🏋️'} ${ex.name}`, `
+    // Plain text: the sheet title goes in through `textContent`, so an inline
+    // SVG would arrive as literal markup. The name alone is enough here.
+    openSheet(ex.name, `
       <div class="how-dose">
         <b>${esc(prescription)}</b>
         <span>${esc(ex.category)}${item && item.note ? ' · ' + esc(item.note) : ''}</span>
@@ -1429,7 +1547,7 @@
   function openConfirm(opts) {
     pendingConfirm = opts;
     openSheet(opts.title, `
-      <p class="muted" style="margin-top:0;font-size:13.5px;line-height:1.55">${esc(opts.body || '')}</p>
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md);line-height:1.55">${esc(opts.body || '')}</p>
       <div class="btn-row">
         <button class="btn ${opts.danger ? 'danger' : 'primary'}" data-act="confirm-yes" style="flex:1">${esc(
       opts.confirmLabel || 'Confirm'
@@ -1456,7 +1574,7 @@
   function openTextPrompt(opts) {
     pendingPrompt = opts;
     openSheet(opts.title, `
-      ${opts.body ? `<p class="muted" style="margin-top:0;font-size:13.5px">${esc(opts.body)}</p>` : ''}
+      ${opts.body ? `<p class="muted" style="margin-top:0;font-size:var(--fs-md)">${esc(opts.body)}</p>` : ''}
       <label class="field"><span>${esc(opts.label || 'Name')}</span>
         <input type="text" id="tp_value" maxlength="${Number(opts.maxlength) || 40}" value="${esc(
       opts.value || ''
@@ -1487,10 +1605,10 @@
     const g = S.goalById(goalId);
     if (!g) return;
     openSheet(`Re-baseline ${g.name}`, `
-      <p class="muted" style="margin-top:0;font-size:13px">Move the starting point to where you actually
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Move the starting point to where you actually
       are today. The target stays at <b>${esc(A.formatValue(g.unit, g.target))}</b>; the ladder is rebuilt
       from the new start and today becomes day one.</p>
-      <p class="faint" style="font-size:12px;margin:0 0 12px">Current start: <b>${esc(
+      <p class="faint" style="font-size:var(--fs-sm);margin:0 0 12px">Current start: <b>${esc(
         A.formatValue(g.unit, g.baseline)
       )}</b> · asking for <b>${esc(A.formatValue(g.unit, S.goalTarget(goalId)))}</b> right now.</p>
       ${valueInput('g_base', g.unit, S.goalTarget(goalId), 'New starting point')}
@@ -1507,7 +1625,7 @@
     const e = S.goalEntry(dateKey, goalId) || {};
     const target = S.goalTargetOn(goalId, dateKey);
     openSheet(g.name, `
-      <p class="muted" style="margin-top:0;font-size:13px">Asked for <b>${esc(targetPhrase(g, target))}</b> on ${esc(
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Asked for <b>${esc(targetPhrase(g, target))}</b> on ${esc(
       A.prettyDate(dateKey)
     )}. Log what actually happened — the honest number is what makes the graph worth having.</p>
       ${valueInput('g_val', g.unit, e.value != null ? e.value : target, 'What you actually did')}
@@ -1525,9 +1643,20 @@
     `);
   }
 
-  function openGoalDetail(goalId) {
+  /**
+   * The goal's own sheet, and the whole action set for a goal in one place.
+   *
+   * Two kinds of action, kept in two rows because they answer different
+   * questions. The top row acts on *this day* — log what actually happened, or
+   * write the summary a gated goal is waiting on. The bottom row acts on the
+   * *goal*. Before this, the day-level row did not exist at all: `openGoalLog`
+   * had no producer anywhere in the app, so the only thing a goal card could
+   * record was "I hit the target exactly", and skipping a day was unreachable.
+   */
+  function openGoalDetail(goalId, dateKey) {
     const g = S.goalById(goalId);
     if (!g) return;
+    const key = dateKey || S.today();
     const tl = S.goalTimeline(goalId);
     const mode = A.MODES[tl.mode];
     const ups = tl.events.filter((e) => e.type === 'up').length;
@@ -1549,7 +1678,7 @@
     }
 
     openSheet(g.icon + ' ' + g.name, `
-      <p class="muted" style="margin-top:0;font-size:13px">${esc(g.blurb || '')}</p>
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">${esc(g.blurb || '')}</p>
       <div class="stat-grid" style="margin-bottom:12px">
         <div class="stat fire"><b>🔥 ${tl.streak}</b><span>Streak</span></div>
         <div class="stat"><b>${tl.level}/${tl.maxLevel}</b><span>Level</span></div>
@@ -1559,10 +1688,10 @@
       <div class="card">
         <div class="xpbar-top"><span>Now: ${esc(targetPhrase(g, tl.target))}</span><span>${mode.icon} ${esc(mode.name)}</span></div>
         ${bar(tl.atTarget ? 100 : (tl.windowHits / Math.max(1, tl.windowNeeded)) * 100, tl.atRisk ? 'warn' : '')}
-        <div class="faint" style="font-size:12px;margin-top:8px">${esc(advanceHint(g, tl))}</div>
+        <div class="faint" style="font-size:var(--fs-sm);margin-top:8px">${esc(advanceHint(g, tl))}</div>
         ${
           tl.missesAllowed
-            ? `<div class="faint" style="font-size:12px;margin-top:4px">${
+            ? `<div class="faint" style="font-size:var(--fs-sm);margin-top:4px">${
                 tl.atRisk
                   ? '⚠️ One more missed day steps you back a level.'
                   : `Miss ${tl.missesAllowed} scheduled days in a row and you step back one level${
@@ -1574,7 +1703,17 @@
       </div>
       <div class="section-head" style="margin-top:6px"><h2>The ladder</h2></div>
       <div class="rungs">${rungs.join('')}</div>
-      <div class="btn-row" style="margin-top:14px">
+      ${
+        S.isFuture(key)
+          ? '' // a future day is read-only, exactly as its card is
+          : `<div class="btn-row" style="margin-top:14px">
+        <button class="btn primary" data-act="${g.gate === 'summary' ? 'open-read' : 'goal-log'}" data-id="${goalId}"
+                data-date="${key}" style="flex:1">${
+              g.gate === 'summary' ? '📖 Write the summary' : '📝 Log this day'
+            }</button>
+      </div>`
+      }
+      <div class="btn-row" style="margin-top:${S.isFuture(key) ? 14 : 8}px">
         <button class="btn" data-act="goal-edit" data-id="${goalId}" style="flex:1">Edit goal</button>
         <button class="btn ghost" data-act="goal-restart" data-id="${goalId}">Re-baseline</button>
       </div>
@@ -1661,9 +1800,9 @@
         <label class="switch"><input type="checkbox" id="gg_gate" ${v.gate === 'summary' ? 'checked' : ''}><i></i></label>
       </div>
 
-      <button class="btn primary block" data-act="goal-save" data-id="${g ? g.id : ''}" style="margin-top:8px">${
+      <div class="btn-row"><button class="btn primary block" data-act="goal-save" data-id="${g ? g.id : ''}">${
       g ? 'Save changes' : 'Create goal'
-    }</button>
+    }</button></div>
       ${
         g
           ? `<div class="btn-row" style="margin-top:8px">
@@ -1705,7 +1844,7 @@
          <button class="btn ghost danger block" data-act="challenge-end" data-id="${c.id}">
            ${p.complete ? 'Finish and archive' : 'End this run early'}
          </button>`
-      : `<p class="muted" style="margin-top:0;font-size:13px">Give yourself a fixed run to count against.
+      : `<p class="muted" style="margin-top:0;font-size:var(--fs-md)">Give yourself a fixed run to count against.
            The counter on Today becomes <b>DAY 5 / 66</b>, and it counts the days you keep — not just the
            days that pass.</p>
          <label class="field"><span>Call it</span>
@@ -1713,7 +1852,7 @@
          <label class="field"><span>How long</span><select id="ch_days">
            ${CHALLENGE_LENGTHS.map((d) => `<option value="${d}" ${d === 66 ? 'selected' : ''}>${d} days</option>`).join('')}
          </select></label>
-         <button class="btn primary block" data-act="challenge-start">Start the run</button>`;
+         <div class="btn-row"><button class="btn primary block" data-act="challenge-start">Start the run</button></div>`;
 
     openSheet(c ? c.name : 'Start a run', `
       ${body}
@@ -1741,7 +1880,7 @@
     const wake = S.activeGoals().find((g) => g.section === 'sleep' && g.direction === 'down' && g.unit === 'time');
     const bed = S.activeGoals().find((g) => g.section === 'sleep' && g !== wake);
     openSheet('Where are you starting?', `
-      <p class="muted" style="margin-top:0;font-size:13px">
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">
         The fastest way to fail is to start week one at someone else's number. Put in what is
         <b>true today</b> — the app moves you from there.
       </p>
@@ -1763,9 +1902,9 @@
         const m = A.MODES[id];
         return `<label class="mode-card ${s.mode === id ? 'on' : ''}">
           <input type="radio" name="ob_mode" value="${id}" ${s.mode === id ? 'checked' : ''} hidden>
-          <span class="ico">${m.icon}</span><b>${esc(m.name)}</b><small>${esc(m.blurb)}</small></label>`;
+          <span class="mode-glyph">${m.icon}</span><b>${esc(m.name)}</b><small>${esc(m.blurb)}</small></label>`;
       }).join('')}</div>
-      <button class="btn primary block" data-act="onboard-save" style="margin-top:14px">Start</button>
+      <div class="btn-row"><button class="btn primary block" data-act="onboard-save">Start</button></div>
     `);
   }
 
@@ -1902,6 +2041,13 @@
 
     document.querySelectorAll('.tab').forEach((t) => {
       const on = t.dataset.nav === route;
+      /* The tab's icon is drawn from the same table as every other icon in the
+         app, rather than sitting as a second copy of the paths in index.html
+         where the two would drift apart. Painted once: the tab bar is static
+         chrome, so this does nothing on every later render. */
+      if (t.dataset.icon && !t.querySelector('.ico')) {
+        t.insertAdjacentHTML('afterbegin', icon(t.dataset.icon));
+      }
       t.classList.toggle('active', on);
       // The active tab was styling alone, so assistive tech had no way to tell
       // which of the six you were on.
@@ -1910,8 +2056,8 @@
         else t.removeAttribute('aria-current');
       }
     });
-    $('#streakChip').innerHTML = `<span aria-hidden="true">🔥</span><b>${S.currentStreak()}</b>`;
-    $('#keptChip').innerHTML = `<span aria-hidden="true">✓</span><b>${S.history().completeDays}</b>`;
+    $('#streakChip').innerHTML = `${icon('flame')}<b>${S.currentStreak()}</b>`;
+    $('#keptChip').innerHTML = `${icon('check')}<b>${S.history().completeDays}</b>`;
   }
   UI.render = render;
 

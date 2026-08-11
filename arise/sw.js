@@ -2,12 +2,17 @@
 /* Bump on every shipped change to styles.css or js/ — the fetch handler is
    cache-first, so without a new VERSION an existing install keeps serving the
    old shell until a second load. */
-const VERSION = 'arise-v19';
+const VERSION = 'arise-v25';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './manifest.webmanifest',
+  /* The typeface ships with the app. It is precached with everything else so a
+     cold offline start renders in Archivo rather than falling back mid-session. */
+  './fonts/archivo-latin.woff2',
+  './fonts/archivo-latin-ext.woff2',
+  './fonts/archivo-vietnamese.woff2',
   './js/data.js',
   './js/program.js',
   './js/goals.js',
