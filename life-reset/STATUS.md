@@ -42,16 +42,24 @@ invocation and could never fail. Both triggers are now tested independently.
 
 | File | What it is |
 |---|---|
-| `life_reset/catalog.py` | The closed lists: 20 habits, 3 phases, the constraint constants |
-| `life_reset/program.py` | `dose_for`, `minutes_for`, `program_day`, `validate`, `repair`, `_respace`, `apply_patch`, `render_program_day` |
+| `life_reset/catalog.py` | The closed lists: 24 habits, 3 phases, the constraint constants |
+| `life_reset/program.py` | `dose_for`, `minutes_for`, `program_day`, `validate`, `repair`, `_respace`, `apply_patch` (five ops, `resume` included), `render_program_day` |
 | `life_reset/agents.py` | Architect (`build_program`, `coerce_program`, `fallback_program`) and Adaptation (`diagnose`, `adapt_program`) |
+| `life_reset/recommend.py` | `recommend`, `apply_recommendation` — `add` and `advance`, pure code, no model |
 | `life_reset/nodes.py` | `AnthropicLLM` — the only file that imports `anthropic` |
-| `eval_harness.py` | 12 adversarial Architects, the invariants, per-user and per-patch |
-| `demo_program.py` | Hostile Architect → repaired programme → a user who stops for four days |
+| `eval_harness.py` | 12 adversarial Architects, the invariants, per-user, per-patch and per-recommendation |
+| `demo_program.py` | Hostile Architect → repaired programme → a user who stops for four days → the same user recovered |
 
-**Current numbers:** 2,000 users, ~165,000 day-renders, **zero invariant
-violations**. A separate fuzz over 12,000 random programmes: `repair` leaves
+**Current numbers:** 2,000 users, ~165,000 day-renders, 1,638 recommendations
+offered and accepted (1,372 `add`, 266 `advance`), **zero invariant violations**;
+42 unit tests. A separate fuzz over 12,000 random programmes: `repair` leaves
 zero infeasible days, `build_program` returns zero invalid programmes.
+
+The per-kind split in the harness summary is part of the check, not decoration.
+The `advance` half first reported **zero** — the harness patched people and then
+stopped watching, so the only state that op fires in was never modelled and its
+assertions all passed without running. That is the same shape as the
+`A and not (A or B)` tautology below.
 
 ## Not built yet
 
@@ -88,3 +96,13 @@ The fourth is the one no invariant catches. Every programme it produced was
 *valid* — inside budget, inside the phase caps, monotonic — and useless. That
 is the limit of a harness: it proves the rules hold, not that the thing is
 worth using. Reading `demo_program.py`'s output is what caught it.
+
+**And a fifth, of exactly that class, found the same way.** The recommender
+offered `Drink water · 4 -> 4 glasses`. `scale` multiplies the week count before
+rounding, so raising it from 0.5 to 0.75 landed on the same step: a button that
+validated, kept every invariant, and changed nothing the user could see. It ran
+369 times across 2,000 users without a complaint, because nothing was wrong with
+the programme — the *suggestion* was empty, and no invariant is written about
+those. The demo printed it on the first read. `recommend` now requires
+tomorrow's ask to actually rise, and removing that one clause fails a named unit
+test and raises 103 harness violations.

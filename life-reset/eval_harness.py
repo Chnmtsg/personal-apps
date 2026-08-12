@@ -23,7 +23,13 @@ import sys
 from datetime import date
 from typing import Callable
 
-from life_reset.agents import INTERVENTION_RATE, build_program, diagnose, adapt_program
+from life_reset.agents import (
+    INTERVENTION_RATE,
+    TRAILING_DAYS,
+    adapt_program,
+    build_program,
+    diagnose,
+)
 from life_reset.catalog import (
     HABITS,
     LAST_INTRO_DAY,
@@ -41,6 +47,7 @@ from life_reset.program import (
     dose_for,
     validate,
 )
+from life_reset.recommend import apply_recommendation, recommend
 
 START = date(2026, 1, 1)
 
@@ -183,6 +190,74 @@ def check_patch(before: Program, after: Program, meta: dict, today: int,
 # ---------------------------------------------------------------------------
 
 
+def check_recommendations(prog: Program, logs: dict[int, set[str]], today: int,
+                          diag: dict, tag: str, f: Failures) -> dict[str, int]:
+    """Per user. Every suggestion offered, taken in the order it was offered.
+
+    A recommendation is a promise the app makes to someone who is doing well,
+    and the way to break it is to offer a tap that gets refused — which is why
+    the whole list is accepted here rather than one item from it. Suggestions
+    that are individually legal are not thereby legal together: two habits both
+    offered "from day 31" is one offer the spacing rule cannot honour.
+
+    The construction is deliberately not shared with `recommend`. That function
+    validates the candidates it builds; this one re-derives them through
+    `apply_recommendation` from the intent alone and validates the result. If
+    the two ever stop agreeing, this is what notices — a check that called back
+    into `recommend`'s own helpers would agree with it by construction, which is
+    the mistake `dose_for` cost this project 165,000 clean day-renders to find.
+    """
+    recs = recommend(prog, logs, today)
+    if not recs:
+        return {}
+
+    # Never both at once: `adapt_program` is stepping in exactly when the user
+    # is in no state to be handed more work.
+    if diag["needs_intervention"] and any(r.kind == "add" for r in recs):
+        f.add("no_adds_while_struggling", f"{tag}: offered an add at {diag['overall_rate']:.0%}")
+
+    cur = prog
+    nxt = min(today + 1, PROGRAM_DAYS)
+    for r in recs:
+        was = next((dose_for(p, nxt) for p in cur.habits if p.habit_id == r.habit_id), None)
+        cur, notes = apply_recommendation(cur, r, today)
+        if any(n.startswith("declined") for n in notes):
+            f.add("offered_is_acceptable", f"{tag}: {r.kind} {r.habit_id} refused — {notes[0]}")
+        for v in validate(cur):
+            f.add("recommendation_leaves_no_violations", f"{tag}: {r.habit_id}: {v}")
+
+        # An advance that does not advance. `scale` rounds, so a resume can land
+        # on the same step and offer the user "4 -> 4 glasses": legal, valid,
+        # and worthless. Every invariant above passed it 369 times.
+        if r.kind == "advance" and was is not None:
+            now = next(dose_for(p, nxt) for p in cur.habits if p.habit_id == r.habit_id)
+            if now <= was + 1e-9:
+                f.add("advance_actually_advances",
+                      f"{tag}: {r.habit_id} still asks {was:g} tomorrow")
+
+    before = {p.habit_id: p for p in prog.habits}
+    for p in cur.habits:
+        was = before.get(p.habit_id)
+        if was and was.start_day <= today and p.start_day != was.start_day:
+            f.add("underway_habit_not_moved", f"{tag}: {p.habit_id} rescheduled by a suggestion")
+        # Suggestions add and give back. None of them may take anything away.
+        if was and dose_for(p, today) < dose_for(was, today) - 1e-9:
+            f.add("suggestion_never_subtracts", f"{tag}: {p.habit_id} asks for less afterwards")
+    for hid in before:
+        if hid not in {p.habit_id for p in cur.habits}:
+            f.add("suggestion_never_subtracts", f"{tag}: {hid} disappeared")
+
+    # Reported per kind, and the report is part of the check. Half of these
+    # assertions only mean anything if `advance` actually fires, and this
+    # harness has shipped a vacuously-passing invariant before — an assertion
+    # of the form `A and not (A or B)` that ran 2,000 times a go and could never
+    # fail. A zero in the summary is the signal that a branch went untested.
+    kinds: dict[str, int] = {}
+    for r in recs:
+        kinds[r.kind] = kinds.get(r.kind, 0) + 1
+    return kinds
+
+
 def synthetic_logs(prog: Program, today: int, rng: random.Random,
                    struggling: bool) -> dict[int, set[str]]:
     """A user who is doing fine, or one who has stopped."""
@@ -217,6 +292,7 @@ def main() -> int:
     day_renders = 0
     sources = {"llm": 0, "fallback": 0}
     patched_users = 0
+    offered: dict[str, int] = {}
 
     for i in range(args.users):
         kind = names[i % len(names)]
@@ -252,10 +328,38 @@ def main() -> int:
                 check_patch(prog, after, pmeta, today, diag, f"{kind}/u{i}", f)
                 check_program(after, f"{kind}/u{i}+patch", f)
                 day_renders += PROGRAM_DAYS
+                # The recommender against a *patched* programme, which is where
+                # anything eased back lives and so the only place `advance` can
+                # fire at all.
+                got = check_recommendations(after, logs, today, diag, f"{kind}/u{i}+patch", f)
+
+                # And again a fortnight later, having got back on it.
+                #
+                # This branch exists because the summary said `advance 0`. The
+                # patch leaves habits eased, but the user it was written for is
+                # by definition not keeping them — so on the day of the patch
+                # there is nothing to give back, and the whole advance half of
+                # the recommender was passing without ever running. Recovery is
+                # the only state it fires in, and nothing here modelled it: the
+                # harness patched people and then stopped watching, which is the
+                # same shape as the ratchet bug the op was written to fix.
+                later = min(today + TRAILING_DAYS, PROGRAM_DAYS)
+                back = {d: {p.habit_id for p in active_on(after, d)} for d in range(1, later)}
+                for k, n in check_recommendations(
+                    after, back, later, diagnose(after, back, later), f"{kind}/u{i}+back", f
+                ).items():
+                    offered[k] = offered.get(k, 0) + n
+            else:
+                got = check_recommendations(prog, logs, today, diag, f"{kind}/u{i}", f)
+            for k, n in got.items():
+                offered[k] = offered.get(k, 0) + n
 
     print("=" * 72)
     print(f"{args.users} users · {day_renders:,} day-renders · {patched_users} patched")
     print(f"architect source: {sources}")
+    # A zero here is a branch that went untested, not a branch that behaved.
+    split = ", ".join(f"{k} {n}" for k, n in sorted(offered.items())) or "none"
+    print(f"recommendations offered and accepted: {sum(offered.values())} ({split})")
     print("=" * 72)
     if not f.by_kind:
         print("\n  no invariant violations\n")

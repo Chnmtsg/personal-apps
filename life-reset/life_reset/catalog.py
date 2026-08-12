@@ -26,6 +26,20 @@ class Habit:
     is the sacrifice order for `repair`: when something has to give, the newest
     high-friction habit goes before an established easy one. It is a property of
     the habit, not of the user, so it stays in the catalog.
+
+    **Anchors: `target_dose == start_dose`.** Most habits here are ramps, and the
+    ramp is the product. A few are not: you take your vitamin or you do not, and
+    a programme that ramped a supplement would be making a medical claim this app
+    has no business making. An anchor is declared by setting the target equal to
+    the start, at which point `dose_for` clamps every day to that one figure —
+    the ramp maths needs no special case, and neither does `validate`, which sees
+    a dose that is permanently in bounds and permanently monotonic. `step` is
+    still required to be positive because it is the grid the dose is rounded to;
+    on an anchor it simply never applies.
+
+    Anchors earn their place by being nearly free against the minutes budget, so
+    `repair` never reaches for them — which is the point. They are what a day
+    still has on it when everything else has been sacrificed.
     """
 
     id: str
@@ -64,6 +78,18 @@ HABITS: tuple[Habit, ...] = (
     Habit("sunlight", "Morning daylight", "self_care", "min", 5, 20, 2.5, 1.0, 2),
     Habit("cold_shower", "Cold finish", "self_care", "sec", 15, 120, 15, 0.02, 4),
     Habit("no_screens", "Screens off before bed", "self_care", "min", 15, 60, 5, 0.1, 4),
+    # --- self-care: daily upkeep --------------------------------------------
+    # Cheap against the budget and low-friction on purpose: these are what a day
+    # still has on it once everything expensive has been sacrificed, which is
+    # exactly the day a run usually breaks.
+    #
+    # `vitamins` and `floss` are anchors (see "Anchors" on `Habit`) — a yes/no
+    # with nothing to ramp. The other two do ramp, and the ramp is the habit:
+    # once a day becomes twice, a splash becomes a routine.
+    Habit("vitamins", "Take vitamins", "self_care", "doses", 1, 1, 1, 0.5, 1),
+    Habit("floss", "Floss", "self_care", "times", 1, 1, 1, 1.0, 2),
+    Habit("brush_teeth", "Brush teeth", "self_care", "times", 1, 2, 1, 2.0, 1),
+    Habit("skincare", "Face routine", "self_care", "min", 1, 5, 1, 1.0, 1),
     # --- development -------------------------------------------------------
     Habit("read", "Read", "development", "min", 10, 45, 5, 1.0, 2),
     Habit("deep_work", "Deep work block", "development", "min", 25, 90, 10, 1.0, 5),

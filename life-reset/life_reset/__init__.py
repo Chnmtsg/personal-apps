@@ -19,9 +19,11 @@ from .program import (
     repair,
     validate,
 )
+from .recommend import Recommendation, apply_recommendation, recommend
 
 __all__ = [
     "HABITS", "PHASES", "PROGRAM_DAYS", "Habit", "Phase", "habit", "is_known", "phase_for",
     "Program", "ProgramHabit", "Violation", "apply_patch", "day_index", "day_minutes",
     "dose_for", "minutes_for", "program_day", "render_program_day", "repair", "validate",
+    "Recommendation", "apply_recommendation", "recommend",
 ]

@@ -31,7 +31,7 @@ from .catalog import (
     phase_for,
 )
 
-Op = Literal["soften", "freeze", "defer", "drop"]
+Op = Literal["soften", "freeze", "defer", "drop", "resume"]
 
 
 # ---------------------------------------------------------------------------
@@ -434,13 +434,19 @@ def repair(program: Program, today: int = 0) -> tuple[Program, list[str]]:
 # ---------------------------------------------------------------------------
 
 MAX_PATCH_HABITS = 2
+RESUME_SCALE_STEP = 0.25     # one notch of ramp handed back per resume
 
 
 def apply_patch(program: Program, ops: list[dict], today: int) -> tuple[Program, list[str]]:
     """The only sanctioned way to change a program that is already running.
 
-    Four operations and no rewrite. `today` is the user's current day, and
+    Five operations and no rewrite. `today` is the user's current day, and
     everything already underway is protected from rescheduling.
+
+    Four of the five are sacrifices, and for a long time all of them were: the
+    programme could only ever get smaller. `resume` is the way back, and it is
+    deliberately the *only* op that gives something back, so that "the user has
+    recovered" has somewhere to land.
 
     The patch is capped at `MAX_PATCH_HABITS` *ops*, counted here — not counted
     after repair, which is how a 2-habit patch once reported itself as 41.
@@ -476,6 +482,42 @@ def apply_patch(program: Program, ops: list[dict], today: int) -> tuple[Program,
             by = int(op.get("days", 7))
             habits[hid] = replace(p, start_day=min(p.start_day + max(by, 1), LAST_INTRO_DAY))
             notes.append(f"deferred {hid} to day {habits[hid].start_day}")
+        elif name == "resume":
+            # The inverse of `freeze` and `soften`, and the answer to the fact
+            # that those two were a one-way ratchet: a user who stumbled in week
+            # three spent the remaining forty days on a flattened programme,
+            # because nothing in the system could notice they had recovered.
+            #
+            # One notch per call, never a snap back to full. Clearing
+            # `frozen_day` outright takes a habit frozen at 20 minutes on day 20
+            # and resumed on day 40 straight to 35 — three weeks of ramp
+            # arriving in one night, which is how you break the run you were
+            # trying to reward.
+            #
+            # The freeze is unwound before the scale because a week of ramp is
+            # the smaller, more predictable gift: `scale` multiplies the week
+            # count before rounding, so a quarter of it is worth one step early
+            # in a run and three steps late in one. `recommend` refuses any
+            # resume that would move tomorrow by more than a single step.
+            #
+            # **This rewrites the recent past, and cannot not.** Pushing the pin
+            # from day 20 to day 27 changes what days 21-27 ask for, because the
+            # pin is one number and the curve it describes has no elbow — no
+            # value of `frozen_day` says "held at 20 until today, ramping after".
+            # `soften` has had exactly this property since it was written, and
+            # the fix for both is the same fix: a stored record of what each day
+            # actually asked, which is gap 3, not this op. What *is* guaranteed
+            # is that resume only ever raises a day's ask, never lowers one.
+            if p.frozen_day is not None:
+                nxt = p.frozen_day + 7
+                habits[hid] = replace(p, frozen_day=None if nxt > PROGRAM_DAYS else nxt)
+                notes.append(f"resumed {hid}'s ramp for another week")
+            elif p.scale < 1.0:
+                habits[hid] = replace(p, scale=min(1.0, p.scale + RESUME_SCALE_STEP))
+                notes.append(f"gave {hid} back some ramp: scale {habits[hid].scale:.2f}")
+            else:
+                notes.append(f"ignored resume on {hid}: already at full pace")
+                continue
         elif name == "drop":
             if len(habits) <= MIN_HABITS:
                 notes.append(f"ignored drop on {hid}: at the {MIN_HABITS}-habit floor")
@@ -497,6 +539,19 @@ def apply_patch(program: Program, ops: list[dict], today: int) -> tuple[Program,
 # ---------------------------------------------------------------------------
 
 
+# Units whose singular is not simply the plural minus its "s". Everything else
+# follows the general rule, so a new catalog unit — doses, times — reads
+# correctly without an edit here.
+_IRREGULAR_UNITS = {"glasses": "glass"}
+
+
+def _singular(unit: str) -> str:
+    """`1 doses` is the kind of thing that makes a product look unfinished."""
+    if unit in _IRREGULAR_UNITS:
+        return _IRREGULAR_UNITS[unit]
+    return unit[:-1] if unit.endswith("s") else unit
+
+
 def _fmt(dose: float, unit: str) -> str:
     """Value and unit in separate fixed fields.
 
@@ -509,8 +564,7 @@ def _fmt(dose: float, unit: str) -> str:
         minutes, seconds = divmod(int(round(dose)), 60)
         return f"{minutes}m {seconds:02d}s".rjust(6) + "  "
     n = int(dose) if abs(dose - int(dose)) < 1e-9 else round(dose, 1)
-    label = "glass" if unit == "glasses" and n == 1 else unit
-    return f"{n:>6g} {label}"
+    return f"{n:>6g} {_singular(unit) if n == 1 else unit}"
 
 
 def render_program_day(program: Program, day: int) -> str:
