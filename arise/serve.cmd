@@ -24,4 +24,6 @@ echo   Arise is starting at http://localhost:%PORT%
 echo   Press Ctrl+C to stop.
 echo.
 start "" http://localhost:%PORT%
-python -m http.server %PORT%
+REM tools/serve.py, not http.server: the latter sends no cache headers, so the
+REM browser is free to cache sw.js and never notice a new build.
+python tools\serve.py %PORT%

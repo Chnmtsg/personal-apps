@@ -1242,7 +1242,14 @@
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     window.addEventListener('load', () => {
       navigator.serviceWorker
-        .register('./sw.js')
+        /* `updateViaCache: 'none'` is the whole difference between a fix
+           reaching somebody and not. Without it the browser may serve `sw.js`
+           itself from the HTTP cache, so `update()` re-reads the *old* worker,
+           finds it byte-identical to what is installed, and concludes there is
+           nothing new — while a newer build sits on the server untouched. The
+           spec only forces a network fetch once the cached copy is 24 hours
+           old, which is no help at all on the day you are shipping. */
+        .register('./sw.js', { updateViaCache: 'none' })
         .then((reg) => {
           /* Check for a new build on every open. The worker is cache-first by
              design — that is what makes the app work on a plane — but it also
