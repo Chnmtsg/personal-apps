@@ -1,0 +1,33 @@
+# This repository holds three codebases that share nothing. Only one of them is
+# a deployable site: `arise/`, the Discipline PWA. `english-feedback-app/` ships
+# separately (its Worker deploys with wrangler), and `life-reset/` is a Python
+# library with no UI at all.
+#
+# `base` puts every path below relative to `arise/`, so this file is the only
+# place in the repo root that knows about it.
+
+[build]
+  base = "arise"
+  # Packaging, not building. `tools/package.js` copies the runtime set into
+  # `dist/` byte for byte — nothing is bundled or inlined — because the publish
+  # directory is a whole folder, and pointing it at `arise/` would upload
+  # `tools/`, `knowledge/` and `CLAUDE.md` along with the app. It also runs the
+  # two pre-upload checks CLAUDE.md asks a human to do, and exits non-zero if
+  # either fails, so a broken package cannot deploy.
+  command = "node tools/package.js"
+  publish = "dist"
+
+# Zero dependencies, and it stays that way. Without this Netlify sees
+# package.json and runs an install for a project that has nothing to install.
+[build.environment]
+  NPM_FLAGS = "--no-audit --no-fund"
+  NODE_VERSION = "20"
+
+# No redirect rules on purpose. Discipline routes on the hash — `#/today`,
+# `#/plan` — so every URL is already `/index.html` as far as the server is
+# concerned. An SPA catch-all would be a rule that never fires, and one that
+# would quietly swallow a genuine 404 on a missing asset.
+
+# Response headers live in `arise/_headers` rather than here, so they travel
+# with the app and land in `dist/` through the same list that decides what
+# ships. Two places to declare a cache policy is one place to forget.

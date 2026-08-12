@@ -1,0 +1,42 @@
+# Netlify response headers for Discipline.
+#
+# The service worker is cache-first and busts on VERSION, so the *edge* must not
+# hold anything the VERSION bump is supposed to replace. A CDN caching js/ for a
+# year makes `discipline-v26` fetch v25's files and the bump does nothing — the
+# exact failure the invariant is written to prevent, one layer further out.
+#
+# Everything the SW precaches therefore revalidates. Fonts are the exception:
+# three Archivo cuts that have never changed and never will without a new
+# filename, precached on install, and 300KB to re-fetch for nothing.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  # The app makes no network calls, has no accounts and holds no secrets. This
+  # is that invariant, enforced by the browser instead of by review: no external
+  # origin can be reached even if a future change tries. 'unsafe-inline' covers
+  # style *attributes* only — `style="--hue:32"` on a goal card — and there is
+  # no inline <script> anywhere in the shell.
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+  Service-Worker-Allowed: /
+
+/js/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+/styles.css
+  Cache-Control: public, max-age=0, must-revalidate
+
+/manifest.webmanifest
+  Content-Type: application/manifest+json
+  Cache-Control: public, max-age=0, must-revalidate
+
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/icons/*
+  Cache-Control: public, max-age=604800

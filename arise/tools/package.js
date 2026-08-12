@@ -1,0 +1,118 @@
+/* Assemble exactly what ships, and refuse to ship anything else.
+   Run: node tools/package.js   →   dist/
+
+   This is a *packaging* step, not a build step, and the difference is the whole
+   point. Every file is copied byte for byte: nothing is bundled, minified,
+   inlined or transformed, so `dist/index.html` is the same shell the browser
+   gets from `serve.cmd` and the same one both suites load `js/` beside. The app
+   still has no build step — `arise/` is servable as-is, and always must be.
+
+   It exists because the publish directory is a whole folder. Pointing a host at
+   `arise/` uploads `tools/`, `knowledge/`, `CLAUDE.md` and the rest of the
+   development scaffolding, which CLAUDE.md says must not be uploaded. Listing
+   what ships is the only way to be sure, and a list a machine checks beats a
+   list a person is asked to remember.
+
+   It also runs the two checks CLAUDE.md asks a human to do before uploading:
+   every asset named in `sw.js` ASSETS really exists in what is being shipped,
+   and `index.html` is still a shell rather than a self-extracting bundle. */
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.join(__dirname, '..');
+const DIST = path.join(ROOT, 'dist');
+
+/* The runtime set, and nothing else. Adding a file to the app means adding it
+   here too — the sw.js ASSETS check below is what catches forgetting. */
+const SHIP = [
+  'index.html',
+  'styles.css',
+  'sw.js',
+  'manifest.webmanifest',
+  '_headers',
+  'js',
+  'icons',
+  'fonts'
+];
+
+/* Never shipped, even if one is ever added to SHIP by accident. Development
+   scaffolding on a public URL is not a secret leak — this app has no secrets —
+   but it is still every reviewer's notes served to the world. */
+const NEVER = new Set(['tools', 'knowledge', '.claude', 'node_modules', 'dist']);
+
+function copy(src, dest) {
+  const stat = fs.statSync(src);
+  if (stat.isDirectory()) {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const name of fs.readdirSync(src).sort()) {
+      if (NEVER.has(name)) throw new Error(`refusing to ship ${name}`);
+      copy(path.join(src, name), path.join(dest, name));
+    }
+    return;
+  }
+  fs.copyFileSync(src, dest);
+}
+
+function main() {
+  fs.rmSync(DIST, { recursive: true, force: true });
+  fs.mkdirSync(DIST, { recursive: true });
+
+  const shipped = [];
+  for (const name of SHIP) {
+    const src = path.join(ROOT, name);
+    if (!fs.existsSync(src)) {
+      console.error(`  MISSING  ${name} — it is in SHIP but not on disk`);
+      process.exitCode = 1;
+      continue;
+    }
+    copy(src, path.join(DIST, name));
+    shipped.push(name);
+  }
+
+  /* CLAUDE.md: "check every asset in sw.js ASSETS exists in the folder being
+     shipped — a missing precache entry makes cache.add fail silently for that
+     one file, and the app still installs." Silently is the problem; the app
+     works until the user goes offline, which is the one moment it must not. */
+  const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+  const block = sw.slice(sw.indexOf('const ASSETS = ['), sw.indexOf('];'));
+  const assets = (block.match(/'\.\/[^']*'/g) || []).map((s) => s.slice(3, -1));
+  const missing = assets.filter((a) => a && !fs.existsSync(path.join(DIST, a)));
+
+  const version = (sw.match(/const VERSION = '([^']+)'/) || [])[1];
+
+  /* The 440KB self-extracting bundle that once replaced index.html served js/
+     from blob: URLs built from a stale snapshot, and both suites stayed green
+     because they load js/ from disk. Shipping is the one place that can notice. */
+  const shell = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
+  const inlined = /<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?\S[\s\S]*?<\/script>/.test(shell);
+  const scripts = (shell.match(/<script src="\.\/js\/[^"]+"><\/script>/g) || []).length;
+
+  console.log(`\n  ${shipped.join(', ')}`);
+  console.log(`  service worker  ${version}`);
+  console.log(`  index.html      ${(shell.length / 1024).toFixed(1)} KB, ${scripts} scripts linked`);
+
+  let bad = 0;
+  if (missing.length) {
+    console.log(`\n  FAIL  sw.js precaches files that are not being shipped: ${missing.join(', ')}`);
+    bad++;
+  }
+  if (inlined) {
+    console.log('\n  FAIL  index.html carries an inline script — it must stay a shell');
+    bad++;
+  }
+  if (scripts !== 6) {
+    console.log(`\n  FAIL  index.html links ${scripts} of the 6 js/ files`);
+    bad++;
+  }
+  if (!version) {
+    console.log('\n  FAIL  sw.js has no VERSION to bust the old cache with');
+    bad++;
+  }
+
+  console.log(bad ? `\n  ${bad} problem(s) — not safe to publish\n` : '\n  ready to publish: dist/\n');
+  process.exitCode = bad ? 1 : process.exitCode || 0;
+}
+
+main();

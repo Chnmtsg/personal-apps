@@ -2,9 +2,10 @@
   "name": "arise-tooling",
   "version": "1.0.0",
   "private": true,
-  "description": "Development-time test scripts only. The application does not depend on any of this — there is no build step, no bundle and no install; index.html is served as-is.",
+  "description": "Development-time scripts only. The application does not depend on any of this — there is no build step and no bundle; index.html is served as-is. `package` copies the runtime set into dist/ for deployment, byte for byte.",
   "scripts": {
     "test": "node tools/smoke.js && node tools/render.js",
-    "verify": "npm test"
+    "verify": "npm test",
+    "package": "node tools/package.js"
   }
 }

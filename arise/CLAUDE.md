@@ -142,14 +142,50 @@ only run on a secure context or `localhost`, so a LAN address like
 install, which is most of the point.
 
 What ships is exactly the runtime set — `index.html`, `styles.css`, `sw.js`,
-`manifest.webmanifest`, `js/`, `icons/`, `fonts/`. Everything else in this
-folder is development scaffolding and must not be uploaded: `tools/`,
+`manifest.webmanifest`, `_headers`, `js/`, `icons/`, `fonts/`. Everything else
+in this folder is development scaffolding and must not be uploaded: `tools/`,
 `knowledge/`, `.claude/`, `CLAUDE.md`, `README.md`, `serve.cmd`,
 `node_modules/`.
 
-Before uploading, check every asset in `sw.js` ASSETS exists in the folder being
-shipped — a missing precache entry makes `cache.add` fail silently for that one
-file, and the app still installs.
+```bash
+npm run package        # → dist/, exactly the list above
+```
+
+**`package.js` is not a build step and must never become one.** It copies files
+byte for byte; nothing is bundled, minified or inlined, and `arise/` stays
+servable as-is. It exists because a publish directory is a whole folder, so
+pointing a host at `arise/` uploads `knowledge/` and `CLAUDE.md` with the app.
+
+It also runs the two pre-upload checks this file used to ask a person to
+remember, and exits non-zero on either, so a broken package cannot deploy:
+
+- every asset named in `sw.js` ASSETS exists in what is being shipped — a
+  missing precache entry makes `cache.add` fail silently for that one file, the
+  app still installs, and the gap only shows up the first time the user is
+  offline;
+- `index.html` still links six `js/` files and carries no inline script, which
+  is the 440KB self-extracting bundle caught by the one place that can see it.
+
+## Netlify
+
+`netlify.toml` at the repository root: `base = "arise"`,
+`command = "node tools/package.js"`, `publish = "dist"`. No Netlify UI
+configuration is needed, and no redirect rules — Discipline routes on the hash,
+so every URL is already `/index.html` to the server, and an SPA catch-all would
+only swallow genuine 404s on missing assets.
+
+`_headers` ships with the app rather than living in `netlify.toml`, so the cache
+policy travels in the same list that decides what ships. **Everything the
+service worker precaches must revalidate at the edge.** The SW is cache-first
+and busts on VERSION; a CDN holding `js/` for a year makes a VERSION bump fetch
+the old files, which is the stale-shell failure one layer further out. Fonts are
+the deliberate exception — three cuts that never change without a new filename.
+
+The `Content-Security-Policy` there is the offline invariant enforced by the
+browser instead of by review: no external origin is reachable even if a future
+change tries. `style-src` needs `'unsafe-inline'` for style *attributes* only
+(`style="--hue:32"` on a goal card); there is no inline `<script>` anywhere.
+Verify it on a deploy preview after any change that adds an asset type.
 
 **Each origin is its own storage.** Moving from `localhost:8123` to a hosted URL
 starts empty; the user's goals, logs and journal do not follow. Export from
