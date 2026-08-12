@@ -1311,7 +1311,8 @@
           <button class="btn danger" data-act="reset">Reset</button>
         </div>
       </div>
-      <p class="faint" style="text-align:center;font-size:var(--fs-xs);margin:18px 0 0">Discipline · offline-first PWA · your data never leaves this device</p>
+      <p class="faint" style="text-align:center;font-size:var(--fs-xs);margin:18px 0 0">Discipline · offline-first PWA · your data never leaves this device<br>
+        build ${esc(buildVersion || 'not yet installed')}</p>
     `;
   }
 
@@ -2091,6 +2092,8 @@
      reason `todayFilter` and `picker` live up here. It also means the picks can
      be driven from tools/render.js instead of only from a browser. */
   let runPicks = null;
+  /* The service worker version actually serving this page. See UI.setBuild. */
+  let buildVersion = '';
 
   function currentRunPicks() {
     if (!runPicks) runPicks = A.Run.DEFAULT_PICKS.slice();
@@ -2554,6 +2557,7 @@
   UI.toggleRunPick = toggleRunPick;
   UI.resetRunPicks = resetRunPicks;
   UI.refreshRunPicker = refreshRunPicker;
+  UI.setBuild = (v) => { buildVersion = v; };
   UI.openGoalDetail = openGoalDetail;
   UI.openGoalEditor = openGoalEditor;
   UI.openGoalRestart = openGoalRestart;

@@ -2,7 +2,7 @@
 /* Bump on every shipped change to styles.css or js/ — the fetch handler is
    cache-first, so without a new VERSION an existing install keeps serving the
    old shell until a second load. */
-const VERSION = 'discipline-v33';
+const VERSION = 'discipline-v34';
 const ASSETS = [
   './',
   './index.html',
@@ -43,6 +43,14 @@ self.addEventListener('activate', (event) => {
       .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
+});
+
+/* The page asks what build is serving it. Without this the only way to tell a
+   stale shell from a fresh one is to read the cache name in devtools, and
+   "it didn't update" is indistinguishable from "it's broken". */
+self.addEventListener('message', (event) => {
+  if (event.data === 'version' && event.source) event.source.postMessage({ version: VERSION });
+  if (event.data === 'skip-waiting') self.skipWaiting();
 });
 
 self.addEventListener('fetch', (event) => {

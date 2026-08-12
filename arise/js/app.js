@@ -1241,7 +1241,39 @@
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('SW registration failed', err));
+      navigator.serviceWorker
+        .register('./sw.js')
+        .then((reg) => {
+          /* Check for a new build on every open. The worker is cache-first by
+             design — that is what makes the app work on a plane — but it also
+             means a shell can sit there for days after a fix ships, and
+             "nothing happened when I tapped it" is what a stale build looks
+             like from the outside. */
+          reg.update().catch(() => {});
+          if (reg.waiting) reg.waiting.postMessage('skip-waiting');
+        })
+        .catch((err) => console.warn('SW registration failed', err));
+
+      /* One reload when a new worker takes over, and only one: `sw.js` calls
+         skipWaiting on install, so control changes as soon as the new build is
+         cached. Without the guard this is an refresh loop. */
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloading) return;
+        reloading = true;
+        location.reload();
+      });
+
+      /* What is actually serving this page, for the footer on More. */
+      navigator.serviceWorker.addEventListener('message', (ev) => {
+        if (ev.data && ev.data.version) {
+          UI.setBuild(ev.data.version);
+          UI.render();
+        }
+      });
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage('version');
+      }
     });
   }
 })(window);
