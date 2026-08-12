@@ -87,7 +87,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-for (const f of ['data.js', 'program.js', 'goals.js', 'store.js', 'ui.js']) {
+for (const f of ['data.js', 'program.js', 'goals.js', 'run.js', 'store.js', 'ui.js']) {
   vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8'), sandbox, { filename: f });
 }
 

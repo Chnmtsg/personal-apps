@@ -9,7 +9,7 @@
   // lifeboat, not state: nothing in the normal read path ever touches it. It
   // exists so the single-key rule can never cost a user their history.
   const QUARANTINE_KEY = 'arise.state.v1.unreadable';
-  const STATE_VERSION = 3;
+  const STATE_VERSION = 4;
 
   /* ---------- defaults ---------- */
 
@@ -85,6 +85,10 @@
       customRewards: [],
       // A fixed-length run — "66 days" — that the day counter counts against.
       challenges: [],
+      /* The 66-day run, or null for the great majority of accounts that never
+         start one. It is a separate thing from `goals` on purpose — see the
+         header of js/run.js — and nothing here reads or writes the other. */
+      run: null,
       bestStreak: 0,
       // programInstalled is already true here: seedState lays the program out
       // directly, so a later migrate() must not install it a second time over a
@@ -240,6 +244,18 @@
     // Additive: an account written before custom rewards existed simply has none.
     s.customRewards = Array.isArray(s.customRewards) ? s.customRewards : [];
     s.challenges = Array.isArray(s.challenges) ? s.challenges : [];
+
+    /* v3 → v4: the 66-day run. Purely additive, and null is the honest default:
+       an account written before runs existed has not started one, and inventing
+       a run for it would put a programme in front of somebody who never asked
+       for one. Nothing in goals, logs, streaks or journals is touched. */
+    const isRunObj = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
+    if (!isRunObj(s.run)) s.run = null;
+    if (s.run) {
+      s.run.habits = Array.isArray(s.run.habits) ? s.run.habits : [];
+      s.run.log = isRunObj(s.run.log) ? s.run.log : {};
+      s.run.minutesBudget = Number(s.run.minutesBudget) || 45;
+    }
     // Read this BEFORE merging defaults: base.meta says the program is installed
     // (seedState lays it out itself), which would mask an old account that has
     // never seen it.
@@ -788,6 +804,76 @@
   /* ---------- streak freezes ---------- */
 
   /** Earned by showing up, spent by hand — no silent magic on a day you missed. */
+  /* ---------- the 66-day run ---------- */
+
+  /* Everything below is a thin shell over `A.Run`, which is pure. The rule the
+     shell exists to keep is that the run is *stored* rather than recomputed:
+     `recordRunDay` freezes what a day asked at the moment it was lived, so
+     softening in week five cannot change what week two is shown to have asked
+     for. See js/run.js. */
+
+  const run = () => state.run;
+
+  function runStatus() {
+    return state.run ? A.Run.where(state.run, today()) : null;
+  }
+
+  /** The run's current day number, or null when there is no run to be on. */
+  function runToday() {
+    const st = runStatus();
+    return st && st.running ? st.day : null;
+  }
+
+  function startRun(picks, minutesBudget) {
+    // One run at a time. Replacing a live one would erase days the user earned,
+    // which is the same thing the day counter refuses to do.
+    if (state.run) return state.run;
+    state.run = A.Run.buildRun(today(), minutesBudget || 45, picks);
+    commit({ type: 'runStart' });
+    return state.run;
+  }
+
+  function endRun() {
+    if (!state.run) return;
+    state.run = null;
+    commit({ type: 'runEnd' });
+  }
+
+  /** Freeze one day of the run. `done` is a list of ids, `did` a map of
+      measurements — see A.Run.recordDay for why they are separate. */
+  function recordRunDay(day, done, did) {
+    if (!state.run || !(day >= 1 && day <= A.Run.RUN_DAYS)) return null;
+    const entry = A.Run.recordDay(state.run, day, done, did);
+    state.run.log = state.run.log || {};
+    state.run.log[day] = entry;
+    commit({ type: 'runRecord', day: day });
+    return entry;
+  }
+
+  /** Step in, or offer more — never both. Stores whichever happened. */
+  function runCheckIn() {
+    const day = runToday();
+    if (!state.run || day == null) return null;
+    const out = A.Run.checkIn(state.run, day);
+    if (out.patched) {
+      state.run = Object.assign({}, out.run, { log: state.run.log });
+      commit({ type: 'runPatch' });
+    }
+    return out;
+  }
+
+  /** Take up a recommendation. Refuses rather than repairs — see run.js. */
+  function runApply(rec) {
+    const day = runToday();
+    if (!state.run || day == null) return null;
+    const out = A.Run.applyRecommendation(state.run, rec, day);
+    if (out.run !== state.run) {
+      state.run = Object.assign({}, out.run, { log: state.run.log });
+      commit({ type: 'runApply' });
+    }
+    return out;
+  }
+
   function freezeStats() {
     const earned = Math.min(5, Math.floor(history().completeDays / 10));
     const used = Object.keys(state.freezes).length;
@@ -1541,6 +1627,7 @@
     goalDone, goalsForDay, setGoalValue, hitGoalTarget, skipGoal, clearGoalEntry,
     addGoal, updateGoal, archiveGoal, removeGoal, restartGoal,
     readingEntry, setReading, readingDays, journalEntry, setJournal, journalDays,
+    run, runStatus, runToday, startRun, endRun, recordRunDay, runCheckIn, runApply,
     freezeStats, applyFreeze, clearFreeze,
     updateSettings, exportJson, inspectBackup, importJson, unreadableBackup, resetAll
   };

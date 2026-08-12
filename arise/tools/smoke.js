@@ -17,7 +17,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-for (const f of ['data.js', 'program.js', 'goals.js', 'store.js']) {
+for (const f of ['data.js', 'program.js', 'goals.js', 'run.js', 'store.js']) {
   vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8'), sandbox, { filename: f });
 }
 
@@ -506,7 +506,10 @@ const v1 = {
   settings: { name: 'Old', goalPerWeek: 3 }
 };
 S.importJson(JSON.stringify(v1));
-ok('v1 state loads', S.get().version === 3, S.get().version);
+ok('v1 state loads', S.get().version === 4, S.get().version);
+// v3 → v4 is the 66-day run, and additive means additive: an account that has
+// never started one gets `null`, not a programme it did not ask for.
+ok('a state written before runs existed has no run', S.get().run === null, S.get().run);
 ok('v1 gains the goal engine', S.goals().length > 0, S.goals().length);
 ok('old day notes become journal entries', (S.journalEntry(A.addDays(t, -2)) || {}).text === 'an old journal note');
 ok('old settings survive', S.settings().name === 'Old' && S.settings().goalPerWeek === 3);
@@ -966,6 +969,172 @@ S.setJournal(S.today(), { text: 'Something I would hate to lose.' });
 ok('a journal keystroke does not write straight away', store.get('arise.state.v1') === beforeTyping);
 S.flush();
 ok('but flush captures it', (store.get('arise.state.v1') || '').indexOf('hate to lose') > 0);
+
+/* ------------------------------------------------------------------ */
+section('the 66-day run: a port, and the traps it inherited');
+
+const R = A.Run;
+const runStart = A.key(new Date(2026, 0, 1));
+
+/* Independent oracle: expected doses come from the catalog row directly, never
+   from doseOn. The Python original shipped a wrong dose through ~165,000 clean
+   day-renders precisely because its harness verified doseOn by calling doseOn. */
+const wrongDayOne = R.HABITS.filter((h) =>
+  R.doseOn({ habitId: h.id, startDay: 1, scale: 1, frozenDay: null }, 1) !== h.start);
+ok('day one asks exactly the catalog start dose, for all ' + R.HABITS.length + ' habits',
+   wrongDayOne.length === 0, wrongDayOne.map((h) => h.id));
+
+const wrongStep = [];
+R.HABITS.forEach((h) => {
+  const rh = { habitId: h.id, startDay: 1, scale: 1, frozenDay: null };
+  for (let w = 0; w < 10; w++) {
+    const want = Math.min(h.start + w * h.step, h.target);
+    const got = R.doseOn(rh, 1 + 7 * w);
+    if (Math.abs(got - want) > 1e-9) {
+      wrongStep.push(h.id + ' week ' + (w + 1) + ': ' + got + ' != ' + want);
+      break;
+    }
+  }
+});
+ok('the ramp advances one step a week until it reaches target', wrongStep.length === 0, wrongStep.slice(0, 3));
+
+const outOfBounds = [];
+R.HABITS.forEach((h) => {
+  [0, 0.25, 0.5, 0.75, 1].forEach((scale) => {
+    for (let d = 1; d <= R.RUN_DAYS; d++) {
+      const v = R.doseOn({ habitId: h.id, startDay: 1, scale: scale, frozenDay: null }, d);
+      if (v < h.start - 1e-9 || v > h.target + 1e-9) { outOfBounds.push(h.id + '@' + scale); return; }
+    }
+  });
+});
+ok('no scale puts a dose outside [start, target]', outOfBounds.length === 0, outOfBounds.slice(0, 3));
+
+const anchors = R.HABITS.filter((h) => h.target === h.start);
+ok('the catalog has anchors at all', anchors.length > 0);
+const drifted = anchors.filter((h) => {
+  for (const scale of [0, 0.5, 1]) {
+    for (const frozen of [null, 20]) {
+      for (let d = 1; d <= R.RUN_DAYS; d++) {
+        if (Math.abs(R.doseOn({ habitId: h.id, startDay: 1, scale: scale, frozenDay: frozen }, d) - h.start) > 1e-9) return true;
+      }
+    }
+  }
+  return false;
+});
+ok('no day, scale or freeze moves an anchor off its single dose', drifted.length === 0, drifted.map((h) => h.id));
+
+/* Feasibility is the product. An infeasible day 41 is not discovered until day
+   41, by which point the user has earned 40 days. */
+const hostile = { startDate: runStart, minutesBudget: 45, log: {}, habits: [
+  { habitId: 'walk', startDay: 1 }, { habitId: 'walk', startDay: 1 },
+  { habitId: 'cold_plunge', startDay: 1 }, { habitId: 'deep_work', startDay: 1 },
+  { habitId: 'run', startDay: 1 }, { habitId: 'read', startDay: 900 },
+  { habitId: 'water', startDay: 1 }, { habitId: 'meditate', startDay: 1 }
+] };
+const fixedRun = R.repair(hostile, 0).run;
+ok('a hostile run is repaired rather than rejected', R.validate(fixedRun).length === 0,
+   R.validate(fixedRun).slice(0, 2));
+ok('and an invented habit is dropped, never invented into the catalog',
+   !fixedRun.habits.some((p) => p.habitId === 'cold_plunge'), fixedRun.habits.map((p) => p.habitId));
+const fixedStarts = fixedRun.habits.map((p) => p.startDay).sort((a, b) => a - b);
+ok('no more than ' + R.MAX_NEW_PER_WEEK + ' habits start in any 7-day window',
+   fixedStarts.every((x) => fixedStarts.filter((y) => y >= x - 6 && y <= x).length <= R.MAX_NEW_PER_WEEK),
+   fixedStarts);
+
+/* A lived day is a record, not a recomputation. */
+const rec = R.buildRun(runStart, 90, ['walk', 'read', 'water']);
+const lived = R.recordDay(rec, 20, ['walk'], { water: 1 });
+const easedRun = R.applyPatch(rec, [{ op: 'soften', habitId: 'walk', factor: 0.5 }], 30).run;
+const walkNow = easedRun.habits.find((p) => p.habitId === 'walk');
+ok('softening today does not change what a recorded day asked',
+   R.recordDay(rec, 20, ['walk'], { water: 1 }).walk.asked === lived.walk.asked, lived.walk);
+ok('and doseOn now disagrees with the record, which is exactly why it exists',
+   R.doseOn(walkNow, 20) !== lived.walk.asked, [R.doseOn(walkNow, 20), lived.walk.asked]);
+ok('a measurement short of the ask is recorded and not counted as kept',
+   lived.water.did === 1 && lived.water.done === false, lived.water);
+ok('a tick with nothing measured leaves did unknown rather than guessing',
+   lived.walk.done === true && lived.walk.did === null, lived.walk);
+ok('fraction is what the app draws as 0 / 2L',
+   Math.abs(R.fractionOf(lived.water) - 1 / lived.water.asked) < 1e-9, R.fractionOf(lived.water));
+
+/* Op payloads must never throw. NaN once produced a run that validated clean,
+   left the ramp dead for 66 days, and could not be serialised afterwards. */
+let opTrouble = null;
+[[{ op: 'soften', habitId: 'walk', factor: 'half' }],
+ [{ op: 'soften', habitId: 'walk', factor: null }],
+ [{ op: 'soften', habitId: 'walk', factor: NaN }],
+ [{ op: 'defer', habitId: 'read', days: 'soon' }],
+ [{ op: 'obliterate', habitId: 'walk' }],
+ [{}]].forEach((ops) => {
+  try {
+    const after = R.applyPatch(rec, ops, 20).run;
+    if (after.habits.some((p) => !isFinite(p.scale))) opTrouble = 'non-finite scale from ' + JSON.stringify(ops);
+    if (!opTrouble && R.validate(after).length) opTrouble = 'infeasible from ' + JSON.stringify(ops);
+    if (!opTrouble) JSON.stringify(after);
+  } catch (err) { opTrouble = err.message; }
+});
+ok('no op payload throws, leaves a NaN scale, or ships an infeasible run', opTrouble === null, opTrouble);
+
+/* A run ends. Every function answers for any integer, and nothing owned that. */
+ok('before the run', R.where(rec, A.addDays(runStart, -5)).state === 'not_started');
+ok('during it', R.where(rec, runStart).state === 'running' && R.where(rec, runStart).day === 1);
+ok('and after it, unclamped so day 80 is not day 66',
+   R.where(rec, A.addDays(runStart, 79)).state === 'finished' &&
+   R.where(rec, A.addDays(runStart, 79)).day === 80, R.where(rec, A.addDays(runStart, 79)));
+ok('a finished run decides nothing',
+   R.checkIn(rec, 80).patched === false && R.checkIn(rec, 80).recommendations.length === 0);
+
+/* Step in, or offer more — never both. */
+const keeping = R.buildRun(runStart, 90, ['walk', 'read', 'water']);
+keeping.log = {};
+for (let d = 1; d < 30; d++) keeping.log[d] = R.recordDay(keeping, d, keeping.habits.map((p) => p.habitId));
+const good = R.checkIn(keeping, 30);
+ok('a user keeping everything is not patched', good.patched === false, good.notes);
+ok('and may be offered something', good.recommendations.length > 0);
+ok('every suggestion names a habit the catalog has',
+   good.recommendations.every((r) => R.isKnown(r.habitId)), good.recommendations.map((r) => r.habitId));
+
+let cur = keeping;
+const refused = [];
+good.recommendations.forEach((r) => {
+  const out = R.applyRecommendation(cur, r, 30);
+  if (out.notes[0].indexOf('declined') === 0) refused.push(r.habitId);
+  cur = out.run;
+});
+ok('the whole list can be accepted in order, none refused', refused.length === 0, refused);
+ok('and the run is still feasible on all 66 days', R.validate(cur).length === 0, R.validate(cur).slice(0, 2));
+
+const slipping = R.buildRun(runStart, 90, ['walk', 'read', 'water']);
+slipping.log = {};
+for (let d = 1; d < 30; d++) {
+  slipping.log[d] = R.recordDay(slipping, d, d % 4 === 0 ? slipping.habits.map((p) => p.habitId) : []);
+}
+const bad = R.checkIn(slipping, 30);
+ok('a user missing three days in four is patched', bad.patched === true, bad.notes);
+ok('and is offered nothing on top of it', bad.recommendations.length === 0, bad.recommendations);
+ok('the patched run is still feasible', R.validate(bad.run).length === 0, R.validate(bad.run).slice(0, 2));
+
+/* The store shell: a run is stored, and starting one touches nothing else. */
+S.resetAll();
+const goalsBefore = S.goals().length;
+ok('a fresh account has no run', S.run() === null);
+S.startRun(['walk', 'water', 'read'], 90);
+ok('starting one stores it', S.run() !== null && S.run().habits.length >= R.MIN_HABITS);
+ok('and leaves the goal engine completely alone', S.goals().length === goalsBefore, S.goals().length);
+ok('the run knows which day it is on', S.runToday() === 1, S.runToday());
+S.recordRunDay(1, [S.run().habits[0].habitId]);
+ok('a recorded day is frozen into the run', !!S.run().log[1], S.run().log[1]);
+const beforeSecond = S.run().habits.length;
+ok('starting a second run is refused rather than erasing days already earned',
+   S.startRun(['plank'], 45).habits.length === beforeSecond);
+ok('a run survives export and import intact',
+   (function () {
+     const blob = S.exportJson();
+     S.importJson(blob);
+     return S.run() !== null && !!S.run().log[1];
+   })(), S.run());
+S.endRun();
+ok('ending one clears it', S.run() === null);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

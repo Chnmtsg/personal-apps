@@ -87,11 +87,18 @@ function main() {
      because they load js/ from disk. Shipping is the one place that can notice. */
   const shell = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
   const inlined = /<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?\S[\s\S]*?<\/script>/.test(shell);
-  const scripts = (shell.match(/<script src="\.\/js\/[^"]+"><\/script>/g) || []).length;
+  const scripts = (shell.match(/<script src="\.\/js\/[^"]+"><\/script>/g) || [])
+    .map((m) => m.replace(/.*js\//, '').replace(/".*/, ''));
+  /* Counted against sw.js rather than against a number written here — a literal
+     6 failed the moment run.js landed, which is a check reporting its own
+     staleness rather than a problem. This is the pair that can disagree without
+     either suite noticing: a file the shell loads but the worker never
+     precaches works perfectly online and vanishes the first time offline. */
+  const swScripts = assets.filter((a) => a.startsWith('js/')).map((a) => a.slice(3));
 
   console.log(`\n  ${shipped.join(', ')}`);
   console.log(`  service worker  ${version}`);
-  console.log(`  index.html      ${(shell.length / 1024).toFixed(1)} KB, ${scripts} scripts linked`);
+  console.log(`  index.html      ${(shell.length / 1024).toFixed(1)} KB, ${scripts.length} scripts linked`);
 
   let bad = 0;
   if (missing.length) {
@@ -102,8 +109,16 @@ function main() {
     console.log('\n  FAIL  index.html carries an inline script — it must stay a shell');
     bad++;
   }
-  if (scripts !== 6) {
-    console.log(`\n  FAIL  index.html links ${scripts} of the 6 js/ files`);
+  const onlyShell = scripts.filter((f) => !swScripts.includes(f));
+  const onlyWorker = swScripts.filter((f) => !scripts.includes(f));
+  if (onlyShell.length || onlyWorker.length) {
+    console.log('\n  FAIL  index.html and sw.js disagree about js/:' +
+      (onlyShell.length ? ` loaded but not precached: ${onlyShell.join(', ')}` : '') +
+      (onlyWorker.length ? ` precached but not loaded: ${onlyWorker.join(', ')}` : ''));
+    bad++;
+  }
+  if (!scripts.length) {
+    console.log('\n  FAIL  index.html links no js/ files at all');
     bad++;
   }
   if (!version) {

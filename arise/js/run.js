@@ -1,0 +1,850 @@
+/* Discipline — the 66-day run.
+
+   A port of the `life-reset` Python engine, and a deliberately partial one.
+   That project has three layers; only the deterministic one belongs here.
+
+     ported      the catalog, the ramp maths, validate/repair, the day record,
+                 the recommender, and the daily check-in
+     dropped     the Architect and Adaptation agents. Both need a language
+                 model, and this app makes no network calls, holds no secrets
+                 and has no accounts. Both were written LLM-optional, so what
+                 crosses over is the fallback each already had: a dull,
+                 low-friction starting programme, and a code-chosen patch.
+
+   This sits BESIDE `goals.js` and shares nothing with it. The two are different
+   answers to a similar question — goals.js ramps one target the user chose from
+   a baseline they set, and earns each step by performance; a run picks from a
+   closed catalog, ramps on the calendar, and is feasible-by-construction across
+   all 66 days. Merging them would mean migrating every custom goal onto a
+   catalog id it does not have, so they stay separate and a user may have both.
+
+   Pure functions only. Nothing here touches storage, which is what lets
+   tools/smoke.js walk thousands of synthetic days without a browser.
+
+   The comments below record bugs the Python version actually shipped. They are
+   here because this port inherits every one of the traps that produced them. */
+(function (root) {
+  'use strict';
+
+  const A = root.Arise;
+  const R = {};
+
+  /* ================= the closed catalog ================= */
+
+  /* Nothing outside this list may be a habit. A model — or a future import —
+     naming something else gets it dropped, not invented, which is why an
+     unknown id can never become a runtime error on day 41.
+
+     `min` is a scheduling weight, not a duration: it is what the habit costs
+     the daily budget, and it is deliberately not what the user is shown. A day
+     of three 45-minute habits does not cost 135 budget-minutes. */
+  const HABITS = [
+    // --- fitness ---
+    { id: 'walk', name: 'Walk', domain: 'fitness', unit: 'min', start: 10, target: 45, step: 5, min: 1.0, friction: 1 },
+    { id: 'pushups', name: 'Push-ups', domain: 'fitness', unit: 'reps', start: 5, target: 40, step: 5, min: 0.12, friction: 2 },
+    { id: 'squats', name: 'Body-weight squats', domain: 'fitness', unit: 'reps', start: 10, target: 60, step: 5, min: 0.10, friction: 2 },
+    { id: 'plank', name: 'Plank', domain: 'fitness', unit: 'sec', start: 20, target: 120, step: 10, min: 0.02, friction: 2 },
+    { id: 'run', name: 'Easy run', domain: 'fitness', unit: 'min', start: 10, target: 40, step: 5, min: 1.0, friction: 4 },
+    { id: 'mobility', name: 'Mobility flow', domain: 'fitness', unit: 'min', start: 5, target: 20, step: 2.5, min: 1.0, friction: 2 },
+    { id: 'strength', name: 'Strength session', domain: 'fitness', unit: 'min', start: 15, target: 45, step: 5, min: 1.0, friction: 5 },
+    // --- self-care ---
+    { id: 'water', name: 'Drink water', domain: 'self_care', unit: 'glasses', start: 2, target: 8, step: 1, min: 0.5, friction: 1 },
+    { id: 'sleep_window', name: 'Fixed lights-out', domain: 'self_care', unit: 'min', start: 15, target: 45, step: 5, min: 0.2, friction: 3 },
+    { id: 'stretch', name: 'Evening stretch', domain: 'self_care', unit: 'min', start: 5, target: 20, step: 2.5, min: 1.0, friction: 1 },
+    { id: 'meditate', name: 'Meditate', domain: 'self_care', unit: 'min', start: 3, target: 20, step: 2, min: 1.0, friction: 3 },
+    { id: 'sunlight', name: 'Morning daylight', domain: 'self_care', unit: 'min', start: 5, target: 20, step: 2.5, min: 1.0, friction: 2 },
+    { id: 'cold_shower', name: 'Cold finish', domain: 'self_care', unit: 'sec', start: 15, target: 120, step: 15, min: 0.02, friction: 4 },
+    { id: 'no_screens', name: 'Screens off before bed', domain: 'self_care', unit: 'min', start: 15, target: 60, step: 5, min: 0.1, friction: 4 },
+    /* Anchors: target === start, so there is nothing to ramp. You take the
+       vitamin or you do not, and a programme that ramped a supplement would be
+       making a medical claim this app has no business making. `doseOn`'s clamp
+       holds them flat with no special case anywhere, and they are the cheapest
+       rows on any day, so `repair` never sacrifices one — an anchor is what a
+       day still has on it after everything expensive has gone. */
+    { id: 'vitamins', name: 'Take vitamins', domain: 'self_care', unit: 'doses', start: 1, target: 1, step: 1, min: 0.5, friction: 1 },
+    { id: 'floss', name: 'Floss', domain: 'self_care', unit: 'times', start: 1, target: 1, step: 1, min: 1.0, friction: 2 },
+    { id: 'brush_teeth', name: 'Brush teeth', domain: 'self_care', unit: 'times', start: 1, target: 2, step: 1, min: 2.0, friction: 1 },
+    { id: 'skincare', name: 'Face routine', domain: 'self_care', unit: 'min', start: 1, target: 5, step: 1, min: 1.0, friction: 1 },
+    // --- development ---
+    { id: 'read', name: 'Read', domain: 'development', unit: 'min', start: 10, target: 45, step: 5, min: 1.0, friction: 2 },
+    { id: 'deep_work', name: 'Deep work block', domain: 'development', unit: 'min', start: 25, target: 90, step: 10, min: 1.0, friction: 5 },
+    { id: 'journal', name: 'Journal', domain: 'development', unit: 'min', start: 5, target: 15, step: 2.5, min: 1.0, friction: 1 },
+    { id: 'language', name: 'Language practice', domain: 'development', unit: 'min', start: 10, target: 30, step: 5, min: 1.0, friction: 3 },
+    { id: 'course', name: 'Course / study', domain: 'development', unit: 'min', start: 15, target: 60, step: 5, min: 1.0, friction: 4 },
+    { id: 'write', name: 'Write', domain: 'development', unit: 'min', start: 10, target: 40, step: 5, min: 1.0, friction: 4 }
+  ];
+
+  const BY_ID = {};
+  HABITS.forEach((h) => { BY_ID[h.id] = h; });
+
+  const habit = (id) => BY_ID[id] || null;
+  const isKnown = (id) => Object.prototype.hasOwnProperty.call(BY_ID, id);
+
+  /* A stretch of the run, and the most habits allowed live in it. The cap is
+     the point: a programme asking for nine things on day 5 is the one people
+     quit in week one. */
+  const PHASES = [
+    { name: 'foundation', first: 1, last: 21, max: 4 },
+    { name: 'build', first: 22, last: 45, max: 7 },
+    { name: 'consolidate', first: 46, last: 66, max: 9 }
+  ];
+
+  const RUN_DAYS = 66;
+  const LAST_INTRO_DAY = 56;   // nothing new may start after this
+  const MAX_NEW_PER_WEEK = 2;  // in any rolling 7-day window
+  const MIN_HABITS = 3;
+  const MAX_HABITS = 9;
+
+  function phaseFor(day) {
+    for (const p of PHASES) if (day >= p.first && day <= p.last) return p;
+    return null;
+  }
+
+  /* ================= dose and cost ================= */
+
+  function roundTo(value, step) {
+    if (!(step > 0)) return value;
+    return Math.round(value / step) * step;
+  }
+
+  /**
+   * What this habit asks on this day, or 0 before it starts.
+   *
+   * Two ordering rules, both of which the Python version got wrong first:
+   *
+   *   Round the ramp, never the total. Rounding `start + ramp` snaps the whole
+   *   figure to a multiple of `step`, which displaces any habit whose starting
+   *   dose is not already one — `meditate` (start 3, step 2) rendered a
+   *   4-minute day one against a catalog that says 3, then ramped 0, +4, 0, +4
+   *   against a declared step of 2. It survived ~165,000 day-renders reporting
+   *   zero violations, because the wrong numbers were still monotonic and still
+   *   inside [start, target].
+   *
+   *   Round before the clamp. Rounding after it is how a 90-minute target once
+   *   shipped a 100-minute prescription.
+   */
+  function doseOn(rh, day) {
+    if (day < rh.startDay) return 0;
+    const h = habit(rh.habitId);
+    if (!h) return 0;
+    // A frozen habit keeps asking whatever it asked on the day it froze.
+    const effective = rh.frozenDay == null ? day : Math.min(day, rh.frozenDay);
+    const weeks = Math.max(0, Math.floor((effective - rh.startDay) / 7));
+    const scale = typeof rh.scale === 'number' && isFinite(rh.scale) ? rh.scale : 1;
+    const ramp = roundTo(h.step * weeks * Math.max(0, scale), h.step);
+    return Math.min(Math.max(h.start + ramp, h.start), h.target);
+  }
+
+  const minutesOn = (rh, day) => doseOn(rh, day) * (habit(rh.habitId) || { min: 0 }).min;
+  const activeOn = (run, day) => (run.habits || []).filter((p) => p.startDay <= day);
+  const dayMinutes = (run, day) => activeOn(run, day).reduce((n, p) => n + minutesOn(p, day), 0);
+
+  /** Calendar day key → 1-based run day. Outside the run, still honest. */
+  const dayIndex = (run, dateKey) => A.daysBetween(run.startDate, dateKey) + 1;
+
+  /* ================= where the user is ================= */
+
+  /**
+   * The first thing to ask, every time the app opens.
+   *
+   * `day` is deliberately not clamped: negative before the run, past 66 after
+   * it. Clamping makes day 80 indistinguishable from day 66, which is the
+   * difference between "you have finished" and "you have one left". Nothing
+   * owned this in the Python version at first, and every caller had to notice
+   * for itself — one that forgot kept a user running forever.
+   */
+  function where(run, dateKey) {
+    const day = dayIndex(run, dateKey);
+    if (day < 1) return { day, state: 'not_started', running: false, daysOver: 0 };
+    if (day > RUN_DAYS) return { day, state: 'finished', running: false, daysOver: day - RUN_DAYS };
+    return { day, state: 'running', running: true, daysOver: 0 };
+  }
+
+  /* ================= the day view ================= */
+
+  function runDay(run, day) {
+    return activeOn(run, day).map((p) => {
+      const h = habit(p.habitId);
+      return {
+        id: h.id,
+        name: h.name,
+        domain: h.domain,
+        unit: h.unit,
+        dose: doseOn(p, day),
+        minutes: minutesOn(p, day),
+        dayOfHabit: day - p.startDay + 1,
+        frozen: p.frozenDay != null && day >= p.frozenDay,
+        softened: (p.scale == null ? 1 : p.scale) < 1
+      };
+    });
+  }
+
+  /* ================= the day record ================= */
+
+  /**
+   * Freeze what a day asked, and what was done about it.
+   *
+   * The record is the whole reason a lived day cannot be re-judged. `doseOn`
+   * answers from the habit's *current* state, so softening on day 30 changes
+   * what it says day 12 asked for — fine for a prescription, false for a
+   * record. Writing the ask down at the time is also what let a run habit stay
+   * four fields instead of growing a list of dated adjustments.
+   *
+   * `done` is frozen here rather than derived on read, so the rule turning 1.8
+   * of 2 litres into a yes or a no cannot change later and silently re-score
+   * every day behind the user. And meeting the ask is the whole ask: there is
+   * no partial credit toward `done`. The fraction is for the app to draw.
+   *
+   * `did` is never inferred. A habit ticked with nothing measured keeps
+   * `did: null`, because "they said yes" and "we measured the ask" are
+   * different facts and flattening them invents data.
+   */
+  function recordDay(run, day, done, did) {
+    const ticked = {};
+    (done || []).forEach((id) => { ticked[id] = true; });
+    const values = did || {};
+    const out = {};
+    activeOn(run, day).forEach((p) => {
+      const asked = doseOn(p, day);
+      const measured = values[p.habitId];
+      if (measured == null || !isFinite(measured)) {
+        out[p.habitId] = { asked: asked, done: !!ticked[p.habitId], did: null };
+      } else {
+        out[p.habitId] = { asked: asked, done: measured + 1e-9 >= asked, did: Number(measured) };
+      }
+    });
+    return out;
+  }
+
+  /** How much of the ask was met, or null when nothing was measured. Capped at
+      1: beating today is not extra credit, because the ramp is what advances a
+      habit and doing more today does not move it. */
+  function fractionOf(entry) {
+    if (!entry || entry.did == null || !entry.asked) return null;
+    return Math.min(1, Math.max(0, entry.did / entry.asked));
+  }
+
+  /* ================= validation ================= */
+
+  /**
+   * Every way a run could be wrong, on any of its 66 days.
+   *
+   * An infeasible day 41 is the most expensive bug this design can have: the
+   * user does not find it until day 41, by which point they have earned 40.
+   */
+  function validate(run) {
+    const v = [];
+    const seen = {};
+    const habits = run.habits || [];
+
+    habits.forEach((p) => {
+      if (!isKnown(p.habitId)) {
+        v.push({ kind: 'unknown_habit', day: null, detail: p.habitId + ' is not in the catalog' });
+        return;
+      }
+      if (seen[p.habitId]) v.push({ kind: 'duplicate_habit', day: null, detail: p.habitId + ' appears twice' });
+      seen[p.habitId] = true;
+      if (!(p.startDay >= 1 && p.startDay <= LAST_INTRO_DAY)) {
+        v.push({ kind: 'start_day_range', day: null, detail: p.habitId + ' starts on day ' + p.startDay });
+      }
+    });
+
+    if (habits.length < MIN_HABITS) {
+      v.push({ kind: 'min_habits', day: null, detail: habits.length + ' habits, floor is ' + MIN_HABITS });
+    }
+    if (v.some((x) => x.kind === 'unknown_habit')) return v;
+
+    const starts = habits.map((p) => p.startDay).sort((a, b) => a - b);
+    for (const day of starts) {
+      const window = starts.filter((d) => d >= day - 6 && d <= day);
+      if (window.length > MAX_NEW_PER_WEEK) {
+        v.push({ kind: 'new_per_week', day: day, detail: window.length + ' habits start within 7 days of day ' + day });
+        break;
+      }
+    }
+
+    for (let day = 1; day <= RUN_DAYS; day++) {
+      const live = activeOn(run, day);
+      const cap = phaseFor(day).max;
+      if (live.length > cap) {
+        v.push({ kind: 'phase_cap', day: day, detail: live.length + ' live, ' + phaseFor(day).name + ' allows ' + cap });
+      }
+      const minutes = live.reduce((n, p) => n + minutesOn(p, day), 0);
+      if (minutes > run.minutesBudget + 1e-9) {
+        v.push({ kind: 'daily_budget', day: day, detail: Math.round(minutes) + ' min against a ' + run.minutesBudget + ' min budget' });
+      }
+      for (const p of live) {
+        const h = habit(p.habitId);
+        const d = doseOn(p, day);
+        if (d < h.start - 1e-9 || d > h.target + 1e-9) {
+          v.push({ kind: 'dose_in_bounds', day: day, detail: p.habitId + ' at ' + d + ' outside [' + h.start + ', ' + h.target + ']' });
+        }
+        if (day > p.startDay && doseOn(p, day - 1) - d > 1e-9) {
+          v.push({ kind: 'dose_monotonic', day: day, detail: p.habitId + ' went backwards' });
+        }
+      }
+    }
+    return v;
+  }
+
+  /* ================= repair ================= */
+
+  /**
+   * An even ladder of start days. One pass, no search.
+   *
+   * Habits already begun are never moved: rescheduling one the user is three
+   * weeks into is how a repair pass once broke a 100%-completion streak while
+   * fixing something else entirely.
+   */
+  function respace(habits, protectBefore) {
+    const ordered = habits.slice().sort((a, b) => a.startDay - b.startDay || a.habitId.localeCompare(b.habitId));
+    const fixed = ordered.filter((p) => p.startDay <= protectBefore);
+    const movable = ordered.filter((p) => p.startDay > protectBefore);
+    const taken = fixed.map((p) => p.startDay);
+    const out = fixed.slice();
+    const unplaceable = [];
+
+    /* The same test `validate` runs, over every window rather than only the one
+       ending at `day`. Counting backwards alone is not the rule: slotting a
+       habit into day 1 when days 2 and 7 are taken looks free from day 1 and
+       quietly makes day 7 the third start in a week. */
+    function fits(day) {
+      const days = taken.concat([day]).sort((a, b) => a - b);
+      return days.every((x) => days.filter((y) => y >= x - 6 && y <= x).length <= MAX_NEW_PER_WEEK);
+    }
+    function firstFree(lo) {
+      for (let day = Math.max(lo, 1); day <= LAST_INTRO_DAY; day++) if (fits(day)) return day;
+      return null;
+    }
+
+    movable.forEach((p) => {
+      /* Prefer the day asked for, then the first legal day after it, and only
+         then look *earlier*. Everything on day 900 clamps onto day 56, where
+         searching forward finds nothing and dropping five habits takes the run
+         under its own floor — moving one earlier is a far smaller sacrifice.
+         Stacking them onto the last legal day satisfies the loop and ships the
+         exact violation it was meant to remove. */
+      let day = firstFree(Math.max(p.startDay, protectBefore + 1));
+      if (day == null) day = firstFree(protectBefore + 1);
+      if (day == null) { unplaceable.push(p.habitId); return; }
+      taken.push(day);
+      out.push(Object.assign({}, p, { startDay: day }));
+    });
+
+    out.sort((a, b) => a.startDay - b.startDay || a.habitId.localeCompare(b.habitId));
+    return { placed: out, unplaceable: unplaceable };
+  }
+
+  /**
+   * Make a run feasible, deterministically.
+   *
+   * `today` protects everything already underway — pass the user's current day
+   * for a live run, 0 for a fresh one.
+   *
+   * The sacrifice differs per constraint, and that distinction is the whole
+   * function. A phase-cap violation means too many *habits*, so the newest
+   * goes. A budget violation means too many *minutes*, so the most expensive
+   * goes. One heuristic for both made repair swap two zero-cost habits back and
+   * forth forever while a 20-minute habit sat untouched.
+   */
+  function repair(run, today) {
+    today = today || 0;
+    const notes = [];
+    let habits = [];
+    const seen = {};
+
+    (run.habits || []).forEach((p) => {
+      if (!isKnown(p.habitId)) { notes.push('dropped unknown habit ' + p.habitId); return; }
+      if (seen[p.habitId]) { notes.push('dropped duplicate ' + p.habitId); return; }
+      seen[p.habitId] = true;
+      const day = Math.min(Math.max(Math.round(p.startDay) || 1, 1), LAST_INTRO_DAY);
+      if (day !== p.startDay) notes.push(p.habitId + ': start day ' + p.startDay + ' → ' + day);
+      habits.push(Object.assign({}, p, { startDay: day }));
+    });
+
+    const before = {};
+    habits.forEach((p) => { before[p.habitId] = p.startDay; });
+    const spaced = respace(habits, today);
+    habits = spaced.placed;
+    const moved = habits.filter((p) => before[p.habitId] !== p.startDay).map((p) => p.habitId);
+    if (moved.length) notes.push('respaced start days: ' + moved.sort().join(', '));
+    spaced.unplaceable.forEach((id) => {
+      notes.push('dropped ' + id + ': no legal start day left before day ' + LAST_INTRO_DAY);
+    });
+
+    let out = Object.assign({}, run, { habits: habits });
+
+    /* Bounded: every pass either softens one habit by a quarter of its ramp or
+       removes one, and the floor stops it before a run stops being a run. */
+    for (let pass = 0; pass < habits.length * 8 + 8; pass++) {
+      const vs = validate(out).filter((x) => x.kind === 'phase_cap' || x.kind === 'daily_budget');
+      if (!vs.length) break;
+      const v = vs[0];
+      const day = v.day || 1;
+      const live = activeOn(out, day);
+      if (!live.length) break;
+      const movable = live.filter((p) => p.startDay > today);
+
+      if (v.kind === 'phase_cap') {
+        if (!movable.length || out.habits.length <= MIN_HABITS) break;
+        const victim = movable.slice().sort((a, b) =>
+          a.startDay - b.startDay || habit(a.habitId).friction - habit(b.habitId).friction).pop();
+        notes.push('dropped ' + victim.habitId + ' for the phase cap on day ' + day);
+        out = Object.assign({}, out, { habits: out.habits.filter((p) => p !== victim) });
+        continue;
+      }
+
+      /* Removing before flattening, and the order matters more than it looks.
+         `scale` reduces the ramp across the whole run, so softening to fit one
+         overshoot on day 60 leaves the user on their starting dose for all 66
+         days — five habits that never move instead of four that do. The ramp is
+         the product; flattening is what is left when there is nothing to
+         remove, not the first thing to reach for. */
+      const dearest = (list) => list.slice().sort((a, b) =>
+        minutesOn(a, day) - minutesOn(b, day) || a.startDay - b.startDay).pop();
+
+      if (out.habits.length > MIN_HABITS && movable.length) {
+        const victim = dearest(movable);
+        notes.push('dropped ' + victim.habitId + ' for the daily budget on day ' + day);
+        out = Object.assign({}, out, { habits: out.habits.filter((p) => p !== victim) });
+        continue;
+      }
+
+      /* `movable`, not `live`: every other branch protects what the user is
+         already running, and this one silently did not. */
+      if (!movable.length) break;
+      const victim = dearest(movable);
+      const scale = victim.scale == null ? 1 : victim.scale;
+      if (scale > 1e-9) {
+        const eased = Object.assign({}, victim, { scale: Math.max(0, scale - 0.25) });
+        notes.push('flattened ' + victim.habitId + "'s ramp to " + eased.scale.toFixed(2) +
+                   ' for the budget on day ' + day + ' (at the ' + MIN_HABITS + '-habit floor)');
+        out = Object.assign({}, out, { habits: out.habits.map((p) => (p === victim ? eased : p)) });
+        continue;
+      }
+
+      /* Flat at its starting dose and still over. Feasibility outranks the
+         habit floor — an impossible day is the one thing the user cannot work
+         around. */
+      notes.push('dropped ' + victim.habitId + ' below the ' + MIN_HABITS +
+                 '-habit floor: day ' + day + ' is not doable in ' + run.minutesBudget + ' min otherwise');
+      out = Object.assign({}, out, { habits: out.habits.filter((p) => p !== victim) });
+    }
+
+    return { run: out, notes: notes };
+  }
+
+  /* ================= building a run ================= */
+
+  /**
+   * A starting run, without a model.
+   *
+   * The Python version asks a large model to choose from the catalog and then
+   * repairs whatever comes back. This app cannot make that call, so what ships
+   * is the fallback that path already had: deliberately dull, low-friction, and
+   * reliable. A working programme beats a spinner, and this is the only option
+   * an offline app has.
+   */
+  function buildRun(startDate, minutesBudget, picks) {
+    const chosen = (picks && picks.length ? picks : ['walk', 'water', 'read', 'stretch', 'journal', 'pushups'])
+      .filter(isKnown)
+      .slice(0, MAX_HABITS);
+    const draft = {
+      startDate: startDate,
+      minutesBudget: minutesBudget || 45,
+      habits: chosen.map((id, i) => ({ habitId: id, startDay: 1 + i * 7, scale: 1, frozenDay: null })),
+      log: {}
+    };
+    const fixed = repair(draft, 0);
+    return fixed.run;
+  }
+
+  /* ================= patching a live run ================= */
+
+  const MAX_PATCH_HABITS = 2;
+  const RESUME_SCALE_STEP = 0.25;
+
+  /**
+   * A finite number, or null if whatever produced this op did not give one.
+   *
+   * In Python these arrived from a language model and `float()` crashed on
+   * every one of `"half"`, `null` and a list. Here they arrive from stored
+   * state and from the UI, which is a different threat and the same guard: a
+   * `NaN` scale passed every check, left the ramp dead for the whole run on a
+   * run `validate` called healthy, and made the state unserialisable.
+   */
+  function num(value) {
+    const n = typeof value === 'number' ? value : parseFloat(value);
+    return typeof n === 'number' && isFinite(n) ? n : null;
+  }
+
+  /**
+   * The only sanctioned way to change a run that is already going.
+   *
+   * Five operations and no rewrite. Four of them are sacrifices; `resume` is
+   * the way back, and the only one that gives anything.
+   */
+  function applyPatch(run, ops, today) {
+    const notes = [];
+    const touched = {};
+    const byId = {};
+    (run.habits || []).forEach((p) => { byId[p.habitId] = p; });
+    const preResume = {};
+
+    (ops || []).forEach((op) => {
+      const name = op && op.op;
+      const id = op && op.habitId;
+      if (!id || !byId[id]) { notes.push('ignored ' + name + ' on unknown/absent ' + id); return; }
+      if (!touched[id] && Object.keys(touched).length >= MAX_PATCH_HABITS) {
+        notes.push('ignored ' + name + ' on ' + id + ': the patch already touches ' + MAX_PATCH_HABITS);
+        return;
+      }
+      const p = byId[id];
+
+      if (name === 'soften') {
+        // "soften walk" is clear even when "by how much" is garbled, so an
+        // unreadable factor falls back to the default rather than dropping the
+        // op — dropping it leaves a slipping user with no intervention at all.
+        let factor = num(op.factor == null ? 0.5 : op.factor);
+        if (factor == null) { notes.push(id + ': unreadable soften factor, used 0.5'); factor = 0.5; }
+        factor = Math.min(Math.max(factor, 0), 1);
+        byId[id] = Object.assign({}, p, { scale: (p.scale == null ? 1 : p.scale) * factor });
+        notes.push('softened ' + id + ' to ' + byId[id].scale.toFixed(2) + ' of its ramp');
+      } else if (name === 'freeze') {
+        if (p.frozenDay == null || today < p.frozenDay) byId[id] = Object.assign({}, p, { frozenDay: today });
+        notes.push('froze ' + id + ' at day ' + byId[id].frozenDay);
+      } else if (name === 'defer') {
+        if (p.startDay <= today) { notes.push('ignored defer on ' + id + ': already underway'); return; }
+        let by = num(op.days == null ? 7 : op.days);
+        if (by == null) { notes.push(id + ': unreadable defer days, used 7'); by = 7; }
+        byId[id] = Object.assign({}, p, { startDay: Math.min(p.startDay + Math.max(Math.round(by), 1), LAST_INTRO_DAY) });
+        notes.push('deferred ' + id + ' to day ' + byId[id].startDay);
+      } else if (name === 'resume') {
+        /* One notch per call, never a snap back to full: clearing `frozenDay`
+           outright takes a habit frozen at 20 minutes on day 20 and resumed on
+           day 40 straight to 35, which is how you break the run you were
+           rewarding. The freeze is unwound before the scale because a week of
+           ramp is the smaller, more predictable gift. */
+        if (p.frozenDay != null) {
+          const next = p.frozenDay + 7;
+          preResume[id] = p;
+          byId[id] = Object.assign({}, p, { frozenDay: next > RUN_DAYS ? null : next });
+          notes.push('resumed ' + id + "'s ramp for another week");
+        } else if ((p.scale == null ? 1 : p.scale) < 1) {
+          preResume[id] = p;
+          byId[id] = Object.assign({}, p, { scale: Math.min(1, (p.scale == null ? 1 : p.scale) + RESUME_SCALE_STEP) });
+          notes.push('gave ' + id + ' back some ramp: scale ' + byId[id].scale.toFixed(2));
+        } else {
+          notes.push('ignored resume on ' + id + ': already at full pace');
+          return;
+        }
+      } else if (name === 'drop') {
+        if (Object.keys(byId).length <= MIN_HABITS) {
+          notes.push('ignored drop on ' + id + ': at the ' + MIN_HABITS + '-habit floor');
+          return;
+        }
+        delete byId[id];
+        notes.push('dropped ' + id);
+      } else {
+        notes.push('ignored unknown op ' + name);
+        return;
+      }
+      touched[id] = true;
+    });
+
+    const rebuild = (map) => Object.assign({}, run, { habits: Object.keys(map).map((k) => map[k]) });
+    let fixed = repair(rebuild(byId), today);
+
+    /* `resume` is the only op that ADDS load, and `repair` cannot take it back:
+       every sacrifice branch protects `startDay > today`, so a resume on a habit
+       already underway can put day 64 over budget with nothing allowed to pay
+       for it — a shipped day the user physically cannot do. Reverting is the
+       only correction available, and it is taken only when it actually helps: a
+       run that arrived infeasible is not resume's fault. */
+    if (Object.keys(preResume).length && validate(fixed.run).length) {
+      Object.keys(preResume).forEach((id) => { if (byId[id]) byId[id] = preResume[id]; });
+      const retry = repair(rebuild(byId), today);
+      if (!validate(retry.run).length) {
+        notes.push('took back the resume on ' + Object.keys(preResume).sort().join(', ') +
+                   ': it put a later day over the budget, and nothing may reschedule a habit already underway to pay for it');
+        return { run: retry.run, notes: notes.concat(retry.notes) };
+      }
+    }
+
+    return { run: fixed.run, notes: notes.concat(fixed.notes) };
+  }
+
+  /* ================= diagnosis ================= */
+
+  const TRAILING_DAYS = 14;
+  const INTERVENTION_RATE = 0.6;
+  const INTERVENTION_MISSES = 3;
+  const PROTECTED_RATE = 0.7;
+
+  /**
+   * Per-habit completion, consecutive misses, and whether to step in.
+   *
+   * Which days counted is read from the record, never re-derived. This once
+   * asked `day >= startDay` — the habit's *current* start day — so deferring a
+   * habit on day 30 retroactively decided days 20 to 29 had never asked for it,
+   * and moved a completion rate for a fortnight the user had already lived.
+   */
+  function diagnose(run, today) {
+    const log = run.log || {};
+    const per = {};
+    const from = Math.max(1, today - TRAILING_DAYS);
+
+    (run.habits || []).forEach((p) => {
+      const asked = [];
+      for (let d = from; d < today; d++) if (log[d] && log[d][p.habitId]) asked.push(d);
+      const done = asked.filter((d) => log[d][p.habitId].done);
+      let missed = 0;
+      for (const d of asked.slice().sort((a, b) => b - a)) {
+        if (log[d][p.habitId].done) break;
+        missed++;
+      }
+      per[p.habitId] = {
+        asked: asked.length,
+        done: done.length,
+        rate: asked.length ? done.length / asked.length : 1,
+        missedStreak: missed
+      };
+    });
+
+    const scored = Object.keys(per).map((k) => per[k]).filter((s) => s.asked);
+    const overall = scored.length ? scored.reduce((n, s) => n + s.rate, 0) / scored.length : 1;
+    const needs = overall < INTERVENTION_RATE ||
+      Object.keys(per).some((k) => per[k].missedStreak >= INTERVENTION_MISSES);
+    return { perHabit: per, overallRate: overall, needsIntervention: needs };
+  }
+
+  /**
+   * No model to ask, so the sacrifice is chosen in code: soften whatever the
+   * user is keeping least. Doing nothing is also a decision, and the wrong one
+   * when somebody is already slipping.
+   */
+  function adapt(run, diagnosis, today) {
+    let worst = null;
+    (run.habits || []).forEach((p) => {
+      const stat = diagnosis.perHabit[p.habitId] || { rate: 1, asked: 0 };
+      if (stat.asked && stat.rate >= PROTECTED_RATE) return;   // not the problem
+      if (!worst || stat.rate < (diagnosis.perHabit[worst.habitId] || { rate: 1 }).rate) worst = p;
+    });
+    if (!worst) return { run: run, notes: ['nothing to ease: everything is being kept'] };
+    return applyPatch(run, [{ op: 'soften', habitId: worst.habitId, factor: 0.5 }], today);
+  }
+
+  /* ================= recommendations ================= */
+
+  const ADD_READY_RATE = 0.8;
+  const ADVANCE_READY_RATE = 0.9;
+  const MIN_EVIDENCE_DAYS = 7;
+  const MAX_RECOMMENDATIONS = 3;
+  const START_ATTEMPTS = 4;
+
+  const isEased = (p) => p.frozenDay != null || (p.scale == null ? 1 : p.scale) < 1;
+
+  function withAdded(run, habitId, startDay) {
+    return Object.assign({}, run, {
+      habits: (run.habits || []).concat([{ habitId: habitId, startDay: startDay, scale: 1, frozenDay: null }])
+    });
+  }
+
+  function legalStartDays(run, today) {
+    const taken = (run.habits || []).map((p) => p.startDay);
+    const out = [];
+    for (let day = Math.max(today + 1, 1); day <= LAST_INTRO_DAY; day++) {
+      const days = taken.concat([day]).sort((a, b) => a - b);
+      if (days.every((x) => days.filter((y) => y >= x - 6 && y <= x).length <= MAX_NEW_PER_WEEK)) out.push(day);
+    }
+    return out;
+  }
+
+  function domainCounts(run) {
+    const counts = { fitness: 0, self_care: 0, development: 0 };
+    (run.habits || []).forEach((p) => { counts[habit(p.habitId).domain]++; });
+    return counts;
+  }
+
+  /**
+   * The run one `resume` later, or null if that resume is not safe.
+   *
+   * Three things have to hold, and the lower bound on the last one is the easy
+   * one to leave out: `scale` multiplies the week count before rounding, so
+   * 0.5 → 0.75 can land on the same step. Water softened at day 24 and resumed
+   * at day 38 came back as "4 → 4 glasses" — a button that validated, kept
+   * every invariant, ran 369 times across 2,000 synthetic users, and did
+   * nothing the user could see. An invisible recommendation is worse than none,
+   * because it spends the trust that makes the next one work.
+   */
+  function resumed(run, habitId, today) {
+    const after = applyPatch(run, [{ op: 'resume', habitId: habitId }], today);
+    if (validate(after.run).length) return null;
+
+    const beforeIds = (run.habits || []).map((p) => p.habitId).sort().join(',');
+    const afterIds = (after.run.habits || []).map((p) => p.habitId).sort().join(',');
+    if (beforeIds !== afterIds) return null;                    // it cost another habit
+
+    const was = (run.habits || []).find((p) => p.habitId === habitId);
+    const now = (after.run.habits || []).find((p) => p.habitId === habitId);
+    if (!was || !now || JSON.stringify(was) === JSON.stringify(now)) return null;
+    if ((run.habits || []).some((p) => {
+      const q = (after.run.habits || []).find((x) => x.habitId === p.habitId);
+      return p.habitId !== habitId && JSON.stringify(p) !== JSON.stringify(q);
+    })) return null;
+
+    const next = Math.min(today + 1, RUN_DAYS);
+    const gain = doseOn(now, next) - doseOn(was, next);
+    if (gain <= 1e-9 || gain > habit(habitId).step + 1e-9) return null;
+    return after.run;
+  }
+
+  /**
+   * Everything worth offering today, best first.
+   *
+   * `advance` outranks `add` and always will: giving back something already
+   * earned costs the user nothing and reads as the app noticing, while a new
+   * habit costs a slot, some budget and some attention.
+   *
+   * Nothing is returned until the run it would produce has been walked across
+   * all 66 days with zero violations, and the suggestions are mutually
+   * compatible — placing each independently offered three habits all "from day
+   * 31", which is two offers the spacing rule cannot honour.
+   */
+  function recommend(run, today, limit) {
+    limit = limit || MAX_RECOMMENDATIONS;
+    if (validate(run).length) return [];        // repair's problem, not this one
+    const diagnosis = diagnose(run, today);
+    const out = [];
+    let working = run;
+
+    (run.habits || []).forEach((p) => {
+      if (out.length >= limit || !isEased(p)) return;
+      const stat = diagnosis.perHabit[p.habitId] || {};
+      if ((stat.asked || 0) < MIN_EVIDENCE_DAYS || (stat.rate || 0) < ADVANCE_READY_RATE) return;
+      const after = resumed(working, p.habitId, today);
+      if (!after) return;
+      const next = Math.min(today + 1, RUN_DAYS);
+      const h = habit(p.habitId);
+      out.push({
+        kind: 'advance',
+        habitId: p.habitId,
+        headline: h.name,
+        detail: doseOn(working.habits.find((x) => x.habitId === p.habitId), next) + ' → ' +
+                doseOn(after.habits.find((x) => x.habitId === p.habitId), next) + ' ' + h.unit,
+        reasons: ['kept ' + stat.done + ' of the last ' + stat.asked + ' it asked for',
+                  'eased back earlier; this gives one week of that ramp back']
+      });
+      working = after;
+    });
+
+    /* Never hand more work to somebody already missing days. It is the same
+       signal `adapt` acts on, the two must never fire together, and it is
+       exactly what an engagement metric would ask for. */
+    if (diagnosis.needsIntervention || diagnosis.overallRate < ADD_READY_RATE) return out.slice(0, limit);
+    if (!Object.keys(diagnosis.perHabit).some((k) => diagnosis.perHabit[k].asked >= MIN_EVIDENCE_DAYS)) {
+      return out.slice(0, limit);
+    }
+
+    while (out.length < limit) {
+      const legal = legalStartDays(working, today);
+      if (!legal.length) break;
+      const counts = domainCounts(working);
+      const have = {};
+      (working.habits || []).forEach((p) => { have[p.habitId] = true; });
+
+      /* Thinnest domain first — five fitness habits and nothing else reads as a
+         training plan rather than a life — then lowest friction, because a
+         friction-5 habit dropped on a working run is how a good one ends. */
+      const candidates = HABITS.filter((h) => !have[h.id]).sort((a, b) =>
+        counts[a.domain] - counts[b.domain] || a.friction - b.friction ||
+        (a.start * a.min) - (b.start * b.min) || a.id.localeCompare(b.id));
+
+      let chosen = null;
+      for (const h of candidates) {
+        for (const day of legal.slice(0, START_ATTEMPTS)) {
+          if (!validate(withAdded(working, h.id, day)).length) { chosen = { h: h, day: day }; break; }
+        }
+        if (chosen) break;
+      }
+      if (!chosen) break;
+
+      const ph = phaseFor(chosen.day);
+      const free = working.minutesBudget - dayMinutes(working, chosen.day);
+      const domain = chosen.h.domain.replace('_', ' ');
+      out.push({
+        kind: 'add',
+        habitId: chosen.h.id,
+        headline: chosen.h.name,
+        detail: chosen.h.start + ' → ' + chosen.h.target + ' ' + chosen.h.unit + ', from day ' + chosen.day,
+        startDay: chosen.day,
+        reasons: [
+          counts[chosen.h.domain] === 0 ? 'nothing in ' + domain + ' yet'
+            : counts[chosen.h.domain] + ' in ' + domain + ', the least of the three',
+          ph.name + ' allows ' + ph.max + '; day ' + chosen.day + ' runs ' + activeOn(working, chosen.day).length,
+          Math.round(free) + ' of your ' + working.minutesBudget + ' min is free that day',
+          'you have kept ' + Math.round(diagnosis.overallRate * 100) + '% of the last two weeks'
+        ]
+      });
+      working = withAdded(working, chosen.h.id, chosen.day);
+    }
+
+    return out.slice(0, limit);
+  }
+
+  /**
+   * Take one up. Refuses rather than repairs.
+   *
+   * Re-checked here rather than trusted: the run may have been patched, or the
+   * day moved, between a recommendation being made and being tapped. Running
+   * `repair` to force it through would be the app quietly charging the user for
+   * its own stale advice.
+   */
+  function applyRecommendation(run, rec, today) {
+    if (rec.kind === 'add') {
+      if (rec.startDay == null) return { run: run, notes: ['declined ' + rec.habitId + ': no start day'] };
+      const after = withAdded(run, rec.habitId, rec.startDay);
+      const problems = validate(after);
+      if (problems.length) return { run: run, notes: ['declined ' + rec.habitId + ': ' + problems[0].kind] };
+      return { run: after, notes: ['added ' + rec.habitId + ' from day ' + rec.startDay] };
+    }
+    const after = resumed(run, rec.habitId, today);
+    if (!after) return { run: run, notes: ['declined resume on ' + rec.habitId + ': no longer safe'] };
+    return { run: after, notes: ['resumed ' + rec.habitId] };
+  }
+
+  /**
+   * Diagnose, then do exactly one of: step in, or offer more. Never both.
+   *
+   * Not the same rule as the `add` gate inside `recommend`. Only `add` is gated
+   * on `needsIntervention`; `advance` is gated on a *per-habit* rate, so a user
+   * holding one habit at 100% while the rest collapse qualifies for both at
+   * once. `recommend` alone offers it; this is what does not.
+   *
+   * Outside the run there is nothing to decide — adapting a finished run
+   * softens one the user has already completed.
+   */
+  function checkIn(run, today) {
+    if (!(today >= 1 && today <= RUN_DAYS)) {
+      return { run: run, patched: false, notes: [], recommendations: [],
+               diagnosis: { perHabit: {}, overallRate: 1, needsIntervention: false } };
+    }
+    const diagnosis = diagnose(run, today);
+    if (diagnosis.needsIntervention) {
+      const patched = adapt(run, diagnosis, today);
+      return { run: patched.run, patched: true, notes: patched.notes, recommendations: [], diagnosis: diagnosis };
+    }
+    return { run: run, patched: false, notes: [], recommendations: recommend(run, today), diagnosis: diagnosis };
+  }
+
+  Object.assign(R, {
+    HABITS, PHASES, RUN_DAYS, LAST_INTRO_DAY, MAX_NEW_PER_WEEK, MIN_HABITS, MAX_HABITS,
+    MAX_PATCH_HABITS, TRAILING_DAYS, INTERVENTION_RATE, INTERVENTION_MISSES, PROTECTED_RATE,
+    ADD_READY_RATE, ADVANCE_READY_RATE, MIN_EVIDENCE_DAYS,
+    habit, isKnown, phaseFor, doseOn, minutesOn, activeOn, dayMinutes, dayIndex,
+    where, runDay, recordDay, fractionOf, validate, repair, buildRun,
+    applyPatch, diagnose, adapt, recommend, applyRecommendation, checkIn
+  });
+
+  A.Run = R;
+})(window);
