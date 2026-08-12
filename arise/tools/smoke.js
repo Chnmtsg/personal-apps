@@ -1136,6 +1136,36 @@ ok('a run survives export and import intact',
 S.endRun();
 ok('ending one clears it', S.run() === null);
 
+
+/* Every selection a picker can produce has to yield a run somebody can do.
+   `repair` drops below the habit floor rather than ship an impossible day, so
+   a heavy selection against a small budget came back as two habits and failed
+   `min_habits` — a screen downstream of this assumes a run is feasible. */
+section('every selection the picker allows builds a run that validates');
+{
+  const ids = R.HABITS.map((h) => h.id);
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const broken = [];
+  let smallest = 99;
+  for (const budget of [10, 20, 30, 45, 60, 75, 90, 120]) {
+    for (let i = 0; i < 150; i++) {
+      const picks = [];
+      const n = Math.floor(rnd() * 11);
+      for (let k = 0; k < n; k++) {
+        const id = ids[Math.floor(rnd() * ids.length)];
+        if (picks.indexOf(id) < 0) picks.push(id);
+      }
+      const built = R.buildRun(runStart, budget, picks);
+      smallest = Math.min(smallest, built.habits.length);
+      const v = R.validate(built);
+      if (v.length) broken.push(budget + ' min ' + JSON.stringify(picks) + ' -> ' + v[0].kind);
+    }
+  }
+  ok('1,200 random selections across 8 budgets all validate', broken.length === 0, broken.slice(0, 2));
+  ok('and none of them is under the ' + R.MIN_HABITS + '-habit floor', smallest >= R.MIN_HABITS, smallest);
+}
+
 /* ------------------------------------------------------------------ */
 section('a run outlives the catalog that wrote it');
 

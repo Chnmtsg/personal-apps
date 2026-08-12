@@ -2047,6 +2047,42 @@
     </article>`;
   }
 
+  /* The catalog, offered as a choice.
+
+     Until this existed the start screen asked for a minutes budget and nothing
+     else, so the run was always the same six-habit fallback — the list that
+     stands in for the Architect this app cannot call. Every self-care habit in
+     the catalog was unreachable: not in the default run, and offered by the
+     recommender only after a fortnight at 80%, around day 33 of 66.
+
+     Selection is a checkbox and its visual state is `:has(:checked)` in CSS, so
+     picking does not re-render and there is no draft to keep in step with the
+     DOM. What is checked when Start is pressed is the whole of the state. */
+  const PICK_DOMAINS = [
+    { id: 'fitness', name: 'Fitness' },
+    { id: 'self_care', name: 'Self-care' },
+    { id: 'development', name: 'Development' }
+  ];
+
+  function pickCard(h, checked) {
+    const ask = A.formatValue('count', h.start) + ' → ' + A.formatValue('count', h.target) + ' ' + h.unit;
+    return `<label class="pick">
+      <input type="checkbox" name="run_pick" value="${esc(h.id)}"${checked ? ' checked' : ''} hidden>
+      <b>${esc(h.name)}</b>
+      <small>${esc(h.target === h.start ? A.formatValue('count', h.start) + ' ' + h.unit + ', every day' : ask)}</small>
+      <i class="pick-effort" aria-label="effort ${h.friction} of 5">${'•'.repeat(h.friction)}</i>
+    </label>`;
+  }
+
+  function runPicker() {
+    const preset = A.Run.DEFAULT_PICKS;
+    return PICK_DOMAINS.map((d) => {
+      const rows = A.Run.HABITS.filter((h) => h.domain === d.id);
+      return `<div class="section-head"><h2>${esc(d.name)}</h2></div>
+        <div class="pickgrid">${rows.map((h) => pickCard(h, preset.indexOf(h.id) >= 0)).join('')}</div>`;
+    }).join('');
+  }
+
   function renderRun() {
     const run = S.run();
 
@@ -2067,8 +2103,14 @@
             <select id="run_budget">${[30, 45, 60, 75, 90]
               .map((m) => `<option value="${m}"${m === 45 ? ' selected' : ''}>${m} min</option>`)
               .join('')}</select></label>
-          <button class="btn primary block" data-act="run-start">Start the run</button>
-        </section>`;
+        </section>
+
+        <p class="faint pickhint">Pick what you want in it. Anything that will not
+          fit your minutes is dropped when the run is built, and you will be told
+          what went — every one of the 66 days has to be a day you can actually do.
+          Fewer than ${A.Run.MIN_HABITS} and the rest is filled in for you.</p>
+        ${runPicker()}
+        <button class="btn primary block" data-act="run-start" style="margin-top:14px">Start the run</button>`;
     }
 
     const st = S.runStatus();

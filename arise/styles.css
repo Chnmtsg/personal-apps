@@ -1186,3 +1186,35 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .runrec-top span { color: var(--muted); font-size: var(--fs-sm); }
 .runrec ul { margin: var(--sp-sm) 0 var(--sp-md); padding-left: 18px; }
 .runrec li { color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }
+
+/* ---- the run's habit picker ----
+   Selection is `:has(:checked)`, so picking never re-renders and there is no
+   draft state to keep in step with the DOM: what is ticked when Start is
+   pressed is the whole of it. */
+.pickhint { margin: var(--sp-md) 4px; font-size: var(--fs-sm); line-height: 1.5; }
+.pickgrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--sp-sm); margin-bottom: var(--sp-md);
+}
+.pick {
+  display: block; padding: var(--sp-md); border-radius: var(--r);
+  background: var(--surface); border: 1px solid var(--stroke);
+  cursor: pointer; transition: background 0.15s, border-color 0.15s;
+}
+.pick b { display: block; font-size: var(--fs-base); font-weight: 700; }
+.pick small {
+  display: block; margin-top: 3px; color: var(--muted);
+  font-size: var(--fs-xs); letter-spacing: 0.03em;
+}
+/* Effort, as dots rather than a number: five of five is a warning, and "5" on
+   its own reads like a score the user is being given. */
+.pick-effort {
+  display: block; margin-top: 6px; font-style: normal;
+  letter-spacing: 0.22em; color: var(--faint); font-size: var(--fs-xs);
+}
+.pick:has(:checked) {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.pick:has(:checked) .pick-effort { color: var(--accent-2); }
+.pick:has(:focus-visible) { outline: 2px solid var(--accent-2); outline-offset: 2px; }

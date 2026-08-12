@@ -770,9 +770,24 @@
       case 'run-start': {
         const sel = $('#run_budget');
         const budget = sel ? Number(sel.value) : 45;
-        S.startRun(null, budget);
+        const picks = Array.prototype.map.call(
+          document.querySelectorAll('input[name="run_pick"]:checked'), (el) => el.value);
+        S.startRun(picks, budget);
         UI.go('run');
-        UI.toast('🗓 <span>Day 1 of 66. It starts now.</span>');
+        /* Say what the budget forced out, by name. `buildRun` repairs rather
+           than refusing — every one of the 66 days has to be doable — so a
+           selection that does not fit comes back smaller, and a start screen
+           that quietly returned four of the seven things somebody chose would
+           be the app deciding for them without saying so. */
+        const got = S.run().habits.map((p) => p.habitId);
+        const dropped = picks.filter((id) => got.indexOf(id) < 0)
+          .map((id) => (A.Run.habit(id) || { name: id }).name);
+        if (dropped.length) {
+          UI.toast('🗓 <span>Day 1 of 66. <b>' + esc(dropped.join(', ')) +
+                   '</b> did not fit ' + budget + ' min a day and was left out.</span>', 'gold');
+        } else {
+          UI.toast('🗓 <span>Day 1 of 66. It starts now.</span>');
+        }
         break;
       }
       case 'run-end':

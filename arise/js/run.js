@@ -462,18 +462,54 @@
    * reliable. A working programme beats a spinner, and this is the only option
    * an offline app has.
    */
+  const DEFAULT_PICKS = ['walk', 'water', 'read', 'stretch', 'journal', 'pushups'];
+
   function buildRun(startDate, minutesBudget, picks) {
-    const chosen = (picks && picks.length ? picks : ['walk', 'water', 'read', 'stretch', 'journal', 'pushups'])
-      .filter(isKnown)
-      .slice(0, MAX_HABITS);
-    const draft = {
+    const budget = minutesBudget || 45;
+    const draft = (list) => ({
       startDate: startDate,
-      minutesBudget: minutesBudget || 45,
-      habits: chosen.map((id, i) => ({ habitId: id, startDay: 1 + i * 7, scale: 1, frozenDay: null })),
+      minutesBudget: budget,
+      habits: list.map((id, i) => ({ habitId: id, startDay: 1 + i * 7, scale: 1, frozenDay: null })),
       log: {}
+    });
+    const toFloor = (list) => {
+      const out = list.slice();
+      DEFAULT_PICKS.forEach((id) => {
+        if (out.length < MIN_HABITS && out.indexOf(id) < 0) out.push(id);
+      });
+      return out.slice(0, MAX_HABITS);
     };
-    const fixed = repair(draft, 0);
-    return fixed.run;
+
+    /* `repair` strips a programme below the habit floor rather than ship a day
+       the user physically cannot do — feasibility outranks the floor — so a
+       heavy selection against a small budget comes back as two habits and then
+       fails `min_habits`. Five heavy picks at 30 minutes did exactly that.
+       The Python original reads a sub-floor result as the signal to substitute
+       its dull fallback; here the survivors are kept and the floor is topped up
+       around them, so the user keeps whatever of their choice actually fits. */
+    let chosen = (picks && picks.length ? picks : DEFAULT_PICKS).filter(isKnown);
+    let out = null;
+    for (let pass = 0; pass < 3; pass++) {
+      out = repair(draft(toFloor(chosen)), 0).run;
+      if (out.habits.length >= MIN_HABITS) return out;
+      const survivors = out.habits.map((p) => p.habitId);
+      /* Nothing new to try: the same survivors would be topped up the same way
+         and repaired to the same place. Fall through to the floor below. */
+      if (survivors.join(',') === chosen.join(',')) break;
+      chosen = survivors;
+    }
+
+    /* The last resort, and it always fits. The three cheapest habits in the
+       catalog cost under four weighted minutes between them at their targets,
+       so there is no budget a user can choose that cannot hold them. Returning
+       a run that fails `validate` is the one thing this function may not do:
+       every screen downstream assumes a run is feasible. */
+    const cheapest = HABITS.slice()
+      .sort((a, b) => a.target * a.min - b.target * b.min || a.friction - b.friction)
+      .slice(0, MIN_HABITS)
+      .map((h) => h.id);
+    const floor = repair(draft(cheapest), 0).run;
+    return floor.habits.length >= MIN_HABITS ? floor : out;
   }
 
   /* ================= patching a live run ================= */
@@ -861,7 +897,7 @@
     HABITS, PHASES, RUN_DAYS, LAST_INTRO_DAY, MAX_NEW_PER_WEEK, MIN_HABITS, MAX_HABITS,
     MAX_PATCH_HABITS, TRAILING_DAYS, INTERVENTION_RATE, INTERVENTION_MISSES, PROTECTED_RATE,
     ADD_READY_RATE, ADVANCE_READY_RATE, MIN_EVIDENCE_DAYS,
-    habit, isKnown, phaseFor, doseOn, minutesOn, activeOn, dayMinutes, dayIndex,
+    DEFAULT_PICKS, habit, isKnown, phaseFor, doseOn, minutesOn, activeOn, dayMinutes, dayIndex,
     where, runDay, recordDay, fractionOf, validate, repair, buildRun,
     applyPatch, diagnose, adapt, recommend, applyRecommendation, checkIn
   });

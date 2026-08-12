@@ -849,6 +849,79 @@ console.log('\nthe 66-day run');
 
 const RunE = A.Run;
 
+behaves('the start screen offers the whole catalog, grouped', () => {
+  S.resetAll();
+  const html = renderRoute('run');
+  const offered = (html.match(/name="run_pick" value="([a-z_]+)"/g) || [])
+    .map((m) => m.replace(/.*value="/, '').replace('"', ''));
+  const missing = A.Run.HABITS.map((h) => h.id).filter((id) => offered.indexOf(id) < 0);
+  if (missing.length) return 'not offered: ' + missing.join(', ');
+  return ['Fitness', 'Self-care', 'Development'].every((d) => html.indexOf('>' + d + '<') > 0)
+    ? '' : 'the three domains are not headed separately';
+});
+
+/* The gap this screen was built to close. Every one of these was in the catalog
+   and unreachable: not in the default run, and offered by the recommender only
+   after a fortnight at 80% — around day 33 of 66. */
+behaves('the self-care habits added for tooth, face and vitamins are pickable', () => {
+  const html = renderRoute('run');
+  const want = ['vitamins', 'floss', 'brush_teeth', 'skincare'];
+  const absent = want.filter((id) => html.indexOf('value="' + id + '"') < 0);
+  if (absent.length) return 'still unreachable: ' + absent.join(', ');
+  return html.indexOf('Take vitamins') > 0 && html.indexOf('Face routine') > 0
+    ? '' : 'they are offered by id but not by name';
+});
+
+behaves('the default selection is what pressing Start without thinking gives', () => {
+  const html = renderRoute('run');
+  const checked = (html.match(/value="([a-z_]+)" checked/g) || [])
+    .map((m) => m.replace('value="', '').replace('" checked', ''));
+  const want = A.Run.DEFAULT_PICKS.slice().sort().join(',');
+  return checked.slice().sort().join(',') === want ? '' : 'checked ' + checked.join(',') + ', want ' + want;
+});
+
+behaves('an anchor says it is every day rather than showing a ramp to itself', () => {
+  const html = renderRoute('run');
+  const i = html.indexOf('value="vitamins"');
+  const card = html.slice(i, i + 400);
+  if (card.indexOf('every day') < 0) return 'no anchor wording';
+  return card.indexOf('→') < 0 ? '' : 'an anchor drawn as a ramp from 1 to 1';
+});
+
+/* A short selection is a real one once the user is choosing. A run of two fails
+   `validate` for min_habits, and `repair` cannot fix it — its loop only removes. */
+behaves('too few picks is filled to the floor rather than shipping a broken run', () => {
+  const run = A.Run.buildRun(S.today(), 45, ['vitamins', 'floss']);
+  if (A.Run.validate(run).length) return 'invalid: ' + A.Run.validate(run).map((v) => v.kind).join(',');
+  if (run.habits.length < A.Run.MIN_HABITS) return 'still under the floor';
+  return run.habits.some((p) => p.habitId === 'vitamins') ? '' : 'it dropped what the user actually chose';
+});
+
+behaves('picks nobody can honour still produce a run somebody can do', () => {
+  const run = A.Run.buildRun(S.today(), 45, ['moon_bathing', 'astral_projection']);
+  return A.Run.validate(run).length === 0 && run.habits.length >= A.Run.MIN_HABITS
+    ? '' : 'an all-unknown selection did not fall back to something valid';
+});
+
+behaves('and the four self-care habits together are a run that validates', () => {
+  const run = A.Run.buildRun(S.today(), 45, ['vitamins', 'floss', 'brush_teeth', 'skincare']);
+  if (A.Run.validate(run).length) return A.Run.validate(run).map((v) => v.kind).join(',');
+  return run.habits.length === 4 ? '' : 'it did not keep all four';
+});
+
+/* `buildRun` repairs rather than refusing, so a selection that does not fit
+   comes back smaller. A start screen that quietly returned four of seven would
+   be the app deciding for the user without saying so — app.js names what went,
+   and this is the arithmetic it names it from. */
+behaves('a selection too heavy for the budget comes back smaller, knowably', () => {
+  const picks = ['strength', 'run', 'deep_work', 'course', 'write'];
+  const run = A.Run.buildRun(S.today(), 30, picks);
+  const got = run.habits.map((p) => p.habitId);
+  const dropped = picks.filter((id) => got.indexOf(id) < 0);
+  if (!dropped.length) return 'five heavy habits fitted a 30 minute budget, which cannot be right';
+  return A.Run.validate(run).length === 0 ? '' : 'and what came back is still infeasible';
+});
+
 behaves('with no run, the screen says what it costs before what it gives', () => {
   S.resetAll();
   const html = renderRoute('run');
