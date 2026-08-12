@@ -1132,3 +1132,57 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .more-rewards .ico { flex: none; width: 20px; height: 20px; color: var(--gold); }
 .more-rewards b { flex: 1; font-size: var(--fs-lg); font-weight: 700; }
 .more-rewards i { font-style: normal; color: var(--faint); }
+
+/* ============ the 66-day run ============
+   Visually a quieter cousin of the goal card: same tokens, same rhythm, less
+   weight. A run is a second commitment sitting under the user's own goals, and
+   it should not out-shout them on their own Today screen. */
+.runlist { display: flex; flex-direction: column; gap: var(--sp-sm); }
+.runrow {
+  position: relative; display: flex; align-items: center; gap: var(--sp-md);
+  padding: var(--sp-md); border-radius: var(--r);
+  background: var(--surface); border: 1px solid var(--stroke);
+  transition: background 0.18s, border-color 0.18s;
+}
+.runrow-tick {
+  flex: none; width: 40px; height: 40px; border-radius: 999px;
+  background: none; border: 1px solid var(--stroke-strong); color: var(--faint);
+  font-size: var(--fs-2xl); font-weight: 900; line-height: 1;
+  transition: background 0.18s, color 0.18s, transform 0.12s;
+}
+.runrow-tick:active { transform: scale(0.94); }
+.runrow-main {
+  flex: 1; min-width: 0; display: block; text-align: left;
+  background: none; border: 0; color: inherit; padding: 0;
+}
+.runrow-main .name { display: block; font-size: var(--fs-lg); font-weight: 700; color: var(--text); }
+.runrow-main .sub {
+  display: block; margin-top: 3px; color: var(--muted);
+  font-size: var(--fs-xs); letter-spacing: 0.04em; text-transform: uppercase;
+}
+/* Progress toward a measured ask, on the same hairline as a goal card's. */
+.runrow-bar { display: block; margin-top: 8px; height: 2px; background: var(--surface-2); border-radius: 2px; }
+.runrow-bar > i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+
+.runrow.is-done { background: color-mix(in srgb, var(--good) 10%, var(--surface)); border-color: color-mix(in srgb, var(--good) 32%, transparent); }
+.runrow.is-done .runrow-tick { background: var(--good); border-color: var(--good); color: var(--on-good); }
+.runrow.is-done .name { opacity: 0.72; }
+/* Measured, but short of the ask. Gold, never green: it is not a kept day, and
+   it is not nothing either. */
+.runrow.is-part { background: color-mix(in srgb, var(--gold) 10%, var(--surface)); border-color: color-mix(in srgb, var(--gold) 34%, transparent); }
+.runrow.is-part .runrow-tick { border-color: color-mix(in srgb, var(--gold) 50%, transparent); color: var(--gold); }
+.runrow.is-part .runrow-bar > i { background: var(--gold); }
+
+.runnote { margin: var(--sp-sm) 4px 0; font-size: var(--fs-xs); }
+
+/* A suggestion the run is making. It states its reasons, because a
+   recommendation the user cannot check is one they have to take on faith. */
+.runrec {
+  display: block; padding: var(--sp-md) var(--sp-lg); margin-bottom: var(--sp-md);
+  border-radius: var(--r); background: var(--surface); border: 1px solid var(--stroke);
+}
+.runrec-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-md); }
+.runrec-top b { font-size: var(--fs-lg); font-weight: 700; }
+.runrec-top span { color: var(--muted); font-size: var(--fs-sm); }
+.runrec ul { margin: var(--sp-sm) 0 var(--sp-md); padding-left: 18px; }
+.runrec li { color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }

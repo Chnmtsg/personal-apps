@@ -540,6 +540,8 @@
       ${gestureHint}
       ${readCard}
 
+      ${offset === 0 ? runSection() : ''}
+
       <div class="section-head"><h2>${esc(A.DAY_NAMES[A.weekday(k)])} workout</h2>
         ${plan.length && !future ? `<button class="link" data-act="complete-all">Mark all done</button>` : ''}</div>
       <div class="list">${exHtml}${extraHtml}</div>
@@ -1194,6 +1196,10 @@
            are worth more thumb than it is. -->
       <button type="button" class="more-rewards" data-nav="rewards">
         ${icon('trophy')}<b>Rewards</b><i aria-hidden="true">›</i>
+      </button>
+
+      <button type="button" class="more-rewards" data-nav="run">
+        ${icon('sun')}<b>The 66-day run</b><i aria-hidden="true">›</i>
       </button>
 
       <div class="section-head"><h2>Difficulty</h2></div>
@@ -1954,6 +1960,253 @@
     `);
   }
 
+  /* ================= THE 66-DAY RUN ================= */
+
+  /* A run is a different thing from a goal, and these screens say so rather
+     than blurring it: a goal ramps a target the user chose from a baseline they
+     set and earns each step by performing; a run picks from a closed catalog,
+     ramps on the calendar, and is feasible-by-construction on all 66 days. A
+     user may have both, and neither screen reads the other's data. */
+
+  const RUN = () => A.Run;
+
+  /** How much of a run habit's day is left, drawn the way the app draws goals. */
+  function runAsk(row, entry) {
+    const ask = entry && entry.asked != null ? entry.asked : row.dose;
+    return A.formatValue(row.unit === 'min' ? 'minutes' : 'count', ask) + ' ' + row.unit;
+  }
+
+  /** One habit of today's run: what it asks, what happened, one tap to say so. */
+  function runRow(row, entry) {
+    const done = !!(entry && entry.done);
+    const frac = RUN().fractionOf(entry);
+    const measured = !!(entry && entry.did != null);
+    const marks = [];
+    if (row.dayOfHabit === 1) marks.push('new today');
+    if (row.frozen) marks.push('steady this week');
+    if (row.softened) marks.push('eased back');
+
+    return `<div class="runrow ${done ? 'is-done' : ''} ${measured && !done ? 'is-part' : ''}">
+      <button type="button" class="runrow-tick" data-act="run-tick" data-id="${esc(row.id)}"
+        aria-label="${done ? 'Undo' : 'Complete'} ${esc(row.name)}">✓</button>
+      <button type="button" class="runrow-main" data-act="run-value" data-id="${esc(row.id)}">
+        <span class="name">${esc(row.name)}</span>
+        <span class="sub">${esc(runAsk(row, entry))}${
+          measured ? ' · ' + esc(String(entry.did)) + ' done' : ''
+        }${marks.length ? ' · ' + esc(marks.join(', ')) : ''}</span>
+        ${frac != null ? `<span class="runrow-bar"><i style="width:${Math.round(frac * 100)}%"></i></span>` : ''}
+      </button>
+    </div>`;
+  }
+
+  /** The run's section on Today. Absent entirely when there is no run. */
+  function runSection() {
+    const run = S.run();
+    const st = S.runStatus();
+    if (!run || !st || !st.running) return '';
+    const day = st.day;
+    const rows = RUN().runDay(run, day);
+    const log = (run.log || {})[day] || {};
+    const left = rows.filter((r) => !(log[r.id] && log[r.id].done)).length;
+    const starts = (run.habits || []).map((h) => h.startDay).filter((d) => d > day);
+
+    return `
+      <div class="section-head"><h2>The run · day ${day} of ${RUN().RUN_DAYS}</h2>
+        <button class="link" data-nav="run">The whole run</button></div>
+      ${
+        rows.length
+          ? `<div class="runlist">${rows.map((r) => runRow(r, log[r.id])).join('')}</div>
+             <p class="faint runnote">${
+               left
+                 ? esc(left + (left === 1 ? ' thing left in the run today' : ' things left in the run today'))
+                 : 'Everything the run asked for today is done.'
+             }</p>`
+          : `<div class="empty">Nothing has started yet — that is on purpose.${
+              starts.length ? '<br>The first habit arrives on day ' + Math.min.apply(null, starts) + '.' : ''
+            }</div>`
+      }`;
+  }
+
+  /* A suggestion, carried in data attributes rather than by an index into a
+     list that is recomputed on every render — the list the user tapped and the
+     list the handler rebuilds are two different objects. */
+  function runRec(rec) {
+    return `<article class="runrec">
+      <div class="runrec-top"><b>${esc(rec.headline)}</b><span>${esc(rec.detail)}</span></div>
+      <ul>${rec.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
+      <div class="btn-row">
+        <button class="btn primary" data-act="run-accept" data-kind="${esc(rec.kind)}"
+          data-id="${esc(rec.habitId)}" data-day="${rec.startDay == null ? '' : rec.startDay}">${
+      rec.kind === 'add' ? 'Add it' : 'Give it back'
+    }</button>
+      </div>
+    </article>`;
+  }
+
+  function renderRun() {
+    const run = S.run();
+
+    if (!run) {
+      /* Deliberately not a sales pitch. A run is a second commitment on top of
+         goals, so the screen says what it costs before what it gives. */
+      return `
+        <div class="section-head"><h2>The 66-day run</h2></div>
+        <section class="card">
+          <p>A fixed 66 days built from a closed list of habits, which
+             <b>cannot ask you for a day you can't do</b>. It ramps on the
+             calendar rather than on performance, introduces at most two new
+             habits in any week, and every one of the 66 days is checked against
+             your daily minutes before the run starts.</p>
+          <p class="faint">This is separate from your goals. They keep running
+             exactly as they are, and nothing here touches them.</p>
+          <label class="field"><span>Minutes a day you can actually give it</span>
+            <select id="run_budget">${[30, 45, 60, 75, 90]
+              .map((m) => `<option value="${m}"${m === 45 ? ' selected' : ''}>${m} min</option>`)
+              .join('')}</select></label>
+          <button class="btn primary block" data-act="run-start">Start the run</button>
+        </section>`;
+    }
+
+    const st = S.runStatus();
+    const unknown = S.runUnknownHabits();
+    const log = run.log || {};
+    const kept = Object.keys(log).filter((d) => {
+      const ids = Object.keys(log[d]);
+      return ids.length && ids.every((k) => log[d][k].done);
+    }).length;
+
+    if (st.state === 'finished') {
+      return `
+        <div class="section-head"><h2>The run is over</h2></div>
+        <section class="hero"><div class="hero-stats">
+          <div class="hero-stat"><b>${RUN().RUN_DAYS}</b><span>days</span></div>
+          <div class="hero-stat"><b>${kept}</b><span>kept in full</span></div>
+          <div class="hero-stat"><b>${run.habits.length}</b><span>habits</span></div>
+        </div></section>
+        <p class="faint" style="margin:12px 4px">It finished ${st.daysOver} day${
+        st.daysOver === 1 ? '' : 's'
+      } ago. Nothing here is asked of you any more.</p>
+        <button class="btn ghost block" data-act="run-end">Clear it and start again</button>`;
+    }
+
+    if (st.state === 'not_started') {
+      return `<div class="section-head"><h2>The 66-day run</h2></div>
+        <div class="empty">It starts on ${esc(A.prettyDate(run.startDate))}.</div>
+        <button class="btn ghost block" data-act="run-end">Cancel it</button>`;
+    }
+
+    const day = st.day;
+    const ph = RUN().phaseFor(day);
+    /* Both of these are reads. A render must not change data — calling the
+       store's check-in here was a write during a render and a hang besides,
+       because `commit` re-renders and the check-in ran again. The patch is a
+       once-a-day event owned by app.js; this shows what it decided. */
+    const patchedToday = run.lastPatchDay === day;
+    const check = {
+      patched: patchedToday,
+      notes: patchedToday ? run.lastPatchNotes || [] : [],
+      recommendations: patchedToday ? [] : RUN().recommend(run, day)
+    };
+    const upcoming = (run.habits || [])
+      .filter((p) => p.startDay > day && RUN().isKnown(p.habitId))
+      .sort((a, b) => a.startDay - b.startDay);
+    const eased = check.notes.filter((n) => n.indexOf('softened') === 0 || n.indexOf('froze') === 0);
+
+    return `
+      <section class="dayline">
+        <div>
+          <h1 class="daynum">DAY <b>${day}</b><i>/ ${RUN().RUN_DAYS}</i></h1>
+          <div class="daydate">${esc(ph.name)} · ${run.minutesBudget} min a day · ${kept} kept in full</div>
+        </div>
+      </section>
+
+      ${
+        unknown.length
+          ? `<section class="banner warn"><div><b>This run mentions ${unknown.length} habit${
+              unknown.length === 1 ? '' : 's'
+            } this version does not have</b><p>They are kept in your data and simply not shown, so a later
+             version can bring them back. Nothing has been deleted.</p></div></section>`
+          : ''
+      }
+      ${
+        check.patched
+          ? `<section class="banner"><div><b>The run eased off</b><p>${
+              eased.length
+                ? esc(eased.join('. '))
+                : 'It was asking for more than the last two weeks say you can give it.'
+            }</p></div></section>`
+          : ''
+      }
+
+      <div class="section-head"><h2>Today</h2></div>
+      <div class="runlist">${RUN()
+        .runDay(run, day)
+        .map((r) => runRow(r, (log[day] || {})[r.id]))
+        .join('') || '<div class="empty">Nothing is asked of you today.</div>'}</div>
+
+      ${
+        check.recommendations.length
+          ? `<div class="section-head"><h2>What you could take on</h2></div>
+             ${check.recommendations.map(runRec).join('')}`
+          : ''
+      }
+
+      <div class="section-head"><h2>Still to come</h2></div>
+      ${
+        upcoming.length
+          ? `<div class="list">${upcoming
+              .map((p) => {
+                const h = RUN().habit(p.habitId);
+                return `<div class="row"><div class="body">
+                  <div class="name">${esc(h.name)}</div>
+                  <div class="sub">starts day ${p.startDay} · ${esc(
+                  A.formatValue('count', h.start)
+                )} → ${esc(A.formatValue('count', h.target))} ${esc(h.unit)}</div></div></div>`;
+              })
+              .join('')}</div>`
+          : `<div class="empty">Everything in this run has started.</div>`
+      }
+
+      <button class="btn ghost block" data-act="run-end" style="margin-top:14px">End this run</button>`;
+  }
+
+  /**
+   * Log what actually happened for one run habit today.
+   *
+   * The ask shown is the one frozen into today's record, not what `doseOn` says
+   * now — a check-in can ease the run part-way through a day, and the number
+   * the user has been working toward since this morning is the one they were
+   * given this morning.
+   */
+  function openRunValue(habitId) {
+    const run = S.run();
+    const day = S.runToday();
+    if (!run || day == null) return;
+    const h = A.Run.habit(habitId);
+    const entry = ((run.log || {})[day] || {})[habitId];
+    if (!h) return;
+    const ask = entry && entry.asked != null ? entry.asked : A.Run.doseOn(
+      (run.habits || []).find((p) => p.habitId === habitId) || { habitId: habitId, startDay: day }, day);
+
+    openSheet(h.name, `
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Asked for
+        <b>${esc(A.formatValue('count', ask))} ${esc(h.unit)}</b> on day ${day}.
+        Log what actually happened — the honest number is what makes the record
+        worth keeping, and short of the ask is still recorded.</p>
+      ${valueInput('run_val', h.unit === 'min' ? 'minutes' : 'count',
+                   entry && entry.did != null ? entry.did : null, 'What you actually did')}
+      <div class="btn-row">
+        <button class="btn primary" data-act="run-save-value" data-id="${esc(habitId)}" style="flex:1">Save</button>
+        <button class="btn ghost" data-act="run-tick" data-id="${esc(habitId)}">${
+          entry && entry.done ? 'Untick it' : 'Just tick it'
+        }</button>
+      </div>
+      <p class="faint" style="font-size:var(--fs-xs);margin:10px 2px 0">Ticking clears any number:
+        a tick is a claim with no measurement in it, and keeping a stale one beside it
+        would store two facts that disagree.</p>
+    `);
+  }
+
   /* ================= toasts & confetti ================= */
 
   function toast(msg, kind, ms) {
@@ -2039,7 +2292,7 @@
 
   const VIEWS = {
     today: renderToday, plan: renderPlan, read: renderRead,
-    progress: renderProgress, rewards: renderRewards, more: renderMore
+    progress: renderProgress, rewards: renderRewards, more: renderMore, run: renderRun
   };
 
   /**
@@ -2109,7 +2362,7 @@
     /* Rewards has no tab of its own any more — it is reached from More, so More
        is the tab you are on while you are there. Without this, opening Rewards
        leaves the bar with nothing lit and no sense of where you have got to. */
-    const tabRoute = route === 'rewards' ? 'more' : route;
+    const tabRoute = route === 'rewards' || route === 'run' ? 'more' : route;
     document.querySelectorAll('.tab').forEach((t) => {
       const on = t.dataset.nav === tabRoute;
       /* The tab's icon is drawn from the same table as every other icon in the
@@ -2150,6 +2403,7 @@
   UI.setViewDate = (k) => { viewDate = k; };
   UI.openReading = openReading;
   UI.openGoalLog = openGoalLog;
+  UI.openRunValue = openRunValue;
   UI.openGoalDetail = openGoalDetail;
   UI.openGoalEditor = openGoalEditor;
   UI.openGoalRestart = openGoalRestart;

@@ -255,6 +255,8 @@
       s.run.habits = Array.isArray(s.run.habits) ? s.run.habits : [];
       s.run.log = isRunObj(s.run.log) ? s.run.log : {};
       s.run.minutesBudget = Number(s.run.minutesBudget) || 45;
+      // Bookkeeping added after runs shipped: absent means never checked in.
+      if (typeof s.run.checkedOn !== 'number') s.run.checkedOn = null;
     }
     // Read this BEFORE merging defaults: base.meta says the program is installed
     // (seedState lays it out itself), which would mask an old account that has
@@ -915,15 +917,29 @@
     return (state.run.habits || []).filter((p) => !A.Run.isKnown(p.habitId)).map((p) => p.habitId);
   }
 
-  /** Step in, or offer more — never both. Stores whichever happened. */
+  /**
+   * Step in, or offer more — never both. Once a day, and never from a render.
+   *
+   * This used to be called by `renderRun`, which is a write during a render and
+   * an infinite loop besides: `commit` notifies the view, the view re-renders,
+   * the render checks in again. Softening does not change the *logs*, so
+   * `diagnose` returns the same rates every time and `needsIntervention` never
+   * clears — the app would hang on the Run screen for exactly the user it was
+   * built to help. Call it from boot and from the day rollover; a render reads
+   * `lastPatchDay` and asks `A.Run.recommend` directly, both of which are pure.
+   */
   function runCheckIn() {
     const day = runToday();
     if (!state.run || day == null) return null;
+    if (state.run.checkedOn === day) return null;
     const out = A.Run.checkIn(state.run, day);
+    const carry = { log: state.run.log, checkedOn: day };
     if (out.patched) {
-      state.run = Object.assign({}, out.run, { log: state.run.log });
-      commit({ type: 'runPatch' });
+      carry.lastPatchDay = day;
+      carry.lastPatchNotes = out.notes;
     }
+    state.run = Object.assign({}, out.patched ? out.run : state.run, carry);
+    commit({ type: 'runCheckIn', day: day });
     return out;
   }
 

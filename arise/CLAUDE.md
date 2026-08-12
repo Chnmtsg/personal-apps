@@ -32,7 +32,7 @@ All paths in this file are relative to `arise/`.
 - `manifest.webmanifest` — PWA manifest
 - `sw.js` — service worker, offline app shell
 - `js/` — the application, loaded in this order:
-  `data.js` → `program.js` → `goals.js` → `store.js` → `ui.js` → `app.js`
+  `data.js` → `program.js` → `goals.js` → `run.js` → `store.js` → `ui.js` → `app.js`
 - `icons/` — generated PNG and SVG icons
 - `knowledge/` — project references for this app
 - `tools/` — test and utility scripts

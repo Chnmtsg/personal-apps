@@ -123,7 +123,7 @@ function check(name, fn) {
 
 const view = resolve('#view');
 const sheetBody = resolve('#sheetBody');
-const ROUTES = ['today', 'plan', 'read', 'progress', 'rewards', 'more'];
+const ROUTES = ['today', 'plan', 'read', 'progress', 'rewards', 'more', 'run'];
 
 function renderRoute(r) {
   view.innerHTML = '';
@@ -842,6 +842,123 @@ behaves('every tab in the shell is a route the app has', () => {
   if (tabs.length !== 5) return `the shell has ${tabs.length} tabs, not five`;
   const unknown = tabs.filter((t) => ROUTES.indexOf(t) < 0);
   return unknown.length ? `tabs with no route: ${unknown.join(', ')}` : '';
+});
+
+/* ---------- the 66-day run ---------- */
+console.log('\nthe 66-day run');
+
+const RunE = A.Run;
+
+behaves('with no run, the screen says what it costs before what it gives', () => {
+  S.resetAll();
+  const html = renderRoute('run');
+  if (html.indexOf('run-start') < 0) return 'no way to start one';
+  if (html.indexOf('id="run_budget"') < 0) return 'no way to say how many minutes';
+  return html.indexOf('separate from your goals') > 0 ? '' : 'it does not say the goals are untouched';
+});
+
+behaves('a running run lists what today asks', () => {
+  S.startRun(['walk', 'water', 'read'], 90);
+  const html = renderRoute('run');
+  if (html.indexOf('class="daynum"') < 0) return 'no day counter';
+  if (html.indexOf('DAY <b>1</b>') < 0) return 'not on day 1';
+  return html.indexOf('data-act="run-tick"') > 0 || html.indexOf('on purpose') > 0
+    ? '' : 'neither a habit to tick nor an explanation of why there is none';
+});
+
+/* A render must not change data. Calling the store's check-in from `renderRun`
+   was a write during a render and a hang besides: `commit` re-renders, the
+   render checked in again, and softening does not change the logs — so
+   `needsIntervention` never clears and the loop never ends. It hung on the Run
+   screen for exactly the user it was built to help. */
+behaves('rendering the run changes nothing in the store', () => {
+  const run = S.run();
+  run.startDate = A.addDays(S.today(), -29);
+  for (let d = 1; d < 30; d++) run.log[d] = RunE.recordDay(run, d, []);   // missed everything
+  S.commit({ type: 'fixture' });
+  if (!RunE.diagnose(S.run(), S.runToday()).needsIntervention) return 'the fixture is not struggling';
+
+  const before = JSON.stringify(S.get());
+  renderRoute('run');
+  renderRoute('run');
+  return JSON.stringify(S.get()) === before ? '' : 'the render wrote to the store';
+});
+
+behaves('and the patch it reports is one the check-in already made', () => {
+  const out = S.runCheckIn();
+  if (!out || !out.patched) return 'the check-in did not step in for a struggling run';
+  const html = renderRoute('run');
+  if (html.indexOf('eased off') < 0) return 'the screen does not say it eased off';
+  // Once a day: a second call is a no-op, so a re-render cannot re-patch.
+  return S.runCheckIn() === null ? '' : 'the check-in ran twice in one day';
+});
+
+behaves('a struggling run is offered nothing extra while it is being eased', () => {
+  const html = renderRoute('run');
+  return html.indexOf('What you could take on') < 0 ? '' : 'it offered more work to someone slipping';
+});
+
+behaves('a run that is being kept is offered something, with its reasons', () => {
+  S.resetAll();
+  S.startRun(['walk', 'water', 'read'], 90);
+  const run = S.run();
+  run.startDate = A.addDays(S.today(), -29);
+  for (let d = 1; d < 30; d++) {
+    run.log[d] = RunE.recordDay(run, d, run.habits.map((p) => p.habitId));
+  }
+  S.commit({ type: 'fixture' });
+  const html = renderRoute('run');
+  if (html.indexOf('What you could take on') < 0) return 'nothing offered to a 100% user';
+  if (html.indexOf('data-act="run-accept"') < 0) return 'no way to accept it';
+  return html.indexOf('<li>') > 0 ? '' : 'a suggestion with no reasons is one you have to take on faith';
+});
+
+behaves('a finished run stops asking for anything', () => {
+  S.run().startDate = A.addDays(S.today(), -80);
+  S.commit({ type: 'fixture' });
+  const html = renderRoute('run');
+  if (html.indexOf('run is over') < 0) return 'it does not say the run is over';
+  return html.indexOf('data-act="run-tick"') < 0 ? '' : 'it still asks for habits after day 66';
+});
+
+behaves('a run naming a habit this build lost says so, and shows the rest', () => {
+  S.resetAll();
+  S.startRun(['walk', 'water', 'read'], 90);
+  S.run().habits.push({ habitId: 'moon_bathing', startDay: 1, scale: 1, frozenDay: null });
+  S.commit({ type: 'fixture' });
+  const html = renderRoute('run');
+  if (html.indexOf('does not have') < 0) return 'it hides the fact that something is missing';
+  return html.indexOf('Nothing has been deleted') > 0 ? '' : 'it does not say the data is safe';
+});
+
+behaves('Today carries the run only while one is running', () => {
+  S.resetAll();
+  const without = renderRoute('today');
+  if (without.indexOf('The run ·') >= 0) return 'a run section with no run';
+  S.startRun(['walk', 'water', 'read'], 90);
+  const withRun = renderRoute('today');
+  if (withRun.indexOf('The run ·') < 0) return 'no run section with a run';
+  return withRun.indexOf('data-nav="run"') > 0 ? '' : 'no way through to the whole run';
+});
+
+behaves('More offers the run beside Rewards', () => {
+  const html = renderRoute('more');
+  return html.indexOf('data-nav="run"') > 0 ? '' : 'the run is unreachable from More';
+});
+
+behaves('the value sheet says what today asked, not what the run asks now', () => {
+  S.resetAll();
+  S.startRun(['walk', 'water', 'read'], 90);
+  const id = S.run().habits[0].habitId;
+  S.toggleRunHabit(id);                       // freezes today's ask into the record
+  const frozen = S.run().log[1][id].asked;
+  S.run().habits[0].scale = 0.25;             // the run now asks for less
+  S.commit({ type: 'fixture' });
+  sheetBody.innerHTML = '';
+  UI.openRunValue(id);
+  const html = sheetBody.innerHTML;
+  if (html.indexOf('run-save-value') < 0) return 'no way to save a measurement';
+  return html.indexOf(String(frozen)) > 0 ? '' : 'the sheet shows a number today never asked for';
 });
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

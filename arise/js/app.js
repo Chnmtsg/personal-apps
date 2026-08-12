@@ -766,6 +766,60 @@
         break;
       }
 
+      /* --- the 66-day run --- */
+      case 'run-start': {
+        const sel = $('#run_budget');
+        const budget = sel ? Number(sel.value) : 45;
+        S.startRun(null, budget);
+        UI.go('run');
+        UI.toast('🗓 <span>Day 1 of 66. It starts now.</span>');
+        break;
+      }
+      case 'run-end':
+        UI.openConfirm({
+          title: 'End the run?',
+          body: 'The 66 days and everything recorded against them are erased, and that cannot be undone. Your goals, logs, streaks and journal are not touched.',
+          confirmLabel: 'End it',
+          danger: true,
+          onConfirm: () => {
+            S.endRun();
+            UI.go('run');
+          }
+        });
+        break;
+      case 'run-tick': {
+        // The run's own tick. Deliberately not routed through `act()`: a run day
+        // is not what the XP and milestone diff is computed from, and firing
+        // confetti for it would be the app claiming credit on the wrong ledger.
+        const row = S.toggleRunHabit(id);
+        if (row && row.done) buzz(12);
+        break;
+      }
+      case 'run-value':
+        UI.openRunValue(id);
+        break;
+      case 'run-save-value': {
+        const el = $('#run_val');
+        if (!el) break;
+        S.setRunValue(id, el.value === '' ? null : el.value);
+        UI.closeSheet();
+        break;
+      }
+      case 'run-accept': {
+        /* Rebuilt from data attributes rather than an index: the list the user
+           tapped and the list a handler would recompute are two different
+           objects, and `applyRecommendation` re-checks anyway — it declines
+           rather than repairing when the run has moved underneath it. */
+        const dayAttr = actEl.dataset.day;
+        const out = S.runApply({
+          kind: actEl.dataset.kind,
+          habitId: id,
+          startDay: dayAttr === '' || dayAttr == null ? null : Number(dayAttr)
+        });
+        if (out) UI.toast('🗓 <span>' + esc(out.notes[0]) + '</span>');
+        break;
+      }
+
       /* --- app --- */
       case 'install':
         if (deferredInstall) {
@@ -1119,6 +1173,7 @@
     const now = S.today();
     if (lastKey && now !== lastKey) {
       UI.setViewDate(now);
+      S.runCheckIn();
       UI.render();
     }
     lastKey = now;
@@ -1130,6 +1185,9 @@
   try {
     S.load();
     lastKey = S.today();
+    // The run's daily check-in: a once-a-day event, deliberately not
+    // something a render does. See Store.runCheckIn.
+    S.runCheckIn();
     UI.go((location.hash || '').replace('#/', '') || 'today');
   } catch (err) {
     console.error('Discipline: failed to start.', err);
