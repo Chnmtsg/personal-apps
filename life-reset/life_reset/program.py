@@ -638,6 +638,14 @@ def render_program_day(program: Program, day: int) -> str:
       in the programme — it is why no more than two may start in a week — and it
       used to render identically to its fortieth, sorted to the bottom.
     """
+    # A run ends. This used to print "Day 80 of 66" over a full day's
+    # prescription, because every function here answers for any integer and
+    # none of them owned the fact that the programme was over.
+    if day > PROGRAM_DAYS:
+        return (f"Day {PROGRAM_DAYS} of {PROGRAM_DAYS} was the last one.\n\n"
+                f"That run finished {day - PROGRAM_DAYS} day(s) ago. "
+                "Nothing here is asked of you any more.")
+
     rows = program_day(program, day)
     ph = phase_for(day) if 1 <= day <= PROGRAM_DAYS else None
     head = f"Day {day} of {PROGRAM_DAYS}"

@@ -26,6 +26,7 @@ life_reset/program.py    dose/ramp maths, validate, repair, apply_patch, record,
 life_reset/agents.py     Architect and Adaptation, both LLM-optional
 life_reset/recommend.py  what to do next when it is going *well* — pure code
 life_reset/state.py      the stored shape: versioned JSON in, Program + record out
+life_reset/session.py    the loop an app runs: where() and check_in(). Policy only
 life_reset/nodes.py      AnthropicLLM — the ONLY file that imports anthropic
 eval_harness.py          2,000 synthetic users x 66 days, 12 hostile Architects
 tests.py                 unit tests — the layer the harness cannot cover
@@ -41,7 +42,7 @@ demo_factory.py          came with the spec; imports life_reset.nodes at module 
 Run from `life-reset/`. Never report a change as done without both.
 
 ```bash
-python tests.py            # 78 unit tests
+python tests.py            # 94 unit tests
 python eval_harness.py     # 2,000 users x 66 days
 ```
 
@@ -84,6 +85,48 @@ it fail — and if you cannot name one, it is not an invariant.
 
 ---
 
+# The cycle an app runs
+
+Nine calls, and `session.py` owns the two orderings that matter. Everything else
+is called directly — wrapping `record_day` under a second name would not be an
+API, it would be a second name.
+
+```python
+from datetime import date
+from life_reset import (build_program, dumps, loads, where, check_in,
+                        program_day, record_day, apply_recommendation)
+
+# Once per user, ever. The one place a large model earns its price.
+program, meta = build_program(llm, intake, user_id, date.today(), minutes_budget=45)
+save = dumps(program, {})                       # store `save` wherever you like
+
+# Every time the app opens.
+loaded = loads(save)
+run = where(loaded.program, date.today())
+if run.state == "finished":
+    ...                                          # the run is over; stop prescribing
+elif run.running:
+    rows = program_day(loaded.program, run.day)  # what today asks
+
+# When the day closes. This is what makes the day un-re-judgeable.
+logs = dict(loaded.logs)
+logs[run.day] = record_day(loaded.program, run.day, done_habit_ids)
+save = dumps(loaded.program, logs)
+
+# Once a day, or on open. Patches if they are slipping, offers if they are not.
+ci = check_in(loaded.program, logs, run.day, llm)
+save = dumps(ci.program, logs)                   # store it either way
+for rec in ci.recommendations:                   # empty when ci.patched
+    if user_accepted(rec):
+        program, notes = apply_recommendation(ci.program, rec, run.day)
+```
+
+`loaded.notes` is not decoration — a non-empty list means the programme that
+came back is not the one that was written, usually because the catalog moved.
+Read it before the run continues.
+
+---
+
 # Invariants
 
 **The day counter never resets.** Missing days 20-23 gets you a *softened* day
@@ -122,6 +165,21 @@ reads that as the signal to substitute the cheap fallback programme.
 
 **Nothing computable is left to the model.** It classifies, extracts and
 phrases. Every number the user sees traces to `catalog.py` through `dose_for`.
+
+**A run ends, and something has to own that.** `day_index` counts honestly past
+66 and every other function keeps answering — `render_program_day` printed
+"Day 80 of 66" over a full day's prescription. `session.where(program, on)` is
+the first call an app makes: `not_started`, `running` or `finished`. `check_in`
+does nothing outside the run, because adapting a finished programme softens a
+run the user has already completed.
+
+**Step in, or offer more — never both on the same day.** `session.check_in` is
+the only place that decision is made. It is not the same rule as `recommend`'s
+`add` gate: only `add` is gated on `needs_intervention`, while `advance` is
+gated on a *per-habit* rate, so a user holding one habit at 100% while the rest
+collapse qualifies for both at once. `recommend` alone offers it; `check_in` is
+what does not. That conjunction is unreachable from the harness's own users, so
+both suites construct it deliberately — see the eased twin in `check_session`.
 
 **A lived day is a record, not a recomputation.** `record_day(program, day,
 done)` freezes what each habit asked and whether it happened; the app calls it

@@ -52,6 +52,7 @@ from life_reset.program import (
 )
 from life_reset import state
 from life_reset.recommend import apply_recommendation, recommend
+from life_reset.session import check_in, where
 
 START = date(2026, 1, 1)
 
@@ -317,21 +318,84 @@ def check_recommendations(prog: Program, logs: DayLog, today: int,
     return kinds
 
 
+def check_session(prog: Program, logs: DayLog, today: int, tag: str, f: Failures) -> str:
+    """Per user. The two things `session.py` exists to stop the caller getting
+    wrong, asserted on real programmes rather than one hand-built fixture.
+
+    "Step in, or offer more, never both" is a rule with halves in two modules —
+    `recommend` refuses an `add` while `needs_intervention`, and the sequencing
+    lives in whoever calls them. A rule enforced in two places is a rule that
+    holds until someone calls them in a third.
+    """
+    ci = check_in(prog, logs, today)
+
+    if ci.patched and ci.recommendations:
+        f.add("never_both", f"{tag}: patched and offered {len(ci.recommendations)} suggestions")
+
+    # That assertion alone cannot fail here, and saying so is the point. An
+    # `advance` needs an *eased* habit the user is keeping, and nothing in this
+    # harness eases a habit somebody is succeeding at — so ease it deliberately,
+    # the same way the codec check populates its twin. Before this, breaking
+    # `check_in` to offer suggestions alongside a patch changed nothing in the
+    # summary while failing a unit test by name.
+    best = max(ci.diagnosis["per_habit"].items(),
+               key=lambda kv: (kv[1]["rate"], kv[1]["asked"]), default=None)
+    if best is not None and best[1]["asked"]:
+        twin = replace(prog, habits=tuple(
+            replace(p, frozen_day=max(1, today - 7)) if p.habit_id == best[0] else p
+            for p in prog.habits
+        ))
+        eased = check_in(twin, logs, today)
+        if eased.patched and eased.recommendations:
+            f.add("never_both",
+                  f"{tag}/eased-twin: patched and offered {len(eased.recommendations)}")
+
+    if ci.patched is not ci.diagnosis["needs_intervention"]:
+        f.add("patch_follows_diagnosis",
+              f"{tag}: needs_intervention={ci.diagnosis['needs_intervention']} patched={ci.patched}")
+    if not ci.patched and ci.program != prog:
+        f.add("unpatched_is_untouched", f"{tag}: the programme moved without a patch")
+    for v in validate(ci.program):
+        f.add("check_in_leaves_no_violations", f"{tag}: {v}")
+
+    # Outside the run there is nothing to decide, and deciding anything would
+    # mean softening a run the user has already finished.
+    for day in (0, PROGRAM_DAYS + 1, PROGRAM_DAYS + 40):
+        out = check_in(prog, logs, day)
+        if out.patched or out.recommendations or out.program != prog:
+            f.add("nothing_to_decide_outside_the_run", f"{tag}: day {day} did something")
+
+    return "patched" if ci.patched else ("offered" if ci.recommendations else "quiet")
+
+
 def synthetic_logs(prog: Program, today: int, rng: random.Random,
-                   struggling: bool) -> DayLog:
-    """A user who is doing fine, or one who has stopped.
+                   mode: str = "fine") -> DayLog:
+    """A user doing fine, one who has stopped, or one who is lopsided.
 
     Recorded through `record_day`, the same call an app makes, so the asks in
-    here are the asks that stood on the day rather than whatever the
-    programme looks like by the time the harness gets around to reading it.
+    here are the asks that stood on the day rather than whatever the programme
+    looks like by the time the harness gets around to reading it.
+
+    **"lopsided" is not decoration.** Only `add` is gated on
+    `needs_intervention`; `advance` is gated on a *per-habit* rate. So a user
+    holding one habit at 100% while the rest collapse trips intervention and
+    qualifies for an advance on the same day — the only shape in which
+    `session.check_in`'s "never both" rule can fail. Without it that assertion
+    ran 1,000 times a go and could not have caught anything, which is this
+    harness's oldest mistake and the reason the summary reports its outcomes.
     """
     logs: DayLog = {}
+    favourite = min((p.habit_id for p in prog.habits), default=None)
     for day in range(1, today):
         done = set()
         for p in active_on(prog, day):
-            keep = 0.35 if struggling else 0.9
-            keep -= 0.05 * (habit(p.habit_id).friction - 1)
-            if rng.random() < max(0.05, keep):
+            if mode == "lopsided":
+                # One habit kept perfectly; everything else stops dead.
+                keep = 1.0 if p.habit_id == favourite else (0.9 if day < today - 6 else 0.0)
+            else:
+                keep = 0.35 if mode == "struggling" else 0.9
+                keep -= 0.05 * (habit(p.habit_id).friction - 1)
+            if rng.random() < max(0.0, keep):
                 done.add(p.habit_id)
         logs[day] = record_day(prog, day, done)
     return logs
@@ -358,6 +422,7 @@ def main() -> int:
     patched_users = 0
     offered: dict[str, int] = {}
     round_trips = 0
+    sessions: dict[str, int] = {}
 
     for i in range(args.users):
         kind = names[i % len(names)]
@@ -377,8 +442,11 @@ def main() -> int:
         # Half the users hit a wall around week three and get one patch.
         if i % 2 == 0:
             today = rng.randint(15, 60)
-            struggling = i % 4 == 0
-            logs = synthetic_logs(prog, today, rng, struggling)
+            # Only even `i` reaches here, so the spread is over i % 8 rather than
+            # i % 4 — keying on the latter made every user who got this far a
+            # problem case, and the "offered" outcome went to zero.
+            mode = {0: "struggling", 2: "lopsided"}.get(i % 8, "fine")
+            logs = synthetic_logs(prog, today, rng, mode)
             diag = diagnose(prog, logs, today)
             # The invariant is the implication, not the intent: a *generated*
             # struggler is only probably struggling, but a measured rate below
@@ -419,6 +487,8 @@ def main() -> int:
                     offered[k] = offered.get(k, 0) + n
             else:
                 got = check_recommendations(prog, logs, today, diag, f"{kind}/u{i}", f)
+            outcome = check_session(prog, logs, today, f"{kind}/u{i}", f)
+            sessions[outcome] = sessions.get(outcome, 0) + 1
             for k, n in got.items():
                 offered[k] = offered.get(k, 0) + n
 
@@ -429,6 +499,8 @@ def main() -> int:
     split = ", ".join(f"{k} {n}" for k, n in sorted(offered.items())) or "none"
     print(f"recommendations offered and accepted: {sum(offered.values())} ({split})")
     print(f"saves written and read back: {round_trips}")
+    outcomes = ", ".join(f"{k} {n}" for k, n in sorted(sessions.items())) or "none"
+    print(f"check-ins: {sum(sessions.values())} ({outcomes})")
     print("=" * 72)
     if not f.by_kind:
         print("\n  no invariant violations\n")

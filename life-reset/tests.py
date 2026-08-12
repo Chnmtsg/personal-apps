@@ -50,6 +50,7 @@ from life_reset.recommend import (
     apply_recommendation,
     recommend,
 )
+from life_reset.session import check_in, where
 
 START = date(2026, 1, 1)
 _passed = 0
@@ -629,11 +630,114 @@ def test_day_record() -> None:
        state.to_dict(loaded.program, loaded.logs)["version"] == state.SCHEMA_VERSION)
 
 
+# ---------------------------------------------------------------------------
+# The app-facing loop
+# ---------------------------------------------------------------------------
+
+
+def test_session() -> None:
+    section("a run has a beginning and an end")
+    prog, _ = repair(Program("u", START, 60, (
+        ProgramHabit("walk", 1), ProgramHabit("water", 8), ProgramHabit("read", 15),
+    )))
+
+    # Oracle is calendar arithmetic done here, not day_index called twice.
+    from datetime import timedelta
+    cases = [(-11, "not_started"), (0, "not_started"), (1, "running"),
+             (PROGRAM_DAYS, "running"), (PROGRAM_DAYS + 1, "finished")]
+    wrong = []
+    for day, expect in cases:
+        on = START + timedelta(days=day - 1)
+        got = where(prog, on)
+        if got.day != day or got.state != expect:
+            wrong.append(f"{on}: {got} wanted day {day} {expect}")
+    ok("before, during and after the run are told apart", not wrong, wrong[:3])
+    ok("the day number is not clamped, so day 80 is not day 66",
+       where(prog, START + timedelta(days=79)).day == 80,
+       where(prog, START + timedelta(days=79)))
+    ok("and it says how far past the end", where(prog, START + timedelta(days=79)).days_over == 14)
+
+    # It used to print "Day 80 of 66" over a full day's prescription.
+    out = render_program_day(prog, PROGRAM_DAYS + 14)
+    ok("a finished run stops prescribing", "Day 80" not in out and "min" not in out, out)
+
+    section("stepping in and offering more are never the same day")
+    today = 30
+    struggling = _logs(prog, today, {d for d in range(1, today) if d % 4 == 0})
+    ci = check_in(prog, struggling, today)
+    ok("a user who is missing days gets a patch", ci.patched, ci.notes)
+    ok("and is offered nothing on top of it", ci.recommendations == (), ci.recommendations)
+    ok("the patched programme comes back feasible", not validate(ci.program),
+       [str(v) for v in validate(ci.program)][:2])
+
+    # The case that makes "never both" an invariant rather than a slogan. Only
+    # `add` is gated on needs_intervention; `advance` is gated on a *per-habit*
+    # rate, so someone holding one habit at 100% while the rest collapse trips
+    # intervention and qualifies for an advance at the same time. `recommend`
+    # alone offers it. `check_in` is the thing that does not.
+    eased, _ = apply_patch(prog, [{"op": "freeze", "habit_id": "walk"}], today=18)
+    mixed = {}
+    for d in range(1, 32):
+        done = ["walk"] + (["read", "water"] if d < 27 else [])
+        mixed[d] = record_day(eased, d, done)
+    ok("a lopsided user really does qualify for both at once",
+       diagnose(eased, mixed, 32)["needs_intervention"]
+       and any(r.kind == "advance" for r in recommend(eased, mixed, 32)),
+       "the fixture no longer reaches the case it was built for")
+    ci = check_in(eased, mixed, 32)
+    ok("and check_in still offers them nothing while it is stepping in",
+       ci.patched and ci.recommendations == (),
+       (ci.patched, [r.habit_id for r in ci.recommendations]))
+
+    ci = check_in(prog, _kept_all(prog, today), today)
+    ok("a user who is keeping up is not patched", not ci.patched, ci.notes)
+    ok("and the programme comes back untouched", ci.program == prog)
+    ok("they may be offered something instead", bool(ci.recommendations),
+       "nothing offered to a 100% user")
+
+    section("outside the run there is nothing to decide")
+    for day in (0, PROGRAM_DAYS + 1):
+        ci = check_in(prog, _kept_all(prog, today), day)
+        ok(f"day {day}: no patch and no suggestion",
+           not ci.patched and ci.recommendations == () and ci.program == prog, ci)
+
+    section("the cycle in CLAUDE.md is the cycle that runs")
+    # The documented example imported `build_program` from the package, which
+    # did not export it. Documentation nobody executes is documentation that is
+    # wrong, so this runs it: the same imports, the same order.
+    import life_reset
+
+    missing = [n for n in ("build_program", "dumps", "loads", "where", "check_in",
+                           "program_day", "record_day", "apply_recommendation")
+               if not hasattr(life_reset, n)]
+    ok("every call the cycle names is exported from the package", not missing, missing)
+
+    from datetime import timedelta as _td
+
+    built, _meta = life_reset.build_program(None, "intake", "u", START, minutes_budget=45)
+    save = life_reset.dumps(built, {})
+    loaded = life_reset.loads(save)
+    run = life_reset.where(loaded.program, START + _td(days=29))
+    cycle_logs = {
+        d: life_reset.record_day(loaded.program, d,
+                                 [p.habit_id for p in loaded.program.habits])
+        for d in range(1, run.day)
+    }
+    result = life_reset.check_in(loaded.program, cycle_logs, run.day)
+    for rec in result.recommendations:
+        life_reset.apply_recommendation(result.program, rec, run.day)
+    ok("and the whole loop runs end to end from a cold start",
+       run.running and life_reset.loads(life_reset.dumps(result.program, cycle_logs)).program
+       == result.program,
+       (run, result.patched))
+
+
 def main() -> int:
     test_doses()
     test_anchors()
     test_state()
     test_day_record()
+    test_session()
     test_intervention_triggers()
     test_resume()
     test_recommend()
