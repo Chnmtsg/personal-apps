@@ -1136,5 +1136,94 @@ ok('a run survives export and import intact',
 S.endRun();
 ok('ending one clears it', S.run() === null);
 
+/* ------------------------------------------------------------------ */
+section('a run outlives the catalog that wrote it');
+
+/* State outlives the release that stored it, and an import can arrive from any
+   build. Reaching for `habit(id).name` on a retired id threw on the main
+   screen, from data that is not corrupt. */
+const retired = {
+  startDate: A.key(new Date(2026, 0, 1)), minutesBudget: 60, log: {},
+  habits: [
+    { habitId: 'walk', startDay: 1, scale: 1, frozenDay: null },
+    { habitId: 'moon_bathing', startDay: 8, scale: 1, frozenDay: null },
+    { habitId: 'water', startDay: 15, scale: 1, frozenDay: null }
+  ]
+};
+let retiredCrash = null;
+try {
+  R.runDay(retired, 20);
+  R.recordDay(retired, 20, []);
+  R.dayMinutes(retired, 20);
+  R.checkIn(retired, 20);
+  R.recommend(retired, 20);
+} catch (err) { retiredCrash = err.message; }
+ok('no read path throws on a habit this build no longer has', retiredCrash === null, retiredCrash);
+ok('and the retired habit is simply not shown',
+   R.runDay(retired, 20).map((r) => r.id).indexOf('moon_bathing') < 0,
+   R.runDay(retired, 20).map((r) => r.id));
+ok('nor recorded as a day it asked for',
+   R.recordDay(retired, 20, [])['moon_bathing'] === undefined);
+/* Filtered on read, never deleted from storage: dropping it would be losing the
+   user's data to make our rendering easier, and a build that restores the
+   catalog entry restores the habit with it. */
+ok('but it is still in the run, not deleted behind the user',
+   retired.habits.some((p) => p.habitId === 'moon_bathing'), retired.habits.map((p) => p.habitId));
+ok('validate still names it, so nothing is hidden',
+   R.validate(retired).some((v) => v.kind === 'unknown_habit'), R.validate(retired));
+ok('and repair is what removes it, when the user asks for that',
+   !R.repair(retired, 0).run.habits.some((p) => p.habitId === 'moon_bathing'));
+
+/* ------------------------------------------------------------------ */
+section('recording a run day as it is lived');
+
+S.resetAll();
+S.startRun(['walk', 'water', 'read'], 90);
+const firstId = S.run().habits[0].habitId;
+const askedToday = S.run().log[1] ? S.run().log[1][firstId].asked : null;
+
+ok('nothing is recorded until the day is touched', S.run().log[1] === undefined, S.run().log);
+S.toggleRunHabit(firstId);
+ok('a tick records the day', !!S.run().log[1] && S.run().log[1][firstId].done === true, S.run().log[1]);
+ok('and freezes what that day asked',
+   S.run().log[1][firstId].asked === A.Run.doseOn(S.run().habits[0], 1), S.run().log[1][firstId]);
+S.toggleRunHabit(firstId);
+ok('ticking again unticks it', S.run().log[1][firstId].done === false);
+
+/* The ask is settled when the day opens. A patch part-way through moves what
+   doseOn says, and re-deriving it would move the target the user has spent the
+   afternoon working toward. */
+const runFrozenAsk = S.run().log[1][firstId].asked;
+S.run().habits[0].scale = 0.25;
+S.toggleRunHabit(firstId);
+ok('a mid-day change to the run does not move what today already asked',
+   S.run().log[1][firstId].asked === runFrozenAsk, [S.run().log[1][firstId].asked, runFrozenAsk]);
+S.run().habits[0].scale = 1;
+
+const ask = S.run().log[1][firstId].asked;
+S.setRunValue(firstId, ask - 1);
+ok('a measurement short of the ask is kept and not counted as done',
+   S.run().log[1][firstId].did === ask - 1 && S.run().log[1][firstId].done === false,
+   S.run().log[1][firstId]);
+ok('and the shortfall is what the app draws as a fraction',
+   Math.abs(A.Run.fractionOf(S.run().log[1][firstId]) - (ask - 1) / ask) < 1e-9);
+S.setRunValue(firstId, ask);
+ok('meeting the ask is the whole ask', S.run().log[1][firstId].done === true);
+/* A tick is a claim with no number in it. Leaving a stale measurement beside a
+   verdict that contradicts it would store two facts that disagree. */
+S.toggleRunHabit(firstId);
+ok('a tick clears a stale measurement rather than contradicting it',
+   S.run().log[1][firstId].did === null, S.run().log[1][firstId]);
+S.setRunValue(firstId, 'not a number');
+ok('an unreadable value is no measurement, not a NaN one',
+   S.run().log[1][firstId].did === null, S.run().log[1][firstId]);
+
+ok('a habit not asked today cannot be recorded', S.toggleRunHabit('deep_work') === null);
+ok('and neither can one the catalog does not have', S.setRunValue('moon_bathing', 3) === null);
+
+S.endRun();
+ok('with no run there is nothing to toggle', S.toggleRunHabit('walk') === null);
+ok('and nothing unknown to report', S.runUnknownHabits().length === 0);
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

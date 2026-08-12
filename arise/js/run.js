@@ -136,7 +136,24 @@
   }
 
   const minutesOn = (rh, day) => doseOn(rh, day) * (habit(rh.habitId) || { min: 0 }).min;
-  const activeOn = (run, day) => (run.habits || []).filter((p) => p.startDay <= day);
+
+  /**
+   * The habits live on a day — and only the ones this build still has.
+   *
+   * A stored run can name a habit the catalog has since retired: the state
+   * outlives the release that wrote it, and an import can arrive from any
+   * build. `runDay` used to reach straight for `habit(id).name` and threw on
+   * one, which is a crash on the main screen from data that is not corrupt.
+   *
+   * It is filtered here rather than dropped in the migration on purpose.
+   * Removing it from storage would be deleting the user's data to make our
+   * rendering easier, and it would be irreversible — filtering leaves the habit
+   * in the run, so a build that restores the catalog entry restores the habit
+   * with it. `validate` still reports it, and `repair` is what removes it, when
+   * the user asks for that.
+   */
+  const activeOn = (run, day) =>
+    (run.habits || []).filter((p) => p.startDay <= day && isKnown(p.habitId));
   const dayMinutes = (run, day) => activeOn(run, day).reduce((n, p) => n + minutesOn(p, day), 0);
 
   /** Calendar day key → 1-based run day. Outside the run, still honest. */
@@ -662,7 +679,10 @@
 
   function domainCounts(run) {
     const counts = { fitness: 0, self_care: 0, development: 0 };
-    (run.habits || []).forEach((p) => { counts[habit(p.habitId).domain]++; });
+    (run.habits || []).forEach((p) => {
+      const h = habit(p.habitId);
+      if (h) counts[h.domain]++;
+    });
     return counts;
   }
 

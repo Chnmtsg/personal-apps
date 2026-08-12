@@ -850,6 +850,71 @@
     return entry;
   }
 
+  /**
+   * Today's record, created on the first touch of the day.
+   *
+   * An `asked` already frozen is kept. `runCheckIn` can patch the run part-way
+   * through a day, which moves what `doseOn` says — but today's ask was settled
+   * when the day opened, and re-deriving it would move the target the user has
+   * spent the afternoon working toward.
+   */
+  function runEntryFor(day) {
+    const log = state.run.log || (state.run.log = {});
+    if (!log[day]) log[day] = A.Run.recordDay(state.run, day, [], null);
+    return log[day];
+  }
+
+  /**
+   * Tick a run habit for today, or untick it.
+   *
+   * A tick clears any measurement, and that is deliberate rather than tidy: a
+   * tick is a claim with no number in it, and leaving a stale `did` beside a
+   * verdict that contradicts it stores two facts that disagree. Use
+   * `setRunValue` for anything the user actually counted.
+   */
+  function toggleRunHabit(habitId) {
+    const day = runToday();
+    if (!state.run || day == null) return null;
+    const row = runEntryFor(day)[habitId];
+    if (!row) return null;                       // not asked today
+    row.done = !row.done;
+    row.did = null;
+    commit({ type: 'runToggle', day: day, habitId: habitId });
+    return row;
+  }
+
+  /**
+   * Record what the user actually managed — 1.5 of 2 glasses.
+   *
+   * Meeting the ask is the whole ask: the verdict is frozen here against the
+   * ask that was recorded for the day, not against whatever the run asks now.
+   * There is no partial credit toward `done`, and the shortfall is kept rather
+   * than rounded away, because it is the honest number.
+   */
+  function setRunValue(habitId, value) {
+    const day = runToday();
+    if (!state.run || day == null) return null;
+    const row = runEntryFor(day)[habitId];
+    if (!row) return null;
+    const n = value == null || value === '' ? null : Number(value);
+    row.did = n == null || !isFinite(n) ? null : n;
+    row.done = row.did != null && row.asked != null && row.did + 1e-9 >= row.asked;
+    commit({ type: 'runValue', day: day, habitId: habitId });
+    return row;
+  }
+
+  /**
+   * Habits in the run this build's catalog no longer has.
+   *
+   * They are kept in storage rather than dropped — see `activeOn` in run.js —
+   * so this is how the app can say so out loud instead of silently showing a
+   * shorter day than the one the user signed up for.
+   */
+  function runUnknownHabits() {
+    if (!state.run) return [];
+    return (state.run.habits || []).filter((p) => !A.Run.isKnown(p.habitId)).map((p) => p.habitId);
+  }
+
   /** Step in, or offer more — never both. Stores whichever happened. */
   function runCheckIn() {
     const day = runToday();
@@ -1628,6 +1693,7 @@
     addGoal, updateGoal, archiveGoal, removeGoal, restartGoal,
     readingEntry, setReading, readingDays, journalEntry, setJournal, journalDays,
     run, runStatus, runToday, startRun, endRun, recordRunDay, runCheckIn, runApply,
+    toggleRunHabit, setRunValue, runUnknownHabits,
     freezeStats, applyFreeze, clearFreeze,
     updateSettings, exportJson, inspectBackup, importJson, unreadableBackup, resetAll
   };
