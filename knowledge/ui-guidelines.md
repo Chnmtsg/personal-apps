@@ -78,23 +78,30 @@ Most important information first.
 Feedback is one page, scrolled top to bottom in the order the teaching
 happens (ADR 0003): the teacher's message, then every change in the entry as
 one list — in diff order, the reading order of the learner's own text, never
-re-sorted by severity — then the whole corrected text, then the closing
-block. `ambiguous` sits at the end of the changes section rather than
-standing alone. The per-100-words number and any legacy score live in the
-closing block: after the teaching, never before it, never in a header and
-never in anything sticky. There is no swipe, no card stack, no card counter
-and no progress bar — one gesture, vertical, the one the phone already
-taught.
+re-sorted by severity — then the whole corrected text, then, only when the
+entry carries one, "How an English speaker might say it" (ADR 0004), then
+the closing block. `ambiguous` sits at the end of the changes section rather
+than standing alone. The per-100-words number and any legacy score live in
+the closing block: after the teaching, never before it, never in a header
+and never in anything sticky. There is no swipe, no card stack, no card
+counter and no progress bar — one gesture, vertical, the one the phone
+already taught.
 
 A card is a container, not a step. Sections are cards in a vertical list,
 separated by a hairline rule on `bg-card`, and one section carries one idea.
 A section may run as long as its one idea requires — "every change in this
 entry" is one idea said N times, not N ideas. What a section must never do is
 put a different *kind* of content under the same heading; if it mixes two
-topics it is two sections. Legacy 9-agent-era content (pattern watch, fluency
-notes, vocabulary, drills) sits between the corrected text and the closing
-block, shown only on entries that carry it, and shrinks out of the app as
-those entries age out.
+topics it is two sections. After the corrected text and before the legacy
+appendix, an optional "How an English speaker might say it" section (ADR
+0004) shows one natural phrasing for a sentence the learner already got
+right — never folded into "every change," which is headed by a correction
+count, and never shown when there is nothing to say. It is passive reading,
+the same register as `alternatives`: no `EditSpan`, no accent rule bar, no
+tick, nothing interactive. Legacy 9-agent-era content (pattern watch, fluency
+notes, vocabulary, drills) sits between that section and the closing block,
+shown only on entries that carry it, and shrinks out of the app as those
+entries age out.
 
 Structure is carried by headings, not by gestures: one `<h1>` per screen,
 `<h2>` per section in visual order, no skipped levels, and no screen moves

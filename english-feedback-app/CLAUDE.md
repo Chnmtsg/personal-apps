@@ -43,11 +43,21 @@ All paths in this file are relative to `english-feedback-app/`.
     correction's `original`/`corrected` text provably correct, computed from
     the two texts rather than asserted by a model.
   - `src/sentences.ts` — pure sentence splitting and reassembly.
-  - `src/alternatives.ts` — pure bounding of the teacher's optional
-    "You could also say…" phrasings (ADR 0002 Part B): drops an out-of-range
-    `for`, a phrasing attached to a pattern-sourced correction, and an
-    over-long phrasing (never truncated); caps the list at 3. The one other
-    control besides the prompt — there is deliberately no verification stage.
+  - `src/alternatives.ts` — pure bounding of the teacher's two unverified,
+    model-asserted free-text outputs, the one other control besides the
+    prompt for either — there is deliberately no verification stage for
+    either one. `attachAlternatives` bounds the optional "You could also
+    say…" phrasings (ADR 0002 Part B): drops an out-of-range `for`, a
+    phrasing attached to a pattern-sourced correction, and an over-long
+    phrasing (never truncated); caps the list at 3. `boundNaturalPhrasings`
+    bounds the optional "How an English speaker might say it" phrasing (ADR
+    0004): drops an out-of-range or duplicate sentence index, a sentence
+    that produced any correction (disjointness enforced here, not left to
+    the prompt), an empty or over-long phrasing (never truncated), a
+    phrasing that is not actually different from the learner's own
+    sentence, and a bad or over-long note (drops the note only); caps at 1
+    and supplies `original` itself from the Worker's own sentence array,
+    never from the model.
   - `src/learner.ts` — pure assembly of the per-user blocks (level, l1 notes
     and bridges) that go in USER messages, never in system prompts.
   - `src/policy.ts` — pure request-policy decisions (origin, key, body)
@@ -169,7 +179,8 @@ step and no test framework. Test imports must carry explicit `.ts` extensions.
 ## What the tests do not cover
 
 - **The Worker's `fetch` handler and `pipeline.ts`.** `patterns.ts`,
-  `diff.ts`, `sentences.ts`, `policy.ts` and `learner.ts` are tested; the
+  `diff.ts`, `sentences.ts`, `policy.ts`, `learner.ts` and `alternatives.ts`
+  (both `attachAlternatives` and `boundNaturalPhrasings`) are tested; the
   routing, quota charging, and the agent orchestration are not — testing
   them needs Miniflare.
 - **Every React component.** There is no DOM testing library. Screens are
@@ -281,6 +292,19 @@ shown to a learner as a model of good English. The UI renders them as passive
 reading only, visually subordinate to the correction they ride (no `EditSpan`,
 no accent rule bar, no tick) — never anything interactive.
 
+ADR 0004's `natural_phrasings` is the second array riding this same rule, for
+a sentence the learner did NOT get corrected on rather than one they did: also
+top-level in `FeedbackSchema` (`natural_phrasings: [{ original, phrasing,
+note? }]`), also never inside `CorrectionSchema` or `StoredCorrection`, also
+carrying no `category`, `severity` or `pattern_id` and so reaching no
+statistic. `boundNaturalPhrasings` (same file, `worker/src/alternatives.ts`)
+enforces disjointness in code — a sentence with any correction, pattern- or
+model-sourced, is never eligible — and supplies `original` itself from the
+Worker's own sentence array; the sentence index the model returned is
+discarded the moment that lookup is done, so nothing downstream can join a
+phrasing back onto a position in the entry. Rendered passive, in its own
+section, never inside "Every change."
+
 **A claim about the learner's history is computed, never asserted.** The same
 rule as the one above, applied to time rather than text. `cleanStreak` comes
 from `stats.ts`, counted over stored entries; `pattern_watch.entries_clean`
@@ -379,7 +403,24 @@ Current, honest state. Update this list rather than letting it rot.
   is 1–3 Anthropic calls (one teacher call, plus up to 2 in-request retries
   on an over-rewrite), all on `claude-opus-5`. Measure real entries, then
   tighten `app/src/lib/api.ts`'s 540s client timeout, which was sized for the
-  old multi-call worst case and is now far too generous.
+  old multi-call worst case and is now far too generous. **`PROMPT_VERSION` 9
+  (ADR 0004's natural phrasing) is unmeasured too, and outstanding:**
+  `eval-runner` has not yet measured 9 against 8 on the same entry set, no
+  live Anthropic call has been made under `PROMPT_VERSION` 9 at all, and ADR
+  0004's stated thinking-token risk (the model now considers the *correct*
+  sentences too, which are the majority) is exactly as unverified as the
+  response-token estimate. Do not report either as measured until
+  `eval-runner` actually runs.
+- **The trust surface has grown to 8 pieces of unverifiable model text at the
+  ceiling, and there is deliberately no verification stage for any of it.**
+  ADR 0002 Part B's `alternatives` (3 corrections × 2 phrasings) plus ADR
+  0004's `natural_phrasings` (1 phrasing + 1 note) is 8 free-text claims one
+  entry can carry that no diff checks — the prompt is the only control on
+  whether any of them is genuinely correct, or genuinely more natural. If
+  `eval-runner` finds phrasings unreliable, ADR 0004 is explicit about which
+  lever moves first: **lower ADR 0002's `alternatives` cap, do not raise ADR
+  0004's cap of 1.** Watching this is now overdue on both fronts, not just
+  the newer one.
 - **The notes→edits zip is an order heuristic.** The agent labels its own
   changes in reading order and the pipeline zips them onto diff-confirmed
   model edits per sentence. If the diff finds a different number of changes

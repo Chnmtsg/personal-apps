@@ -319,6 +319,104 @@ test("an old entry with no alternatives at all still parses", () => {
   assert.ok(FeedbackSchema.safeParse(minimalFeedback()).success);
 });
 
+// ADR 0004 — "How an English speaker might say it". `natural` rides the
+// agent's own output (worker-internal), loosely, for the same reason a
+// note's `alternatives` does; the strict bounds live downstream in
+// worker/src/alternatives.ts's `boundNaturalPhrasings`
+// (tests/alternatives.test.ts). `FeedbackSchema.natural_phrasings` is the
+// network-boundary shape these tests pin — a sibling of `alternatives`, not
+// a union on it, and it carries no sentence index at all.
+
+test("the agent's `natural` is optional and absent by default", () => {
+  assert.ok(AgentOutputSchema.safeParse(minimalAgentOutput()).success);
+});
+
+test("the agent's `natural` accepts at most one entry, loosely — a bad value must degrade, not fail the parse", () => {
+  const withOne = {
+    ...minimalAgentOutput(),
+    natural: [{ index: 2, phrasing: "I'd like to go there again.", note: "Speakers soften 'want'." }],
+  };
+  const parsed = AgentOutputSchema.safeParse(withOne);
+  assert.ok(parsed.success);
+  assert.equal(parsed.data.natural?.length, 1);
+
+  // More than 1 fails the parse (the agent's own contract) — a retry costs
+  // money, but this is a shape the prompt should never produce.
+  const withTwo = {
+    ...minimalAgentOutput(),
+    natural: [
+      { index: 0, phrasing: "one" },
+      { index: 1, phrasing: "two" },
+    ],
+  };
+  assert.ok(!AgentOutputSchema.safeParse(withTwo).success);
+
+  // No length cap at this layer for phrasing or note — those bounds live in
+  // worker/src/alternatives.ts, downstream of this schema.
+  const withLongFields = {
+    ...minimalAgentOutput(),
+    natural: [{ index: 0, phrasing: "x".repeat(500), note: "y".repeat(500) }],
+  };
+  assert.ok(AgentOutputSchema.safeParse(withLongFields).success);
+});
+
+test("FeedbackSchema's natural_phrasings is a top-level array, never a field on a correction", () => {
+  const body = minimalFeedback();
+  (body.corrections as Array<Record<string, unknown>>)[0].natural_phrasings = ["should not exist here"];
+  const parsed = FeedbackSchema.safeParse(body);
+  // Zod strips unknown keys rather than rejecting — so this parses, but the
+  // stray field on the correction must not survive.
+  assert.ok(parsed.success);
+  assert.ok(!("natural_phrasings" in parsed.data.corrections[0]!));
+});
+
+test("a top-level natural_phrasings entry needs no index — only original, phrasing and an optional note", () => {
+  const withNatural = {
+    ...minimalFeedback(),
+    natural_phrasings: [{ original: "I want to go there again.", phrasing: "I'd like to go there again." }],
+  };
+  const parsed = FeedbackSchema.safeParse(withNatural);
+  assert.ok(parsed.success);
+  assert.deepEqual(parsed.data.natural_phrasings, [
+    { original: "I want to go there again.", phrasing: "I'd like to go there again." },
+  ]);
+  // No `index` field could ever survive — the schema never defines one, so
+  // nothing downstream of the network boundary can join a phrasing back onto
+  // a position in the entry (ADR 0004 Decision 1).
+  assert.ok(!("index" in parsed.data.natural_phrasings![0]!));
+});
+
+test("natural_phrasings is capped at 1, and a phrasing over 120 characters is rejected", () => {
+  assert.ok(
+    !FeedbackSchema.safeParse({
+      ...minimalFeedback(),
+      natural_phrasings: [
+        { original: "a", phrasing: "b" },
+        { original: "c", phrasing: "d" },
+      ],
+    }).success,
+    "more than 1 natural phrasing must be rejected"
+  );
+  assert.ok(
+    !FeedbackSchema.safeParse({
+      ...minimalFeedback(),
+      natural_phrasings: [{ original: "a", phrasing: "x".repeat(121) }],
+    }).success,
+    "a phrasing over 120 characters must be rejected"
+  );
+  assert.ok(
+    !FeedbackSchema.safeParse({
+      ...minimalFeedback(),
+      natural_phrasings: [{ original: "a", phrasing: "b", note: "x".repeat(101) }],
+    }).success,
+    "a note over 100 characters must be rejected"
+  );
+});
+
+test("an old entry with no natural_phrasings at all still parses", () => {
+  assert.ok(FeedbackSchema.safeParse(minimalFeedback()).success);
+});
+
 // This is the mirror gap the prompt engineer found: nothing in tests/ read
 // prompts/teacher.md, so it and TEACHER_SYSTEM_PROMPT could drift apart with
 // `npm run verify` fully green. This rebuilds the mirror from the source and

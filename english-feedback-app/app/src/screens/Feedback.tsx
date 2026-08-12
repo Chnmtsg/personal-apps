@@ -487,6 +487,34 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
         </section>
       )}
 
+      {/* "How an English speaker might say it" (ADR 0004) — a sentence the
+          learner got right, so this is never a correction. Its own section,
+          structurally invisible when there is nothing to show: rendered only
+          when natural_phrasings is non-empty, never folded into "Every
+          change" (that heading carries the correction count) and never given
+          an empty state. No EditSpan, no accent rule bar, no tick, nothing
+          interactive — passive reading only, exactly like "You could also
+          say" above. */}
+      {fb.natural_phrasings && fb.natural_phrasings.length > 0 && (
+        <section className="rounded-2xl border border-rule bg-card p-5">
+          <h2 className="font-serif text-[22px] leading-[1.2] text-pretty">
+            How an English speaker might say it
+          </h2>
+          <p className="mt-2 text-[13.5px] leading-relaxed text-ink-muted">
+            Both of these are correct — this is just what people say more often.
+          </p>
+          {fb.natural_phrasings.map((n, k) => (
+            <div key={k} className="mt-4 border-l-2 border-accent/40 pl-3.5">
+              <p className="text-[14.5px] leading-[1.6] text-ink-soft">You wrote: {n.original}</p>
+              <p className="mt-2 font-serif text-lg leading-[1.5] text-ink">{n.phrasing}</p>
+              {n.note && (
+                <p className="mt-2 text-[12.5px] leading-[1.5] text-ink-faint">{n.note}</p>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
+
       {/* Legacy appendix: the 9-agent-era sections no current entry can
           produce (ADR 0002 Part A intent, carried into 0003). Shown only
           when the entry carries at least one — see hasLegacyAppendix. No

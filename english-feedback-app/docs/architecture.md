@@ -14,16 +14,21 @@ client ── POST /analyze ──▶ policy (code)          validate before spe
                                                    risk check · minimal correction
                                                    · ambiguity · per-change notes
                                                    · teacher message · optional
-                                                   alternative phrasings
+                                                   alternative phrasings ·
+                                                   optional natural phrasing
                             diff (code)            edits vs the ORIGINAL text —
                                                    the model never produces the
                                                    error list
                             label (code)           pattern edits from taxonomy;
                                                    model edits from the notes zip
-                            alternatives (code)     bounds "you could also say"
-                                                   phrasings; alternatives.ts —
-                                                   parallel to Feedback, never
-                                                   inside a Correction
+                            bound (code)           alternatives.ts: "you could
+                                                   also say" phrasings AND the
+                                                   natural-phrasing bound (ADR
+                                                   0004) — both parallel to
+                                                   Feedback, never inside a
+                                                   Correction, both unverified
+                                                   model text with no second
+                                                   call checking it
                             assemble ──▶ Feedback (client validates, stores)
 ```
 

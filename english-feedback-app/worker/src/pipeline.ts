@@ -3,9 +3,9 @@
  *
  *   policy (index.ts) → split (code) → pattern matcher (code) →
  *   THE TEACHER (llm: risk check · minimal correction · ambiguity ·
- *   per-change notes · teacher message · optional alternatives) →
- *   diff (code) → labelling (code) → alternatives bounding (code) →
- *   assembled Feedback
+ *   per-change notes · teacher message · optional alternatives · optional
+ *   natural phrasing) → diff (code) → labelling (code) →
+ *   alternatives/natural-phrasing bounding (code) → assembled Feedback
  *
  * The model never produces the error list: spans come from diffing its
  * corrected sentences against the learner's ORIGINAL text. Its `notes` only
@@ -19,6 +19,14 @@
  * they never enter `corrections`: `alternatives.ts` bounds them in code into
  * a parallel `feedback.alternatives` array that carries no category,
  * severity or pattern_id and so has no route into any statistic.
+ *
+ * The agent may also return `natural` — at most one "how a speaker would say
+ * it" phrasing for a sentence it did NOT correct (ADR 0004). Same trust
+ * problem as `alternatives`, same file (`alternatives.ts`)'s
+ * `boundNaturalPhrasings`: bounded in code, disjoint from every corrected
+ * sentence, `original` supplied by the Worker's own sentence array rather
+ * than the model, and the sentence index it rode in on is discarded the
+ * moment that lookup is done.
  *
  * `risk: "acute"` short-circuits: no corrections, no teacher message — the
  * client renders the wellbeing screen. Never a grammar lesson for a crisis.
@@ -46,7 +54,7 @@ import { splitSentences, reconstructText } from "./sentences";
 import { extractEdits, rewriteRatio, MAX_REWRITE_RATIO } from "./diff";
 import { applyPatterns, findMatchingHit, labelForHit, type PatternHit } from "./patterns";
 import { effectiveLevel, l1NotesFor, learnerContext } from "./learner.ts";
-import { attachAlternatives, type AlternativeCandidate } from "./alternatives.ts";
+import { attachAlternatives, boundNaturalPhrasings, type AlternativeCandidate } from "./alternatives.ts";
 
 // Covers thinking AND the response together — the response carries the
 // corrected sentences, the notes, and a ≤160-word message. Unmeasured.
@@ -296,6 +304,14 @@ export async function runPipeline(
   const ambiguous = agent.ambiguous.filter((a) => a.index >= 0 && a.index < sentences.length);
   const teacherFeedback = agent.feedback.trim();
 
+  // "How an English speaker might say it" (ADR 0004) — a sentence the
+  // learner got right, so it is disjoint from every sentence that produced a
+  // correction, pattern-sourced or model-sourced. The Worker's own sentence
+  // array supplies `original`; the model's index is consumed and discarded
+  // by boundNaturalPhrasings, never carried past it.
+  const correctedSentenceIndices = new Set(edits.map((e) => e.sentIdx));
+  const naturalPhrasings = boundNaturalPhrasings(agent.natural ?? [], sentences, correctedSentenceIndices);
+
   const feedback: AnalyzeFeedback = {
     risk: "none",
     corrected_text: reconstructText(text, sentences, agent.corrected),
@@ -303,6 +319,7 @@ export async function runPipeline(
     ...(teacherFeedback ? { teacher_feedback: teacherFeedback } : {}),
     ...(ambiguous.length > 0 ? { ambiguous } : {}),
     ...(alternatives.length > 0 ? { alternatives } : {}),
+    ...(naturalPhrasings.length > 0 ? { natural_phrasings: naturalPhrasings } : {}),
   };
 
   return { ok: true, value: { feedback, cache: usage }, calls: callsMade };
