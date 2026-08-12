@@ -24,14 +24,29 @@ All paths in this file are relative to the repository root.
   streaks, a weekly training program, reading and journal. Vanilla HTML/CSS/JS,
   no build step, no server, no account. `arise/` is self-contained: it has its
   own `CLAUDE.md`, knowledge set and `.claude/`. See `arise/README.md`.
+  **The app is called Discipline; the folder, the `window.Arise` globals and the
+  `arise.state.v1` storage key keep the old name deliberately** — renaming the
+  storage key would orphan every user's data. See `arise/CLAUDE.md`.
 
-Both are live codebases and they share nothing. Never couple them, and never
-apply one app's standards to the other. When a request does not name an app,
-assume `english-feedback-app` — but ask if the work would be costly to redo.
+- `life-reset/` — a Python engine for a 66-day habit programme: a closed habit
+  catalog, a deterministic ramp, and validate/repair that makes any Architect
+  output feasible. Not an app and not a PWA — a library with demos and no UI.
+  See `life-reset/CLAUDE.md` and `life-reset/STATUS.md`, which records what is
+  built against a specification (`README.md`, `AGENTS.md`) that describes more.
+
+**Three live codebases. They share nothing.** Never couple them, never apply one
+project's standards to another, and never let a change in one reach into
+another's directory. When a request does not name a project, infer it from what
+was last worked on and **say which you assumed** — do not silently pick. Ask
+outright if guessing wrong would be costly to redo.
 
 - `knowledge/` — project references for `english-feedback-app`.
 
 - `arise/knowledge/` — project references for `arise`.
+
+- `life-reset/` has no knowledge set. Its `README.md` and `AGENTS.md` are a
+  *specification written before the code*, so read them as intent, not as a
+  description of what exists — `STATUS.md` is the honest inventory.
 
 - `.claude/agents/` — the four review role definitions
 
@@ -155,6 +170,26 @@ serve.cmd          # http://localhost:8123
 
 ---
 
+# Verifying `life-reset`
+
+Run from `life-reset/`. All three run on a bare interpreter — no key, no
+network, no third-party packages.
+
+```bash
+python tests.py            # unit tests, the layer the harness cannot cover
+python eval_harness.py     # 2,000 synthetic users x 66 days, 12 hostile Architects
+python demo_program.py     # end to end, offline
+```
+
+**Run both `tests.py` and `eval_harness.py`. They catch different things, and
+the harness alone is not a safety net.** The harness verifies `dose_for` by
+calling `dose_for` — its checks are built from the same primitives as the code
+under test, so an arithmetic error is simply consistent with itself. A wrong
+dose once survived ~165,000 day-renders reporting zero violations. `tests.py`
+computes expected values from the catalog directly, as an independent oracle.
+
+---
+
 # `arise` Invariants
 
 These are the rules the app is built on. Breaking one is a Critical finding.
@@ -181,9 +216,21 @@ by its own flag, not by the version number alone.
 A new file must be added to `index.html`, `sw.js` ASSETS, and both test
 harnesses' load lists.
 
-**The service worker caches the shell.** After changing `styles.css` or anything
-in `js/`, bump `VERSION` in `sw.js`. Without it an installed copy keeps serving
-the old assets.
+**`index.html` is a shell, and nothing may be inlined into it.** It links
+`./styles.css` and the six `./js/*.js`, and that is all. A tooling export once
+replaced it with a 440KB self-extracting bundle serving `js/` from `blob:` URLs
+built from a stale snapshot: the app silently ran code three fixes behind the
+tree while **both suites passed**, because they load `js/` from disk. If a tool
+offers to inline the app into one file, the answer is no. A design change
+belongs in `styles.css` and `js/ui.js`, where the suites and the next reader can
+both see it.
+
+**The service worker caches the shell.** After changing `styles.css`, anything
+in `js/`, or anything in `fonts/`, bump `VERSION` in `sw.js` (currently
+`discipline-v26`). Without it an installed copy keeps serving the old assets.
+`fonts/` holds three Archivo `.woff2` cuts, split by `unicode-range` and
+precached in `sw.js` ASSETS — the app ships its typeface rather than fetching
+one, because it makes no network calls.
 
 **The app is fully offline.** No network calls, no accounts, no telemetry, no
 secrets. If a change needs a server, stop and raise it first.
