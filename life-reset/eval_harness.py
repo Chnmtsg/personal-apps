@@ -10,8 +10,10 @@ and approves it; the failure modes here are arithmetic — a rounding overshoot 
 day 41, a repair loop that swaps two zero-cost habits forever — and no amount of
 prose review finds those.
 
-Adversarial Architects are cycled in on purpose. A real model will eventually
-produce every one of them, so `repair` has to survive all of them.
+Adversarial Architects and Adaptations are cycled in on purpose. A real model
+will eventually produce every one of them, so `repair` and `apply_patch` have to
+survive all of them — and the summary reports which adversaries fired and which
+op effects landed, because an assertion nothing reaches is not an assertion.
 """
 
 from __future__ import annotations
@@ -111,6 +113,50 @@ ADVERSARIES: dict[str, Callable[[random.Random], str]] = {
 
 
 # ---------------------------------------------------------------------------
+# Adversarial Adaptation — the layer that runs most often and had none
+# ---------------------------------------------------------------------------
+#
+# The Architect had twelve adversaries and runs once per user, ever. Adaptation
+# runs every time somebody slips, and until now the harness only ever called
+# `adapt_program(None, ...)` — which takes the no-op fallback and emits a single
+# `soften`. So `freeze`, `defer`, `drop`, `resume` and the `MAX_PATCH_HABITS`
+# cap had *zero* coverage in 2,000 users, and four crashes reachable from a
+# plausible model response sat in `apply_patch` the whole time: a string factor,
+# a null factor, a string days, and a NaN factor that produced a programme
+# `validate` called healthy and `state.dumps` then refused to save.
+
+
+def _ops(rng: random.Random, ids: list[str]) -> str:
+    pick = lambda: rng.choice(ids) if ids else "walk"
+    return json.dumps({"ops": [
+        {"op": rng.choice(["soften", "freeze", "defer", "drop", "resume"]),
+         "habit_id": pick(), "factor": rng.choice([0.5, 0.25, 1.0]), "days": 7}
+    ]})
+
+
+ADAPT_ADVERSARIES: dict[str, Callable[[random.Random, list[str]], str]] = {
+    "well_formed":     lambda r, ids: _ops(r, ids),
+    "malformed_json":  lambda r, ids: '{"ops": [{"op": "soften",,]',
+    "prose_not_json":  lambda r, ids: "I think they should just take it easier this week.",
+    "empty":           lambda r, ids: "",
+    "not_a_list":      lambda r, ids: json.dumps({"ops": {"op": "drop"}}),
+    "unknown_op":      lambda r, ids: json.dumps({"ops": [{"op": "obliterate", "habit_id": ids[0] if ids else "walk"}]}),
+    "unknown_habit":   lambda r, ids: json.dumps({"ops": [{"op": "drop", "habit_id": "cold_plunge"}]}),
+    # The four that used to crash. Every one is something a model really emits.
+    "string_factor":   lambda r, ids: json.dumps({"ops": [{"op": "soften", "habit_id": ids[0] if ids else "walk", "factor": "half"}]}),
+    "null_factor":     lambda r, ids: json.dumps({"ops": [{"op": "soften", "habit_id": ids[0] if ids else "walk", "factor": None}]}),
+    "string_days":     lambda r, ids: json.dumps({"ops": [{"op": "defer", "habit_id": ids[-1] if ids else "walk", "days": "soon"}]}),
+    "nan_factor":      lambda r, ids: '{"ops": [{"op": "soften", "habit_id": "%s", "factor": NaN}]}' % (ids[0] if ids else "walk"),
+    "negative_factor": lambda r, ids: json.dumps({"ops": [{"op": "soften", "habit_id": ids[0] if ids else "walk", "factor": -5}]}),
+    "huge_defer":      lambda r, ids: json.dumps({"ops": [{"op": "defer", "habit_id": ids[-1] if ids else "walk", "days": 10 ** 9}]}),
+    "drop_everything": lambda r, ids: json.dumps({"ops": [{"op": "drop", "habit_id": h} for h in ids]}),
+    "freeze_everything": lambda r, ids: json.dumps({"ops": [{"op": "freeze", "habit_id": h} for h in ids]}),
+    "too_many_ops":    lambda r, ids: json.dumps({"ops": [{"op": "soften", "habit_id": h, "factor": 0.5} for h in ids]}),
+    "resume_everything": lambda r, ids: json.dumps({"ops": [{"op": "resume", "habit_id": h} for h in ids]}),
+}
+
+
+# ---------------------------------------------------------------------------
 # Invariants
 # ---------------------------------------------------------------------------
 
@@ -125,6 +171,34 @@ class Failures:
     @property
     def total(self) -> int:
         return sum(len(v) for v in self.by_kind.values())
+
+
+def _effects(before: Program, after: Program) -> list[str]:
+    """Which op effects actually landed, read off the two programmes.
+
+    An independent oracle for the op coverage line: it never looks at what was
+    submitted, only at what changed, so an op that was accepted and then quietly
+    ignored cannot inflate the count.
+    """
+    b = {p.habit_id: p for p in before.habits}
+    a = {p.habit_id: p for p in after.habits}
+    out: list[str] = []
+    for hid, was in b.items():
+        now = a.get(hid)
+        if now is None:
+            out.append("drop")
+            continue
+        if now.scale < was.scale - 1e-9:
+            out.append("soften")
+        if now.scale > was.scale + 1e-9 or (was.frozen_day is not None
+                                            and (now.frozen_day is None
+                                                 or now.frozen_day > was.frozen_day)):
+            out.append("resume")
+        if was.frozen_day is None and now.frozen_day is not None:
+            out.append("freeze")
+        if now.start_day > was.start_day:
+            out.append("defer")
+    return out
 
 
 def check_program(prog: Program, tag: str, f: Failures) -> None:
@@ -221,7 +295,11 @@ def check_round_trip(prog: Program, logs: DayLog | None,
     def round_trip(p: Program, lg: DayLog | None, what: str) -> None:
         try:
             back = state.loads(state.dumps(p, lg))
-        except state.StateError as exc:
+        except ValueError as exc:
+            # ValueError, not StateError: `json.dumps(allow_nan=False)` raises a
+            # plain one, and a NaN scale killed the whole harness run instead of
+            # being counted. A harness that dies on the bug it found reports
+            # nothing about the other 1,900 users.
             f.add("save_round_trips", f"{tag}/{what}: refused its own save — {exc}")
             return
         if back.program != p:
@@ -250,8 +328,8 @@ def check_round_trip(prog: Program, logs: DayLog | None,
     return 2
 
 
-def check_recommendations(prog: Program, logs: DayLog, today: int,
-                          diag: dict, tag: str, f: Failures) -> dict[str, int]:
+def check_recommendations(prog: Program, logs: DayLog, today: int, diag: dict,
+                          tag: str, f: Failures, effects: dict[str, int]) -> dict[str, int]:
     """Per user. Every suggestion offered, taken in the order it was offered.
 
     A recommendation is a promise the app makes to someone who is doing well,
@@ -280,7 +358,10 @@ def check_recommendations(prog: Program, logs: DayLog, today: int,
     nxt = min(today + 1, PROGRAM_DAYS)
     for r in recs:
         was = next((dose_for(p, nxt) for p in cur.habits if p.habit_id == r.habit_id), None)
+        prior = cur
         cur, notes = apply_recommendation(cur, r, today)
+        for eff in _effects(prior, cur):
+            effects[eff] = effects.get(eff, 0) + 1
         if any(n.startswith("declined") for n in notes):
             f.add("offered_is_acceptable", f"{tag}: {r.kind} {r.habit_id} refused — {notes[0]}")
         for v in validate(cur):
@@ -423,6 +504,9 @@ def main() -> int:
     offered: dict[str, int] = {}
     round_trips = 0
     sessions: dict[str, int] = {}
+    adapt_names = list(ADAPT_ADVERSARIES)
+    adapt_kinds: dict[str, int] = {}
+    ops_seen: dict[str, int] = {}
 
     for i in range(args.users):
         kind = names[i % len(names)]
@@ -458,7 +542,30 @@ def main() -> int:
                 )
             if diag["needs_intervention"]:
                 patched_users += 1
-                after, pmeta = adapt_program(None, prog, diag, today)
+                # A hostile Adaptation, cycled the same way the Architect's are.
+                # This used to be `adapt_program(None, ...)`, which takes the
+                # fallback path and emits one `soften` — so four of the five ops
+                # and the patch cap were never executed at all.
+                akind = adapt_names[i % len(adapt_names)]
+                allm = Scripted(ADAPT_ADVERSARIES[akind](rng, list(prog.ids())))
+                adapt_kinds[akind] = adapt_kinds.get(akind, 0) + 1
+                try:
+                    after, pmeta = adapt_program(allm, prog, diag, today)
+                except Exception as exc:                      # noqa: BLE001
+                    f.add("adapt_never_raises", f"{kind}/u{i} [{akind}]: {type(exc).__name__}: {exc}")
+                    after, pmeta = adapt_program(None, prog, diag, today)
+                # Counted from what the programme *became*, not from the ops
+                # that were handed in. `apply_patch` still ignores an unknown
+                # op, a drop at the floor and a defer on something underway, so
+                # counting submissions reported 20 `obliterate` ops as run.
+                for eff in _effects(prog, after):
+                    ops_seen[eff] = ops_seen.get(eff, 0) + 1
+                # A patched programme has to be storable. A NaN scale validated
+                # clean and made every later save throw.
+                try:
+                    state.dumps(after)
+                except ValueError as exc:
+                    f.add("patched_run_stays_saveable", f"{kind}/u{i} [{akind}]: {exc}")
                 check_patch(prog, after, pmeta, today, diag, f"{kind}/u{i}", f)
                 check_program(after, f"{kind}/u{i}+patch", f)
                 round_trips += check_round_trip(after, logs, f"{kind}/u{i}+patch", f)
@@ -466,7 +573,7 @@ def main() -> int:
                 # The recommender against a *patched* programme, which is where
                 # anything eased back lives and so the only place `advance` can
                 # fire at all.
-                got = check_recommendations(after, logs, today, diag, f"{kind}/u{i}+patch", f)
+                got = check_recommendations(after, logs, today, diag, f"{kind}/u{i}+patch", f, ops_seen)
 
                 # And again a fortnight later, having got back on it.
                 #
@@ -482,11 +589,12 @@ def main() -> int:
                 back = {d: record_day(after, d, [p.habit_id for p in active_on(after, d)])
                         for d in range(1, later)}
                 for k, n in check_recommendations(
-                    after, back, later, diagnose(after, back, later), f"{kind}/u{i}+back", f
+                    after, back, later, diagnose(after, back, later),
+                    f"{kind}/u{i}+back", f, ops_seen
                 ).items():
                     offered[k] = offered.get(k, 0) + n
             else:
-                got = check_recommendations(prog, logs, today, diag, f"{kind}/u{i}", f)
+                got = check_recommendations(prog, logs, today, diag, f"{kind}/u{i}", f, ops_seen)
             outcome = check_session(prog, logs, today, f"{kind}/u{i}", f)
             sessions[outcome] = sessions.get(outcome, 0) + 1
             for k, n in got.items():
@@ -501,6 +609,17 @@ def main() -> int:
     print(f"saves written and read back: {round_trips}")
     outcomes = ", ".join(f"{k} {n}" for k, n in sorted(sessions.items())) or "none"
     print(f"check-ins: {sum(sessions.values())} ({outcomes})")
+    # Every op that actually executed. A zero is an op the adversaries never
+    # reached, which is how four of the five went untested for this long.
+    print(f"adaptation adversaries: {len(adapt_kinds)}/{len(ADAPT_ADVERSARIES)} kinds, "
+          f"op effects landed: {dict(sorted(ops_seen.items())) or 'none'}")
+    # All five ops have to land somewhere. `resume` never lands via Adaptation —
+    # it needs an already-eased habit, which a struggling user does not have —
+    # so it arrives through the recommender's `advance`. A zero for any of them
+    # means an op nothing exercised.
+    missing = [o for o in ("soften", "freeze", "defer", "drop", "resume") if not ops_seen.get(o)]
+    if missing:
+        f.add("every_op_is_exercised", f"no run of these landed: {missing}")
     print("=" * 72)
     if not f.by_kind:
         print("\n  no invariant violations\n")

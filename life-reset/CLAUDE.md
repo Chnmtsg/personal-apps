@@ -42,7 +42,7 @@ demo_factory.py          came with the spec; imports life_reset.nodes at module 
 Run from `life-reset/`. Never report a change as done without both.
 
 ```bash
-python tests.py            # 94 unit tests
+python tests.py            # 108 unit tests
 python eval_harness.py     # 2,000 users x 66 days
 ```
 
@@ -251,12 +251,25 @@ render or `recommend`.
 
 Ordered by how likely they are to bite.
 
-1. **Adaptation is the least-tested layer and runs most often.** The harness
-   calls `adapt_program(None, ...)`, so every patch is a single fallback
-   `soften`. `freeze`, `defer`, `drop` and the `MAX_PATCH_HABITS` cap have
-   **zero coverage**, and several harness invariants pass vacuously as a result.
-   The Architect runs once and has twelve adversaries; Adaptation runs 3-5 times
-   and has none.
+1. **~~Adaptation is the least-tested layer and runs most often.~~** Closed.
+   Adaptation now has seventeen adversaries of its own, cycled the way the
+   Architect's are, and the summary prints which op *effects* actually landed —
+   read off the programme diff, never off the ops that were submitted, because
+   counting submissions reported twenty `obliterate` ops as having run.
+
+   It found four crashes that had been sitting in `apply_patch` the whole time,
+   all reachable from a plausible model response and all landing in
+   `session.check_in`, which an app runs every time it opens: a string `factor`
+   (ValueError), a null `factor` (TypeError), a string `days` (ValueError), and
+   worst, a NaN `factor` — which passed `float()`, became the habit's `scale`,
+   left `dose_for` returning the starting dose for the whole run, validated
+   perfectly clean, and made every subsequent `state.dumps` throw. The user's
+   run was corrupt and unsaveable with no invariant objecting.
+
+   **Op arguments come from a model and are not to be trusted with `float()`.**
+   `_number` is the guard; an unreadable argument falls back to the documented
+   default with a note rather than dropping the op, because a user who is
+   slipping still needs the intervention.
 2. **~~`soften` and `freeze` are a one-way ratchet.~~** Closed: `resume` is the
    way back, `recommend._advance_recommendations` is what detects recovery, and
    the harness models a user who gets back on it a fortnight after a patch.

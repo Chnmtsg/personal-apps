@@ -16,6 +16,7 @@ The two rules that shape the file:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Iterable, Literal
@@ -489,6 +490,30 @@ MAX_PATCH_HABITS = 2
 RESUME_SCALE_STEP = 0.25     # one notch of ramp handed back per resume
 
 
+def _number(value: object) -> float | None:
+    """A finite number, or None if the model did not give one.
+
+    Op arguments arrive from a language model and are not to be trusted with
+    `float()`. Every one of these was a live crash reachable from a plausible
+    response: `{"factor": "half"}` raised ValueError, `{"factor": null}` raised
+    TypeError, and both propagated out of `apply_patch`, out of `adapt_program`
+    — whose try/except only ever covered the *call* to the model — and into
+    whatever the app was doing, which is now its daily check-in.
+
+    `NaN` was worse for being quiet. It passes `float()`, and `min`/`max` return
+    it unchanged, so it became the habit's `scale`; `max(0.0, nan)` inside
+    `dose_for` then returned 0.0, leaving the ramp dead for the whole run on a
+    programme `validate` called perfectly healthy. The user's next save then
+    threw, because `state.dumps` refuses to write NaN, and the run was
+    unpersistable from that point on.
+    """
+    try:
+        n = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return n if math.isfinite(n) else None
+
+
 def apply_patch(program: Program, ops: list[dict], today: int) -> tuple[Program, list[str]]:
     """The only sanctioned way to change a program that is already running.
 
@@ -519,7 +544,15 @@ def apply_patch(program: Program, ops: list[dict], today: int) -> tuple[Program,
 
         p = habits[hid]
         if name == "soften":
-            factor = float(op.get("factor", 0.5))
+            # "soften walk" is a clear instruction even when "by how much" is
+            # garbled, so an unreadable factor falls back to the documented
+            # default rather than dropping the op — the same call
+            # `coerce_program` makes for an unreadable `start_day`. Dropping it
+            # would leave a user who is slipping with no intervention at all.
+            factor = _number(op.get("factor", 0.5))
+            if factor is None:
+                notes.append(f"{hid}: unreadable soften factor {op.get('factor')!r}, used 0.5")
+                factor = 0.5
             factor = min(max(factor, 0.0), 1.0)
             habits[hid] = replace(p, scale=p.scale * factor)
             notes.append(f"softened {hid} to {habits[hid].scale:.2f} of its ramp")
@@ -531,8 +564,11 @@ def apply_patch(program: Program, ops: list[dict], today: int) -> tuple[Program,
             if p.start_day <= today:
                 notes.append(f"ignored defer on {hid}: already underway")
                 continue
-            by = int(op.get("days", 7))
-            habits[hid] = replace(p, start_day=min(p.start_day + max(by, 1), LAST_INTRO_DAY))
+            by = _number(op.get("days", 7))
+            if by is None:
+                notes.append(f"{hid}: unreadable defer days {op.get('days')!r}, used 7")
+                by = 7
+            habits[hid] = replace(p, start_day=min(p.start_day + max(int(by), 1), LAST_INTRO_DAY))
             notes.append(f"deferred {hid} to day {habits[hid].start_day}")
         elif name == "resume":
             # The inverse of `freeze` and `soften`, and the answer to the fact

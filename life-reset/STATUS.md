@@ -49,15 +49,16 @@ invocation and could never fail. Both triggers are now tested independently.
 | `life_reset/session.py` | `where`, `check_in` — the app-facing loop: run boundaries, and step-in-or-offer |
 | `life_reset/state.py` | `SCHEMA_VERSION` 2, `to_dict`/`from_dict`, `dumps`/`loads`, `_upgrade` — the stored shape, no I/O |
 | `life_reset/nodes.py` | `AnthropicLLM` — the only file that imports `anthropic` |
-| `eval_harness.py` | 12 adversarial Architects, the invariants, per-user, per-patch and per-recommendation |
+| `eval_harness.py` | 12 adversarial Architects, 17 adversarial Adaptations, the invariants, per-user, per-patch, per-recommendation and per-save |
 | `demo_program.py` | Hostile Architect → repaired programme → a user who stops for four days → the same user recovered |
 
-**Current numbers:** 2,000 users, ~165,000 day-renders, 1,638 recommendations
-offered and accepted (1,372 `add`, 266 `advance`), 5,008 saves written and read
-back, 1,000 check-ins (514 patched, 318 offered, 168 quiet), **zero invariant
-violations**; 94 unit tests. A separate fuzz over 12,000
-random programmes: `repair` leaves zero infeasible days, `build_program` returns
-zero invalid programmes.
+**Current numbers:** 2,000 users, ~165,000 day-renders, 1,652 recommendations
+offered and accepted (1,468 `add`, 184 `advance`), 5,010 saves written and read
+back, 1,000 check-ins (505 patched, 321 offered, 174 quiet), all five patch ops
+landed (soften 264, freeze 67, drop 19, defer 17, resume 184), **zero invariant
+violations**; 108 unit tests. A separate fuzz over 12,000 random programmes:
+`repair` leaves zero infeasible days, `build_program` returns zero invalid
+programmes.
 
 The per-kind split in the harness summary is part of the check, not decoration.
 The `advance` half first reported **zero** — the harness patched people and then
@@ -98,6 +99,33 @@ and nothing in the harness eases a habit somebody is succeeding at — so
 breaking `check_in` to offer suggestions alongside a patch changed nothing in
 the summary while failing a unit test by name. Both suites now construct the
 conjunction deliberately, and the same break raises 204 violations.
+
+## Four crashes the Adaptation adversaries found
+
+`apply_patch` had five ops and the harness executed one, because
+`adapt_program(None, ...)` takes the fallback path and emits a single
+`soften`. Giving Adaptation adversaries of its own — the Architect has had
+twelve since the start — turned up four crashes reachable from a plausible
+model response, every one of them landing in the app's daily check-in:
+
+| op payload | before |
+|---|---|
+| `soften factor:"half"` | `ValueError` out of `float()` |
+| `soften factor:null` | `TypeError` out of `float()` |
+| `defer days:"soon"` | `ValueError` out of `int()` |
+| `soften factor:NaN` | `scale=NaN`, validates clean, run **unsaveable** |
+
+The NaN one is the interesting one. It passed `float()`, `min`/`max` returned
+it unchanged, and `max(0.0, nan)` inside `dose_for` then returned 0.0 — the
+ramp dead for the whole run, on a programme `validate` called healthy. The
+next save threw, because `state.dumps` refuses NaN, and it threw for every
+save after that. Removing the fix now raises 95 harness violations across
+three classes.
+
+The harness itself had to be fixed to report it: `state.dumps` raises a plain
+`ValueError`, not `StateError`, so the NaN killed the run instead of being
+counted, and a harness that dies on the first bug reports nothing about the
+other 1,900 users.
 
 ## Not built yet
 

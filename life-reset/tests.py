@@ -33,8 +33,16 @@ from life_reset.agents import (
     adapt_program,
     diagnose,
 )
-from life_reset.catalog import HABITS, MAX_NEW_PER_WEEK, PROGRAM_DAYS, habit
+from life_reset.catalog import (
+    HABITS,
+    LAST_INTRO_DAY,
+    MAX_NEW_PER_WEEK,
+    MIN_HABITS,
+    PROGRAM_DAYS,
+    habit,
+)
 from life_reset.program import (
+    MAX_PATCH_HABITS,
     DayLog,
     Program,
     ProgramHabit,
@@ -732,9 +740,114 @@ def test_session() -> None:
        (run, result.patched))
 
 
+# ---------------------------------------------------------------------------
+# The five ops — four of which the harness never executed
+# ---------------------------------------------------------------------------
+
+
+def test_ops() -> None:
+    section("apply_patch survives anything a model can put in an op")
+    # The budget is generous on purpose. At 90 minutes `repair` dropped `read`
+    # to fit day 57, leaving three habits — and every `drop` below then hit the
+    # MIN_HABITS floor and was correctly ignored, so the test passed while
+    # proving nothing about drop. A fixture that quietly stops reaching the code
+    # it names is the failure this file exists to catch, so it is asserted.
+    prog, _ = repair(Program("u", START, 150, (
+        ProgramHabit("walk", 1), ProgramHabit("read", 8),
+        ProgramHabit("water", 15), ProgramHabit("plank", 30),
+    )))
+    ok(f"the fixture survives repair with room above the {MIN_HABITS}-habit floor",
+       len(prog.habits) > MIN_HABITS, prog.ids())
+
+    # Every one of these was a live crash out of apply_patch, through
+    # adapt_program — whose try/except only covers the call to the model — and
+    # into session.check_in, which an app runs every time it opens.
+    hostile = [
+        [{"op": "soften", "habit_id": "walk", "factor": "half"}],
+        [{"op": "soften", "habit_id": "walk", "factor": None}],
+        [{"op": "soften", "habit_id": "walk", "factor": [1]}],
+        [{"op": "soften", "habit_id": "walk", "factor": float("nan")}],
+        [{"op": "soften", "habit_id": "walk", "factor": float("inf")}],
+        [{"op": "soften", "habit_id": "walk", "factor": -5}],
+        [{"op": "defer", "habit_id": "plank", "days": "soon"}],
+        [{"op": "defer", "habit_id": "plank", "days": None}],
+        [{"op": "defer", "habit_id": "plank", "days": 10 ** 9}],
+        [{"op": "obliterate", "habit_id": "walk"}],
+        [{"op": "drop", "habit_id": "cold_plunge"}],
+        [{}],
+        [{"op": "soften"}],
+    ]
+    crashed, unsaveable, invalid = [], [], []
+    for ops in hostile:
+        try:
+            after, _notes = apply_patch(prog, ops, today=20)
+        except Exception as exc:                                  # noqa: BLE001
+            crashed.append(f"{ops[0]}: {type(exc).__name__}: {exc}")
+            continue
+        if validate(after):
+            invalid.append(str(ops[0]))
+        try:
+            state.dumps(after)
+        except ValueError:
+            unsaveable.append(str(ops[0]))
+    ok("no op payload raises", not crashed, crashed[:2])
+    ok("and none of them leaves an infeasible programme", not invalid, invalid[:2])
+    # A NaN scale validated clean and made every later save throw, so the run
+    # was corrupt without a single invariant noticing.
+    ok("and none of them leaves a run that cannot be saved", not unsaveable, unsaveable[:2])
+
+    section("each op does what it says, measured against the catalog")
+    step = habit("walk").step
+    w = lambda p, hid="walk": next(x for x in p.habits if x.habit_id == hid)
+
+    frozen, _ = apply_patch(prog, [{"op": "freeze", "habit_id": "walk"}], today=20)
+    ok("freeze pins the dose to the day it froze",
+       all(dose_for(w(frozen), d) == dose_for(w(prog), 20) for d in range(20, PROGRAM_DAYS + 1)),
+       (dose_for(w(frozen), 60), dose_for(w(prog), 20)))
+    twice, _ = apply_patch(frozen, [{"op": "freeze", "habit_id": "walk"}], today=40)
+    ok("and freezing again does not move the pin later",
+       w(twice).frozen_day == w(frozen).frozen_day, (w(twice), w(frozen)))
+
+    soft, _ = apply_patch(prog, [{"op": "soften", "habit_id": "walk", "factor": 0.5}], today=20)
+    ok("soften halves the ramp and never touches the starting dose",
+       dose_for(w(soft), 1) == habit("walk").start_dose
+       and dose_for(w(soft), 60) < dose_for(w(prog), 60),
+       (dose_for(w(soft), 1), dose_for(w(soft), 60), dose_for(w(prog), 60)))
+
+    deferred, _ = apply_patch(prog, [{"op": "defer", "habit_id": "plank", "days": 7}], today=20)
+    ok("defer moves a habit that has not started",
+       w(deferred, "plank").start_day == w(prog, "plank").start_day + 7,
+       (w(deferred, "plank"), w(prog, "plank")))
+    ok("and never past the last day a habit may be introduced",
+       w(apply_patch(prog, [{"op": "defer", "habit_id": "plank", "days": 10 ** 9}],
+                     today=20)[0], "plank").start_day <= LAST_INTRO_DAY)
+    underway, notes = apply_patch(prog, [{"op": "defer", "habit_id": "walk", "days": 7}], today=20)
+    ok("but refuses to move one the user is already running",
+       w(underway).start_day == w(prog).start_day
+       and any("already underway" in n for n in notes), notes)
+
+    dropped, _ = apply_patch(prog, [{"op": "drop", "habit_id": "plank"}], today=20)
+    ok("drop removes the habit", "plank" not in dropped.ids(), dropped.ids())
+    floor = Program("u", START, 90, prog.habits[:MIN_HABITS])
+    held, notes = apply_patch(floor, [{"op": "drop", "habit_id": floor.ids()[0]}], today=20)
+    ok(f"and stops at the {MIN_HABITS}-habit floor",
+       len(held.habits) == MIN_HABITS and any("floor" in n for n in notes), notes)
+
+    section("the patch cap counts ops, not the repair that follows")
+    many = [{"op": "soften", "habit_id": h, "factor": 0.5} for h in prog.ids()]
+    capped, notes = apply_patch(prog, many, today=20)
+    moved = [p.habit_id for p in capped.habits
+             if p.habit_id in prog.ids() and p != w(prog, p.habit_id)]
+    ok(f"at most {MAX_PATCH_HABITS} habits are touched by a patch",
+       len(moved) <= MAX_PATCH_HABITS, moved)
+    ok("and the ones past the cap say why they were ignored",
+       any("already touches" in n for n in notes), notes[:3])
+
+
 def main() -> int:
     test_doses()
     test_anchors()
+    test_ops()
     test_state()
     test_day_record()
     test_session()

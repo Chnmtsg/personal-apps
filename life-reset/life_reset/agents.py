@@ -317,6 +317,10 @@ def adapt_program(
 
     patched, notes = apply_patch(program, filtered, today=today)
     meta["notes"] = notes
-    meta["ops_applied"] = filtered
+    # Submitted, not applied. `apply_patch` still ignores an unknown op, a drop
+    # at the habit floor and a defer on something already underway, so calling
+    # this "applied" overstated it — a harness counting these reported 20
+    # `obliterate` ops as having run.
+    meta["ops_submitted"] = filtered
     meta["violations_remaining"] = [str(v) for v in validate(patched)]
     return patched, meta
