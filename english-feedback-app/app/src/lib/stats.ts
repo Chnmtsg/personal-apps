@@ -264,6 +264,156 @@ export function getPatternMap(entries: Entry[]): PatternCell[] {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Per-correction history — "the 4th time articles have come up", the
+// learner's own previous example, and a "gone quiet" note. All three are
+// computed relative to the entry being VIEWED, not to the device's current
+// state: reopening an old entry must show what was true then, or the same
+// entry reports a different history every time it is reopened, which is
+// exactly the false claim "computed, never asserted" exists to forbid.
+// `entries` is expected newest-first, as getEntries() returns it — the same
+// convention previousRate already relies on.
+// ---------------------------------------------------------------------------
+
+/** How many analysed entries strictly before the given one already contained
+ * this category — one entry with three article mistakes is one occasion the
+ * category came up, not three, the same entry-level counting cleanStreakFor
+ * already uses. An acute entry is skipped, same as everywhere else. Returns
+ * 0 if the id is not found, so a caller never has to special-case "missing"
+ * separately from "first time". */
+export function categoryOccurrencesBefore(
+  entries: Entry[],
+  entryId: string,
+  category: ErrorCategory
+): number {
+  const index = entries.findIndex((e) => e.id === entryId);
+  if (index === -1) return 0;
+  let count = 0;
+  for (let i = index + 1; i < entries.length; i++) {
+    const e = entries[i];
+    if (e.status !== "analysed" || !e.feedback || e.feedback.risk === "acute") continue;
+    if (e.feedback.corrections.some((c) => normalizeCategory(c.category) === category)) count++;
+  }
+  return count;
+}
+
+/** What the learner wrote last time this category came up, before the entry
+ * on screen — their own words, verbatim, taken from storage via the same
+ * shape getExamples uses. Null on the category's first-ever occurrence. */
+export function getPreviousExample(
+  entries: Entry[],
+  entryId: string,
+  category: ErrorCategory
+): CategoryExample | null {
+  const index = entries.findIndex((e) => e.id === entryId);
+  if (index === -1) return null;
+  for (let i = index + 1; i < entries.length; i++) {
+    const e = entries[i];
+    if (e.status !== "analysed" || !e.feedback || e.feedback.risk === "acute") continue;
+    for (const c of e.feedback.corrections) {
+      if (normalizeCategory(c.category) === category) {
+        return {
+          entryId: e.id,
+          createdAt: e.createdAt,
+          original: c.original,
+          corrected: c.corrected,
+          rule: c.explanation ?? c.rule ?? "",
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/** Everything a correction row needs to say about its own history, in one
+ * call so a Feedback row does not scan the entry list twice. */
+export interface CategoryHistoryForEntry {
+  category: ErrorCategory;
+  /** Including this entry: 1 on the category's first-ever occurrence. */
+  occurrenceNumber: number;
+  previousExample: CategoryExample | null;
+}
+
+export function getCategoryHistory(
+  entries: Entry[],
+  entryId: string,
+  category: ErrorCategory
+): CategoryHistoryForEntry {
+  return {
+    category,
+    occurrenceNumber: categoryOccurrencesBefore(entries, entryId, category) + 1,
+    previousExample: getPreviousExample(entries, entryId, category),
+  };
+}
+
+export interface QuietCategory {
+  category: ErrorCategory;
+  /** How many of the analysed entries immediately before the viewed one
+   * (newest first) are free of this category — the same "recent" window
+   * getPatternMap uses, so a category and a pattern never disagree about
+   * what counts as recent. */
+  entriesSince: number;
+}
+
+/**
+ * The honest form of "now it's fixed": categories that used to appear in
+ * this learner's writing before the entry on screen, have not appeared in
+ * the last PATTERN_ACTIVE_WINDOW analysed entries before it, and do not
+ * appear in it either. An observation about absence, computed the same way
+ * getPatternMap's "fading" status is computed — never a claim that the
+ * learner has mastered the structure, because a correction that IS in the
+ * entry on screen is, by definition, not fixed.
+ */
+export function getQuietCategories(entries: Entry[], entryId: string): QuietCategory[] {
+  const index = entries.findIndex((e) => e.id === entryId);
+  if (index === -1) return [];
+  const viewed = entries[index];
+  if (viewed.status !== "analysed" || !viewed.feedback || viewed.feedback.risk === "acute") return [];
+
+  const currentCategories = new Set(
+    viewed.feedback.corrections.map((c) => normalizeCategory(c.category))
+  );
+
+  const priorAnalysed = entries
+    .slice(index + 1)
+    .filter((e) => e.status === "analysed" && e.feedback && e.feedback.risk !== "acute");
+
+  const lastSeenIndex = new Map<ErrorCategory, number>();
+  priorAnalysed.forEach((e, i) => {
+    for (const c of e.feedback!.corrections) {
+      const cat = normalizeCategory(c.category);
+      if (!lastSeenIndex.has(cat)) lastSeenIndex.set(cat, i);
+    }
+  });
+
+  const quiet: QuietCategory[] = [];
+  for (const [category, lastIndex] of lastSeenIndex) {
+    if (currentCategories.has(category)) continue;
+    if (lastIndex >= PATTERN_ACTIVE_WINDOW) {
+      quiet.push({ category, entriesSince: lastIndex });
+    }
+  }
+  return quiet.sort((a, b) => a.entriesSince - b.entriesSince);
+}
+
+/** "1st"/"2nd"/"3rd"/"4th"… for the recurrence line under a correction — the
+ * one formatting concern here with real edge cases (11th–13th are
+ * irregular), so it earns a tested function rather than being inlined. */
+export function ordinal(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
+}
+
 // The level-metrics and weekly-input derivations were removed with their
 // agents (docs/adr/0001). They return with the level estimator and the
 // weekly review.

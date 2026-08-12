@@ -1,13 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  categoryOccurrencesBefore,
   formatErrorLog,
   getAnalysedCount,
+  getCategoryHistory,
   getErrorCounts,
   getExamples,
   getPatternMap,
+  getPreviousExample,
+  getQuietCategories,
   getRecurringCategories,
   getTrend,
+  ordinal,
   per100,
   previousRate,
   topCategories,
@@ -480,4 +485,146 @@ test("an acute entry is excluded from the trend and pattern map, but still exist
   // caller (getEntries()) still returns it; History and Feedback still find
   // it by id. That guarantee is exercised by db.ts/claim.ts, not here.
   assert.equal(entries.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Per-correction history: categoryOccurrencesBefore, getPreviousExample,
+// getCategoryHistory, getQuietCategories, ordinal.
+// ---------------------------------------------------------------------------
+
+// The core guarantee: history is relative to the entry being VIEWED, not to
+// the device's current state. Reopening the same list at an earlier entry
+// must report a smaller count — the same list, two different truthful
+// answers, because the question ("how many times before THIS one") differs.
+test("occurrence history is computed relative to the entry being viewed, not all-time", () => {
+  const entries = [
+    entry({ id: "c", createdAt: day(2026, 1, 3), corrections: [correction("articles")] }),
+    entry({ id: "b", createdAt: day(2026, 1, 2), corrections: [correction("articles")] }),
+    entry({ id: "a", createdAt: day(2026, 1, 1), corrections: [correction("articles")] }),
+  ];
+  assert.equal(categoryOccurrencesBefore(entries, "a", "article"), 0);
+  assert.equal(categoryOccurrencesBefore(entries, "b", "article"), 1);
+  assert.equal(categoryOccurrencesBefore(entries, "c", "article"), 2);
+  // Reopening "b" today must show exactly what was true when "b" was
+  // written — 1 prior occurrence — never the all-time total of 2.
+  assert.equal(getCategoryHistory(entries, "b", "article").occurrenceNumber, 2);
+});
+
+test("a legacy category name in a past entry is still counted under its v2 id", () => {
+  const entries = [
+    entry({ id: "new", createdAt: day(2026, 1, 2), corrections: [correction("comma_splice")] }),
+    entry({ id: "old", createdAt: day(2026, 1, 1), corrections: [correction("comma_splice")] }),
+  ];
+  assert.equal(categoryOccurrencesBefore(entries, "new", "run_on"), 1);
+  assert.equal(getPreviousExample(entries, "new", "run_on")?.entryId, "old");
+});
+
+test("an acute entry between two real ones does not count toward occurrence history, even if it carried a stray correction", () => {
+  const entries = [
+    entry({ id: "c", createdAt: day(2026, 1, 3), corrections: [correction("articles")] }),
+    // Not how the Worker actually stores an acute entry (it always writes
+    // corrections: []) — constructed this way on purpose, so the test
+    // proves the function checks risk === "acute" itself rather than
+    // happening to pass because acute entries are always empty.
+    entry({ id: "acute", createdAt: day(2026, 1, 2), corrections: [correction("articles")], risk: "acute" }),
+    entry({ id: "a", createdAt: day(2026, 1, 1), corrections: [correction("articles")] }),
+  ];
+  assert.equal(categoryOccurrencesBefore(entries, "c", "article"), 1);
+  assert.equal(getPreviousExample(entries, "c", "article")?.entryId, "a");
+});
+
+test("the first-ever occurrence of a category has no previous example and occurrence number 1", () => {
+  const entries = [entry({ id: "a", createdAt: day(2026, 1, 1), corrections: [correction("articles")] })];
+  const history = getCategoryHistory(entries, "a", "article");
+  assert.equal(history.occurrenceNumber, 1);
+  assert.equal(history.previousExample, null);
+});
+
+test("getPreviousExample carries the learner's own words verbatim", () => {
+  const entries = [
+    entry({ id: "b", createdAt: day(2026, 1, 2), corrections: [correction("articles")] }),
+    entry({
+      id: "a",
+      createdAt: day(2026, 1, 1),
+      corrections: [correction("articles", "I am geologist", "I am a geologist")],
+    }),
+  ];
+  const example = getPreviousExample(entries, "b", "article");
+  assert.equal(example?.original, "I am geologist");
+  assert.equal(example?.corrected, "I am a geologist");
+  assert.equal(example?.entryId, "a");
+});
+
+test("categoryOccurrencesBefore and getPreviousExample are 0/null for an id not in the list", () => {
+  const entries = [entry({ id: "a", createdAt: day(2026, 1, 1), corrections: [correction("articles")] })];
+  assert.equal(categoryOccurrencesBefore(entries, "missing", "article"), 0);
+  assert.equal(getPreviousExample(entries, "missing", "article"), null);
+});
+
+/** Builds `n` clean filler entries (newest-first-compatible order), with one
+ * entry at `hitAt` carrying a correction in `category`. Mirrors the fixture
+ * shape getPatternMap's own test already relies on. */
+function fillerEntries(n: number, hitAt: number, category: string): Entry[] {
+  return Array.from({ length: n }, (_, i) =>
+    entry({
+      id: `f${i}`,
+      createdAt: day(2026, 2, 1) - i,
+      corrections: i === hitAt ? [v2correction(category as Correction["category"])] : [correction("spelling")],
+    })
+  );
+}
+
+test("gone-quiet uses the same PATTERN_ACTIVE_WINDOW boundary as the pattern map", () => {
+  // "verb_tense" last appeared 13 entries back — still inside the window, so
+  // it is active, not quiet. "collocation" last appeared 14 entries back —
+  // exactly the boundary — so it is quiet.
+  const viewed = entry({ id: "viewed", createdAt: day(2026, 3, 1), corrections: [] });
+  const filler = fillerEntries(20, 13, "verb_tense");
+  filler[14] = entry({
+    id: filler[14].id,
+    createdAt: filler[14].createdAt,
+    corrections: [v2correction("collocation")],
+  });
+  const entries = [viewed, ...filler];
+
+  const quiet = getQuietCategories(entries, "viewed");
+  assert.ok(!quiet.some((q) => q.category === "verb_tense"));
+  const collocation = quiet.find((q) => q.category === "collocation");
+  assert.equal(collocation?.entriesSince, 14);
+});
+
+test("a category still being corrected in the entry on screen is never reported as gone quiet", () => {
+  const filler = fillerEntries(20, 15, "pronoun");
+  const viewed = entry({ id: "viewed", createdAt: day(2026, 3, 1), corrections: [correction("pronoun")] });
+  const entries = [viewed, ...filler];
+  const quiet = getQuietCategories(entries, "viewed");
+  assert.ok(!quiet.some((q) => q.category === "pronoun"));
+});
+
+test("gone-quiet is empty for an id not in the list, and for an acute or unanalysed viewed entry", () => {
+  const filler = fillerEntries(20, 15, "pronoun");
+  assert.deepEqual(getQuietCategories(filler, "missing"), []);
+  assert.deepEqual(
+    getQuietCategories([acuteEntry({ id: "acute", createdAt: day(2026, 3, 1) }), ...filler], "acute"),
+    []
+  );
+  assert.deepEqual(
+    getQuietCategories([entry({ id: "q", createdAt: day(2026, 3, 1), status: "queued" }), ...filler], "q"),
+    []
+  );
+});
+
+test("ordinal formats 1st/2nd/3rd/4th and the 11th-13th irregular teens", () => {
+  assert.equal(ordinal(1), "1st");
+  assert.equal(ordinal(2), "2nd");
+  assert.equal(ordinal(3), "3rd");
+  assert.equal(ordinal(4), "4th");
+  assert.equal(ordinal(11), "11th");
+  assert.equal(ordinal(12), "12th");
+  assert.equal(ordinal(13), "13th");
+  assert.equal(ordinal(21), "21st");
+  assert.equal(ordinal(22), "22nd");
+  assert.equal(ordinal(23), "23rd");
+  assert.equal(ordinal(101), "101st");
+  assert.equal(ordinal(111), "111th");
 });

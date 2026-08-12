@@ -2,13 +2,25 @@ import { useMemo, useState } from "react";
 import type { Screen } from "../App";
 import ErrorNote from "../components/ErrorNote";
 import EditSpan from "../components/EditSpan";
-import { getEntries, getEntry, per100, previousRate, requeueFailedEntry, type Entry } from "../lib/db";
+import {
+  getCategoryHistory,
+  getEntries,
+  getEntry,
+  getQuietCategories,
+  ordinal,
+  per100,
+  previousRate,
+  requeueFailedEntry,
+  type CategoryHistoryForEntry,
+  type Entry,
+} from "../lib/db";
 import { processQueue } from "../lib/queue";
 import { canRequeue } from "../lib/claim";
-import { FAIL_REASON_MESSAGES, labelFor } from "../lib/categories";
+import { FAIL_REASON_MESSAGES, labelFor, normalizeCategory } from "../lib/categories";
 import { buildSegments } from "../lib/highlight";
 import { explanationRows, hasLegacyAppendix } from "../lib/feedbackSections";
 import { useLoad } from "../lib/useLoad";
+import type { ErrorCategory } from "../../../shared/schema";
 
 interface Props {
   entryId: string;
@@ -66,6 +78,33 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
     for (const a of fb?.alternatives ?? []) map.set(a.for, a.phrasings);
     return map;
   }, [fb]);
+  // Per-correction history (this task): how many times a category has come
+  // up, and what the learner wrote last time — computed relative to the
+  // entry being viewed, never all-time (see stats.ts). Keyed by the index of
+  // that category's FIRST row, same reasoning as showRule: three article
+  // corrections should carry the history line once, not three times.
+  const categoryHistories = useMemo(() => {
+    const map = new Map<number, CategoryHistoryForEntry>();
+    if (!entry || !fb || historyState.status !== "ready") return map;
+    const seen = new Set<ErrorCategory>();
+    fb.corrections.forEach((c, index) => {
+      const cat = normalizeCategory(c.category);
+      if (seen.has(cat)) return;
+      seen.add(cat);
+      map.set(index, getCategoryHistory(historyState.data, entry.id, cat));
+    });
+    return map;
+  }, [entry, fb, historyState]);
+  // Categories that used to appear and have gone quiet — the honest form of
+  // "now it's fixed" (see getQuietCategories). Capped and sorted so the
+  // longest-quiet category leads; this is a closing note, not a second list
+  // to read in full.
+  const quietCategories = useMemo(() => {
+    if (!entry || !fb || historyState.status !== "ready") return [];
+    return [...getQuietCategories(historyState.data, entry.id)]
+      .sort((a, b) => b.entriesSince - a.entriesSince)
+      .slice(0, 3);
+  }, [entry, fb, historyState]);
 
   const back = (
     <button
@@ -317,6 +356,30 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
                       {c.explanation ?? c.rule}
                     </p>
                   )}
+                  {/* History for this category, on its first row only (same
+                      reasoning as showRule). "Nth time" is computed relative
+                      to the entry being viewed, never all-time (stats.ts) —
+                      reopening an old entry must keep reporting what was true
+                      then. Never "fixed" or "mastered": a correction on this
+                      very screen is by definition happening now. */}
+                  {categoryHistories.has(index) &&
+                    categoryHistories.get(index)!.occurrenceNumber > 1 &&
+                    (() => {
+                      const h = categoryHistories.get(index)!;
+                      const phrase = labelFor(c.category).split(" (")[0].toLowerCase();
+                      return (
+                        <p className="mt-1.5 text-[12.5px] leading-[1.5] text-ink-faint">
+                          This is the {ordinal(h.occurrenceNumber)} time {phrase} has come up.
+                          {h.previousExample && (
+                            <>
+                              {" "}
+                              Last time: “{h.previousExample.original}” → “
+                              {h.previousExample.corrected}”.
+                            </>
+                          )}
+                        </p>
+                      );
+                    })()}
                   {/* "You could also say" — passive reading only, never
                       a choice (ADR 0002 Part B). Deliberately no
                       EditSpan, no accent rule bar, no tick: this is not
@@ -375,6 +438,28 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
                   <p className="font-serif text-[15px] leading-[1.55] text-ink">
                     {a.question}
                   </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {/* Gone quiet — the honest form of "now it's fixed": an observation
+            about absence (getQuietCategories), never a claim of mastery. A
+            correction on this screen is happening now, so its category can
+            never appear here too (see getQuietCategories). */}
+        {quietCategories.length > 0 && (
+          <div
+            className={
+              fb.corrections.length > 0 || (fb.ambiguous && fb.ambiguous.length > 0)
+                ? "mt-5 border-t border-rule pt-5"
+                : "mt-5"
+            }
+          >
+            <ul className="flex flex-col gap-1">
+              {quietCategories.map((q) => (
+                <li key={q.category} className="text-[12.5px] leading-[1.5] text-ink-faint">
+                  {labelFor(q.category).split(" (")[0]} has not come up in your last {q.entriesSince}{" "}
+                  entries.
                 </li>
               ))}
             </ul>
