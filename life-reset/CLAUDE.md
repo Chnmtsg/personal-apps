@@ -24,6 +24,7 @@ life_reset/catalog.py    closed lists: 24 habits, 3 phases, the constraints
 life_reset/program.py    dose/ramp maths, validate, repair, apply_patch, render
 life_reset/agents.py     Architect and Adaptation, both LLM-optional
 life_reset/recommend.py  what to do next when it is going *well* — pure code
+life_reset/state.py      the stored shape: versioned JSON in, Program out. No I/O
 life_reset/nodes.py      AnthropicLLM — the ONLY file that imports anthropic
 eval_harness.py          2,000 synthetic users x 66 days, 12 hostile Architects
 tests.py                 unit tests — the layer the harness cannot cover
@@ -121,6 +122,15 @@ reads that as the signal to substitute the cheap fallback programme.
 **Nothing computable is left to the model.** It classifies, extracts and
 phrases. Every number the user sees traces to `catalog.py` through `dose_for`.
 
+**A save round-trips exactly, or it is refused.** `state.from_dict` reading what
+`state.to_dict` wrote must give back an equal `Program` — the harness asserts it
+on every programme it builds, plus a twin with every optional field populated.
+That twin is not belt-and-braces: `adapt_program(None, ...)` only ever softens
+here, so no harness programme has ever carried a `frozen_day`, and deleting that
+field from `to_dict` passed 2,000 users clean while failing a unit test by name.
+A check that can only see the fields the layer above it happens to set is not a
+check.
+
 **A recommendation is a proposal that has already been proved.** Nothing leaves
 `recommend.py` until the programme it would produce has been walked across all
 66 days with zero violations, and `apply_recommendation` re-checks rather than
@@ -186,13 +196,19 @@ Ordered by how likely they are to bite.
    What is *not* closed is the ratchet in the other direction: nothing steps a
    habit past its catalog `target_dose`, and nothing should — that ceiling is a
    number the catalog owns.
-3. **No persistence, and `dose_for` has no memory.** `Program` is a frozen
-   dataclass with no serialisation and no version. Decide the stored shape
-   *before* a store exists — afterwards every added field is a migration against
-   live 66-day programmes that must not be re-judged.
+3. **~~No persistence.~~** Closed for the shape, open for the store.
+   `state.py` is the boundary: `SCHEMA_VERSION`, `to_dict`/`from_dict`,
+   `dumps`/`loads`, no I/O and nothing third-party. The rules it commits to are
+   in its docstring and worth reading before changing it — nothing derived is
+   stored, a newer save is refused rather than silently truncated, loading is
+   faithful while `validate` judges and `repair` fixes, and catalog drift drops
+   a habit with a note where corruption raises. Adding a field now means bumping
+   `SCHEMA_VERSION` and writing the upgrade branch, which is the cost this was
+   built to make explicit. There is still no *store* — where the bytes go is the
+   caller's, deliberately.
 
-   The sharper form of this: **`soften`, `freeze` and `resume` all rewrite the
-   past.** `dose_for` is a pure function of the habit's *current* state, so
+   **`dose_for` still has no memory**, and that is the part of this gap that is
+   not closed: **`soften`, `freeze` and `resume` all rewrite the past.** `dose_for` is a pure function of the habit's *current* state, so
    softening on day 30 changes what day 10 renders as having asked for, and
    resuming pushes the freeze pin over a span the user has already lived. No
    single value of `frozen_day` can express "held at 20 until today, ramping

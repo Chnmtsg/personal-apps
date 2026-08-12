@@ -19,8 +19,11 @@ steps — and this file contains a second cautionary tale of that, see
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import date
+
+from life_reset import state
 
 from life_reset.agents import (
     INTERVENTION_MISSES,
@@ -450,9 +453,112 @@ def test_recommend() -> None:
        [r.habit_id for r in recommend(eased, slipping, today) if r.kind == "advance"])
 
 
+# ---------------------------------------------------------------------------
+# The stored shape — the decision that gets expensive after it ships
+# ---------------------------------------------------------------------------
+
+
+def test_state() -> None:
+    section("a run survives being written down and read back")
+    prog, _ = repair(Program("u1", START, 60, (
+        ProgramHabit("walk", 1), ProgramHabit("water", 8, scale=0.5),
+        ProgramHabit("read", 15, frozen_day=30), ProgramHabit("vitamins", 22),
+    )))
+    logs = {1: {"walk", "water"}, 3: {"walk"}, 30: set()}
+
+    back = state.loads(state.dumps(prog, logs))
+    ok("the programme round-trips exactly", back.program == prog, (back.program, prog))
+    ok("the logs round-trip exactly", back.logs == logs, back.logs)
+    ok("a clean save reports nothing", back.notes == (), back.notes)
+
+    # Same state, same bytes: a save that serialises two ways breaks content
+    # hashing and makes every sync look like a change.
+    ok("writing is deterministic", state.dumps(back.program, back.logs) == state.dumps(prog, logs))
+
+    # The oracle is the declared key list, not whatever to_dict happened to emit.
+    written = state.to_dict(prog, logs)
+    ok("a save carries exactly the declared keys and no others",
+       tuple(written) == state.TOP_LEVEL_KEYS, tuple(written))
+    ok("and each habit carries exactly its own",
+       all(tuple(h) == state.HABIT_KEYS for h in written["habits"]), written["habits"][:1])
+
+    # Nothing derived. Every one of these is recomputed from the catalog and the
+    # calendar, and a stored copy is a copy that will disagree.
+    blob = state.dumps(prog, logs)
+    derived = [w for w in ("dose", "today", "minutes_for", "streak", "rate", "phase",
+                           "target_dose", "day_of_habit") if f'"{w}"' in blob]
+    ok("no derived value is stored", not derived, derived)
+
+    section("a save that cannot be honoured is refused, not guessed at")
+
+    def refuses(label: str, text: str) -> str:
+        try:
+            state.loads(text)
+        except state.StateError as exc:
+            ok(label, True)
+            return str(exc)
+        ok(label, False, "it was accepted")
+        return ""
+
+    refuses("rejects what is not JSON", "this is my diary, not a save")
+    refuses("rejects a JSON array", "[]")
+    refuses("rejects null", "null")
+    refuses("rejects a save with no schema version", json.dumps({"user_id": "u"}))
+    refuses("rejects a save with no habit list",
+            json.dumps({"version": 1, "user_id": "u", "start_date": "2026-01-01",
+                        "minutes_budget": 60}))
+    newer = refuses("rejects a save from a newer build",
+                    json.dumps({"version": state.SCHEMA_VERSION + 1, "user_id": "u",
+                                "start_date": "2026-01-01", "minutes_budget": 60,
+                                "habits": []}))
+    ok("and names both schema versions so the reason is actionable",
+       str(state.SCHEMA_VERSION + 1) in newer and str(state.SCHEMA_VERSION) in newer, newer)
+
+    # `isinstance(True, int)` is True in Python, so an unguarded read turns
+    # "minutes_budget": true into a 1-minute budget and every day infeasible.
+    d = state.to_dict(prog, logs)
+    d["minutes_budget"] = True
+    refuses("rejects a boolean where a number belongs", json.dumps(d))
+
+    d = state.to_dict(prog, logs)
+    d["habits"][0]["start_day"] = "soon"
+    refuses("rejects corruption rather than guessing at it", json.dumps(d))
+
+    d = state.to_dict(prog, logs)
+    d["habits"][0]["scale"] = float("nan")
+    refuses("rejects a scale that is not a number", json.dumps(d, allow_nan=True))
+
+    section("a catalog that has moved costs a habit, never the run")
+    d = state.to_dict(prog, logs)
+    d["habits"][1]["habit_id"] = "moon_bathing"          # retired from the catalog
+    loaded = state.from_dict(d)
+    ok("an unknown habit is dropped, not raised on",
+       len(loaded.program.habits) == len(prog.habits) - 1, loaded.program.ids())
+    ok("and the drop is reported rather than silent",
+       any("moon_bathing" in n for n in loaded.notes), loaded.notes)
+    ok("the day counter is untouched — start_date is what it was",
+       loaded.program.start_date == prog.start_date)
+    ok("a log of something the catalog no longer has is still the user's record",
+       loaded.logs == logs, loaded.logs)
+
+    section("loading is faithful; validate judges; repair fixes")
+    d = state.to_dict(prog, logs)
+    d["habits"][0]["start_day"] = 900                    # outside [1, LAST_INTRO_DAY]
+    loaded = state.from_dict(d)
+    ok("an impossible start day is preserved, not quietly clamped",
+       loaded.program.habits[0].start_day == 900, loaded.program.habits[0])
+    ok("and validate is the thing that objects to it",
+       any(v.kind == "start_day_range" for v in validate(loaded.program)),
+       [str(v) for v in validate(loaded.program)][:2])
+    fixed, _ = repair(loaded.program)
+    ok("and repair is the thing that fixes it", not validate(fixed),
+       [str(v) for v in validate(fixed)][:2])
+
+
 def main() -> int:
     test_doses()
     test_anchors()
+    test_state()
     test_intervention_triggers()
     test_resume()
     test_recommend()

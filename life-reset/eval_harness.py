@@ -20,6 +20,7 @@ import argparse
 import json
 import random
 import sys
+from dataclasses import replace
 from datetime import date
 from typing import Callable
 
@@ -47,6 +48,7 @@ from life_reset.program import (
     dose_for,
     validate,
 )
+from life_reset import state
 from life_reset.recommend import apply_recommendation, recommend
 
 START = date(2026, 1, 1)
@@ -190,6 +192,61 @@ def check_patch(before: Program, after: Program, meta: dict, today: int,
 # ---------------------------------------------------------------------------
 
 
+def check_round_trip(prog: Program, logs: dict[int, set[str]] | None,
+                     tag: str, f: Failures) -> int:
+    """Per programme. Written down, read back, and still the same run.
+
+    The comparison is against the *original object*, not against a second
+    serialisation of it — a codec that drops a field consistently would agree
+    with itself all day. Equality on the frozen dataclass is the independent
+    oracle here: it compares every field, including ones this check does not
+    know about, so a field added later is covered the moment it exists.
+
+    The 66-day walk is repeated on the restored programme for the same reason.
+    Round-tripping to something that still parses but no longer means the same
+    thing is the failure that would surface on a real device, three weeks in.
+
+    The twin is not decoration either. **This harness cannot prove a codec using
+    only its own programmes.** `adapt_program(None, ...)` falls back to `soften`
+    every time here, so nothing it generates has ever carried a `frozen_day` —
+    deleting that field from `to_dict` passed 2,000 users clean while failing a
+    unit test by name. That is gap 1 leaking into a check that has nothing to do
+    with adaptation. The twin populates every optional field so this check stops
+    inheriting the coverage of the layer above it.
+    """
+
+    def round_trip(p: Program, lg: dict[int, set[str]] | None, what: str) -> None:
+        try:
+            back = state.loads(state.dumps(p, lg))
+        except state.StateError as exc:
+            f.add("save_round_trips", f"{tag}/{what}: refused its own save — {exc}")
+            return
+        if back.program != p:
+            f.add("save_round_trips", f"{tag}/{what}: {p} came back as {back.program}")
+        if lg is not None and back.logs != lg:
+            f.add("save_round_trips", f"{tag}/{what}: logs changed across the round trip")
+        if back.notes:
+            f.add("save_is_clean",
+                  f"{tag}/{what}: this build cannot read what it just wrote — {back.notes}")
+        # Same state, same bytes. Without this a sync layer reads every load as a
+        # write, and content hashing is worthless.
+        if state.dumps(back.program, back.logs if lg is not None else None) != state.dumps(p, lg):
+            f.add("save_is_deterministic", f"{tag}/{what}: serialising twice gave two answers")
+        if sorted(str(v) for v in validate(p)) != sorted(str(v) for v in validate(back.program)):
+            f.add("save_preserves_judgement", f"{tag}/{what}: verdict changed across the trip")
+
+    round_trip(prog, logs, "as-is")
+    round_trip(
+        replace(prog, habits=tuple(
+            replace(p, scale=0.25 + 0.25 * (i % 3), frozen_day=p.start_day + 7 + i)
+            for i, p in enumerate(prog.habits)
+        )),
+        logs,
+        "every-field-set",
+    )
+    return 2
+
+
 def check_recommendations(prog: Program, logs: dict[int, set[str]], today: int,
                           diag: dict, tag: str, f: Failures) -> dict[str, int]:
     """Per user. Every suggestion offered, taken in the order it was offered.
@@ -293,6 +350,7 @@ def main() -> int:
     sources = {"llm": 0, "fallback": 0}
     patched_users = 0
     offered: dict[str, int] = {}
+    round_trips = 0
 
     for i in range(args.users):
         kind = names[i % len(names)]
@@ -302,6 +360,7 @@ def main() -> int:
         prog, meta = build_program(llm, "intake", f"u{i}", START, budget)
         sources[meta["source"]] = sources.get(meta["source"], 0) + 1
         check_program(prog, f"{kind}/u{i}", f)
+        round_trips += check_round_trip(prog, None, f"{kind}/u{i}", f)
         day_renders += PROGRAM_DAYS
 
         if meta["violations_remaining"]:
@@ -327,6 +386,7 @@ def main() -> int:
                 after, pmeta = adapt_program(None, prog, diag, today)
                 check_patch(prog, after, pmeta, today, diag, f"{kind}/u{i}", f)
                 check_program(after, f"{kind}/u{i}+patch", f)
+                round_trips += check_round_trip(after, logs, f"{kind}/u{i}+patch", f)
                 day_renders += PROGRAM_DAYS
                 # The recommender against a *patched* programme, which is where
                 # anything eased back lives and so the only place `advance` can
@@ -360,6 +420,7 @@ def main() -> int:
     # A zero here is a branch that went untested, not a branch that behaved.
     split = ", ".join(f"{k} {n}" for k, n in sorted(offered.items())) or "none"
     print(f"recommendations offered and accepted: {sum(offered.values())} ({split})")
+    print(f"saves written and read back: {round_trips}")
     print("=" * 72)
     if not f.by_kind:
         print("\n  no invariant violations\n")

@@ -20,10 +20,12 @@ from .program import (
     validate,
 )
 from .recommend import Recommendation, apply_recommendation, recommend
+from .state import SCHEMA_VERSION, Loaded, StateError, dumps, from_dict, loads, to_dict
 
 __all__ = [
     "HABITS", "PHASES", "PROGRAM_DAYS", "Habit", "Phase", "habit", "is_known", "phase_for",
     "Program", "ProgramHabit", "Violation", "apply_patch", "day_index", "day_minutes",
     "dose_for", "minutes_for", "program_day", "render_program_day", "repair", "validate",
     "Recommendation", "apply_recommendation", "recommend",
+    "SCHEMA_VERSION", "Loaded", "StateError", "dumps", "loads", "to_dict", "from_dict",
 ]

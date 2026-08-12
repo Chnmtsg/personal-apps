@@ -46,14 +46,16 @@ invocation and could never fail. Both triggers are now tested independently.
 | `life_reset/program.py` | `dose_for`, `minutes_for`, `program_day`, `validate`, `repair`, `_respace`, `apply_patch` (five ops, `resume` included), `render_program_day` |
 | `life_reset/agents.py` | Architect (`build_program`, `coerce_program`, `fallback_program`) and Adaptation (`diagnose`, `adapt_program`) |
 | `life_reset/recommend.py` | `recommend`, `apply_recommendation` — `add` and `advance`, pure code, no model |
+| `life_reset/state.py` | `SCHEMA_VERSION`, `to_dict`/`from_dict`, `dumps`/`loads` — the stored shape, no I/O |
 | `life_reset/nodes.py` | `AnthropicLLM` — the only file that imports `anthropic` |
 | `eval_harness.py` | 12 adversarial Architects, the invariants, per-user, per-patch and per-recommendation |
 | `demo_program.py` | Hostile Architect → repaired programme → a user who stops for four days → the same user recovered |
 
 **Current numbers:** 2,000 users, ~165,000 day-renders, 1,638 recommendations
-offered and accepted (1,372 `add`, 266 `advance`), **zero invariant violations**;
-42 unit tests. A separate fuzz over 12,000 random programmes: `repair` leaves
-zero infeasible days, `build_program` returns zero invalid programmes.
+offered and accepted (1,372 `add`, 266 `advance`), 5,008 saves written and read
+back, **zero invariant violations**; 66 unit tests. A separate fuzz over 12,000
+random programmes: `repair` leaves zero infeasible days, `build_program` returns
+zero invalid programmes.
 
 The per-kind split in the harness summary is part of the check, not decoration.
 The `advance` half first reported **zero** — the harness patched people and then
@@ -61,7 +63,20 @@ stopped watching, so the only state that op fires in was never modelled and its
 assertions all passed without running. That is the same shape as the
 `A and not (A or B)` tautology below.
 
+The same leak bit the codec. `check_round_trip` compares against the original
+`Program`, which is a sound oracle — but the only programmes it had were the
+harness's own, and `adapt_program(None, ...)` softens every time, so none of
+them has ever carried a `frozen_day`. Deleting that field from `to_dict` passed
+2,000 users clean while failing a unit test by name. The check now round-trips a
+twin with every optional field populated, and catching the same break went from
+zero violations to 2,599.
+
 ## Not built yet
+
+A **store**. `state.py` decides the shape and does the codec; where the bytes go
+is still the caller's, and there is no `Store` protocol, no file layer and no
+sync. That is deliberate — the shape was the part that gets expensive after it
+ships.
 
 The **daily graph** — `life_reset/graph.py` and its 14 nodes, plus
 `engine.py`, `store.py`, `demo.py`. `factory.py` and `demo_factory.py` came
