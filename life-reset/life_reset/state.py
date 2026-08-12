@@ -10,7 +10,7 @@ different thing: a Postgres protocol for the daily graph, which does not exist.)
 **Deciding this shape is the point, not the code.** Once 66-day runs exist on
 real devices, every added field is a migration against programmes that must not
 be re-judged, and the cost of a bad decision is paid by people 40 days into
-something they earned. Four rules hold it together:
+something they earned. Five rules hold it together:
 
 * **Nothing derived is stored.** Not the current day — that is `day_index` from
   `start_date` and the real date. Not doses, minutes, streaks or completion
@@ -42,9 +42,15 @@ something they earned. Four rules hold it together:
 Adding a schema version: bump `SCHEMA_VERSION` and give `_upgrade` a branch.
 Additive only — an upgrade may fill a new field with a default and may never
 drop or reinterpret one, because the run it is touching is one somebody is
-partway through. `_upgrade` carries 1 -> 2 as the worked example, including the
-part that matters most: what it does with a value the old schema never recorded
-and this one cannot honestly reconstruct.
+partway through. `_upgrade` runs its steps in sequence, never as a jump: a v1
+save reaching a v3 build goes 1 -> 2 -> 3, so each step only has to know about
+the version directly below it. A direct 1 -> 3 branch alongside them would be a
+second description of the same transformation, and the two would drift.
+
+Both steps show the part that matters most — what to do with a value the older
+schema never recorded and this one cannot honestly reconstruct. The answer is
+always `None`. Deriving `did` from `done` would claim the user hit the ask
+exactly, on every day they kept, which is a number nobody wrote down.
 """
 
 from __future__ import annotations
@@ -58,7 +64,7 @@ from typing import Any
 from .catalog import PROGRAM_DAYS, is_known
 from .program import DayEntry, DayLog, Program, ProgramHabit
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Exactly what a save carries, and the guard against a derived value creeping
 # in. `tests.py` asserts the written keys are these and nothing else, so adding
@@ -66,6 +72,7 @@ SCHEMA_VERSION = 2
 # appeared because it was convenient at the call site.
 TOP_LEVEL_KEYS = ("version", "user_id", "start_date", "minutes_budget", "habits", "logs")
 HABIT_KEYS = ("habit_id", "start_day", "scale", "frozen_day")
+ENTRY_KEYS = ("asked", "done", "did")
 
 
 class StateError(ValueError):
@@ -121,7 +128,7 @@ def to_dict(program: Program, logs: DayLog | None = None) -> dict:
     if logs is not None:
         out["logs"] = {
             str(day): {
-                hid: {"asked": entry.asked, "done": bool(entry.done)}
+                hid: {"asked": entry.asked, "done": bool(entry.done), "did": entry.did}
                 for hid, entry in sorted(entries.items())
             }
             for day, entries in sorted(logs.items())
@@ -174,8 +181,13 @@ def _upgrade(raw: dict, version: int) -> tuple[dict, list[str]]:
     A missed day in a schema-1 save is simply absent, and stays absent.
     """
     notes: list[str] = []
+    raw = dict(raw)
+
+    # Sequential, never a jump. A v1 save reaching a v3 build goes 1 -> 2 -> 3
+    # through both steps, so each one only ever has to know about the version
+    # directly below it. Writing a direct 1 -> 3 branch as well would be two
+    # descriptions of the same transformation, and they would disagree.
     if version < 2:
-        raw = dict(raw)
         old = raw.get("logs")
         if isinstance(old, dict) and old:
             raw["logs"] = {
@@ -188,6 +200,23 @@ def _upgrade(raw: dict, version: int) -> tuple[dict, list[str]]:
                 "done but not what was asked, and that number is not recoverable"
             )
         raw["version"] = 2
+        version = 2
+
+    if version < 3:
+        # Purely additive: `did` is what the app measured, and a schema-2 save
+        # never measured anything. `None` is the honest value — deriving it from
+        # `done` would claim the user hit the ask exactly, on every day they
+        # kept, which is a number nobody recorded.
+        logs = raw.get("logs")
+        if isinstance(logs, dict):
+            raw["logs"] = {
+                day: {hid: {**entry, "did": entry.get("did")}
+                      for hid, entry in entries.items() if isinstance(entry, dict)}
+                for day, entries in logs.items() if isinstance(entries, dict)
+            }
+        raw["version"] = 3
+        version = 3
+
     return raw, notes
 
 
@@ -295,9 +324,14 @@ def from_dict(raw: Any) -> Loaded:
                     asked = _finite(asked)
                     if asked is None:
                         raise StateError(f"day {day}, {hid}: unreadable asked {entry.get('asked')!r}")
+                measured = entry.get("did")
+                if measured is not None:
+                    measured = _finite(measured)
+                    if measured is None:
+                        raise StateError(f"day {day}, {hid}: unreadable did {entry.get('did')!r}")
                 if not isinstance(entry.get("done"), bool):
                     raise StateError(f"day {day}, {hid}: done is not a boolean")
-                day_log[hid] = DayEntry(asked=asked, done=entry["done"])
+                day_log[hid] = DayEntry(asked=asked, done=entry["done"], did=measured)
             logs[day] = day_log
 
     program = Program(user_id=user_id, start_date=start_date, minutes_budget=budget,

@@ -620,6 +620,37 @@ def test_day_record() -> None:
        (diagnose(deferred, lived, 30)["per_habit"]["water"],
         diagnose(prog, lived, 30)["per_habit"]["water"]))
 
+    section("what the user actually managed, where the app measured it")
+    part = record_day(prog, 20, done=["read"], did={"walk": 3.0, "water": 99.0})
+    ok("a measurement below the ask is recorded and not counted as kept",
+       part["walk"].did == 3.0 and part["walk"].done is False, part["walk"])
+    ok("a measurement at or above it is",
+       part["water"].did == 99.0 and part["water"].done is True, part["water"])
+    # Meeting the ask is the whole ask. There is no second, softer pass mark:
+    # 1.8 of 2 litres is recorded honestly and is not a kept day.
+    edge = record_day(prog, 20, did={"walk": dose_for(
+        next(x for x in prog.habits if x.habit_id == "walk"), 20) - 0.001})
+    ok("and a hair under the ask is still under it", edge["walk"].done is False, edge["walk"])
+    ok("a tick with nothing measured leaves did unknown rather than guessing",
+       part["read"].done is True and part["read"].did is None, part["read"])
+    ok("a habit neither ticked nor measured is asked-and-missed",
+       part["water"].asked is not None, part["water"])
+
+    ok("fraction is what the app draws as 0 / 2L",
+       abs(part["walk"].fraction - 3.0 / part["walk"].asked) < 1e-9, part["walk"].fraction)
+    ok("and it does not exceed 1, because beating today does not move the ramp",
+       part["water"].fraction == 1.0, part["water"].fraction)
+    ok("with nothing measured there is no fraction to draw",
+       part["read"].fraction is None, part["read"].fraction)
+
+    measured = {20: part}
+    ok("a measured day round-trips exactly",
+       state.loads(state.dumps(prog, measured)).logs == measured)
+    ok("and an entry carries exactly its declared keys",
+       all(tuple(e) == state.ENTRY_KEYS
+           for d in state.to_dict(prog, measured)["logs"].values() for e in d.values()),
+       state.to_dict(prog, measured)["logs"])
+
     section("a schema-1 save keeps its history and admits what it lost")
     v1 = state.to_dict(prog)
     v1["version"] = 1
@@ -636,6 +667,24 @@ def test_day_record() -> None:
        any("not recoverable" in n for n in loaded.notes), loaded.notes)
     ok("an upgraded save is written back at the current schema",
        state.to_dict(loaded.program, loaded.logs)["version"] == state.SCHEMA_VERSION)
+    # A v1 save reaching a v3 build has to go through both steps. A direct
+    # 1 -> 3 branch would be a second description of the same transformation.
+    ok("a schema-1 save crosses two versions in one load",
+       state.SCHEMA_VERSION >= 3 and all(e.did is None for d in loaded.logs.values()
+                                         for e in d.values()),
+       loaded.logs)
+
+    v2 = state.to_dict(prog, {12: record_day(prog, 12, done=["walk"])})
+    v2["version"] = 2
+    for day in v2["logs"].values():
+        for entry in day.values():
+            entry.pop("did", None)          # schema 2 had no such field
+    up2 = state.from_dict(v2)
+    ok("a schema-2 save upgrades without inventing a measurement",
+       all(e.did is None and e.asked is not None for e in up2.logs[12].values()),
+       up2.logs[12])
+    ok("and keeps the verdict schema 2 had already frozen",
+       up2.logs[12]["walk"].done is True, up2.logs[12]["walk"])
 
 
 # ---------------------------------------------------------------------------
@@ -832,6 +881,36 @@ def test_ops() -> None:
     held, notes = apply_patch(floor, [{"op": "drop", "habit_id": floor.ids()[0]}], today=20)
     ok(f"and stops at the {MIN_HABITS}-habit floor",
        len(held.habits) == MIN_HABITS and any("floor" in n for n in notes), notes)
+
+    section("resume is the only op that can add load, so it can be taken back")
+    # Found by an adversarial Adaptation on its first run. `resume` raises the
+    # ask; every `repair` sacrifice branch protects `start_day > today`; so a
+    # resume on a habit already underway pushed day 64 over budget and nothing
+    # downstream was allowed to pay for it. `recommend._resumed` had always
+    # validated before offering one — the path a *model* takes had no guard.
+    tight = Program("u", START, 45, (
+        ProgramHabit("cold_shower", 8), ProgramHabit("no_screens", 11),
+        ProgramHabit("write", 22, scale=0.75),
+    ))
+    ok("the fixture is feasible before the resume", not validate(tight),
+       [str(v) for v in validate(tight)][:2])
+    resumed, notes = apply_patch(tight, [{"op": "resume", "habit_id": "write"}], today=30)
+    ok("a resume that cannot be paid for never ships an infeasible day",
+       not validate(resumed), [str(v) for v in validate(resumed)][:2])
+    ok("and it says it was taken back rather than failing silently",
+       any("took back the resume" in n for n in notes), notes)
+    ok("the habit is left exactly as it was, not softened further",
+       next(x for x in resumed.habits if x.habit_id == "write").scale == 0.75,
+       next(x for x in resumed.habits if x.habit_id == "write"))
+
+    # And it must not fire when the programme was already infeasible on the way
+    # in — that is not resume's fault, and reverting would hide the real cause.
+    broke = Program("u", START, 20, (
+        ProgramHabit("strength", 1), ProgramHabit("run", 8), ProgramHabit("write", 15, scale=0.5),
+    ))
+    _out, n2 = apply_patch(broke, [{"op": "resume", "habit_id": "write"}], today=40)
+    ok("an already-infeasible programme does not get blamed on the resume",
+       not any("took back the resume" in x for x in n2), n2)
 
     section("the patch cap counts ops, not the repair that follows")
     many = [{"op": "soften", "habit_id": h, "factor": 0.5} for h in prog.ids()]

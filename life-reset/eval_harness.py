@@ -57,6 +57,7 @@ from life_reset.recommend import apply_recommendation, recommend
 from life_reset.session import check_in, where
 
 START = date(2026, 1, 1)
+_CATALOG_INDEX = {h.id: i for i, h in enumerate(HABITS)}
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +317,17 @@ def check_round_trip(prog: Program, logs: DayLog | None,
         if sorted(str(v) for v in validate(p)) != sorted(str(v) for v in validate(back.program)):
             f.add("save_preserves_judgement", f"{tag}/{what}: verdict changed across the trip")
 
+    # The verdict in a record has to match what was measured, and this is
+    # checked from the entry alone rather than by calling `record_day` again —
+    # a check that re-ran the writer would agree with it by construction.
+    if logs:
+        wrong = [f"day {d}/{hid}: did={e.did} asked={e.asked} done={e.done}"
+                 for d, entries in logs.items() for hid, e in entries.items()
+                 if e.did is not None and e.asked is not None
+                 and e.done is not (e.did + 1e-9 >= e.asked)]
+        if wrong:
+            f.add("verdict_matches_measurement", f"{tag}: {wrong[0]}")
+
     round_trip(prog, logs, "as-is")
     round_trip(
         replace(prog, habits=tuple(
@@ -328,7 +340,7 @@ def check_round_trip(prog: Program, logs: DayLog | None,
     return 2
 
 
-def check_recommendations(prog: Program, logs: DayLog, today: int, diag: dict,
+def check_recommendations(prog: Program, logs: DayLog, today: int,
                           tag: str, f: Failures, effects: dict[str, int]) -> dict[str, int]:
     """Per user. Every suggestion offered, taken in the order it was offered.
 
@@ -348,6 +360,12 @@ def check_recommendations(prog: Program, logs: DayLog, today: int, diag: dict,
     recs = recommend(prog, logs, today)
     if not recs:
         return {}
+
+    # Diagnosed here, from the programme and logs actually passed in. Taking a
+    # caller's `diag` reported a false positive: the patched programme was
+    # handed the *pre-patch* diagnosis, `recommend` recomputed its own, and the
+    # two disagreed about whether the user was still struggling.
+    diag = diagnose(prog, logs, today)
 
     # Never both at once: `adapt_program` is stepping in exactly when the user
     # is in no state to be handed more work.
@@ -468,7 +486,8 @@ def synthetic_logs(prog: Program, today: int, rng: random.Random,
     logs: DayLog = {}
     favourite = min((p.habit_id for p in prog.habits), default=None)
     for day in range(1, today):
-        done = set()
+        done: set[str] = set()
+        did: dict[str, float] = {}
         for p in active_on(prog, day):
             if mode == "lopsided":
                 # One habit kept perfectly; everything else stops dead.
@@ -476,9 +495,22 @@ def synthetic_logs(prog: Program, today: int, rng: random.Random,
             else:
                 keep = 0.35 if mode == "struggling" else 0.9
                 keep -= 0.05 * (habit(p.habit_id).friction - 1)
-            if rng.random() < max(0.0, keep):
+            kept = rng.random() < max(0.0, keep)
+            # Half the habits are *measured* rather than ticked, which is what
+            # an app showing `0 / 2L` actually stores. Without this nothing in
+            # 2,000 users ever wrote a `did`, and the field would round-trip,
+            # migrate and render untested.
+            #
+            # Split on catalog position, not `hash()`. Python randomises string
+            # hashing per process, so `hash(p.habit_id) % 2` made this harness
+            # produce a different run every invocation — the one property a
+            # 2,000-user harness cannot do without.
+            if _CATALOG_INDEX[p.habit_id] % 2 == 0:
+                ask = dose_for(p, day)
+                did[p.habit_id] = ask if kept else round(ask * rng.random(), 3)
+            elif kept:
                 done.add(p.habit_id)
-        logs[day] = record_day(prog, day, done)
+        logs[day] = record_day(prog, day, done, did)
     return logs
 
 
@@ -573,7 +605,7 @@ def main() -> int:
                 # The recommender against a *patched* programme, which is where
                 # anything eased back lives and so the only place `advance` can
                 # fire at all.
-                got = check_recommendations(after, logs, today, diag, f"{kind}/u{i}+patch", f, ops_seen)
+                got = check_recommendations(after, logs, today, f"{kind}/u{i}+patch", f, ops_seen)
 
                 # And again a fortnight later, having got back on it.
                 #
@@ -589,12 +621,11 @@ def main() -> int:
                 back = {d: record_day(after, d, [p.habit_id for p in active_on(after, d)])
                         for d in range(1, later)}
                 for k, n in check_recommendations(
-                    after, back, later, diagnose(after, back, later),
-                    f"{kind}/u{i}+back", f, ops_seen
+                    after, back, later, f"{kind}/u{i}+back", f, ops_seen
                 ).items():
                     offered[k] = offered.get(k, 0) + n
             else:
-                got = check_recommendations(prog, logs, today, diag, f"{kind}/u{i}", f, ops_seen)
+                got = check_recommendations(prog, logs, today, f"{kind}/u{i}", f, ops_seen)
             outcome = check_session(prog, logs, today, f"{kind}/u{i}", f)
             sessions[outcome] = sessions.get(outcome, 0) + 1
             for k, n in got.items():

@@ -47,7 +47,7 @@ invocation and could never fail. Both triggers are now tested independently.
 | `life_reset/agents.py` | Architect (`build_program`, `coerce_program`, `fallback_program`) and Adaptation (`diagnose`, `adapt_program`) |
 | `life_reset/recommend.py` | `recommend`, `apply_recommendation` — `add` and `advance`, pure code, no model |
 | `life_reset/session.py` | `where`, `check_in` — the app-facing loop: run boundaries, and step-in-or-offer |
-| `life_reset/state.py` | `SCHEMA_VERSION` 2, `to_dict`/`from_dict`, `dumps`/`loads`, `_upgrade` — the stored shape, no I/O |
+| `life_reset/state.py` | `SCHEMA_VERSION` 3, `to_dict`/`from_dict`, `dumps`/`loads`, `_upgrade` — the stored shape, no I/O |
 | `life_reset/nodes.py` | `AnthropicLLM` — the only file that imports `anthropic` |
 | `eval_harness.py` | 12 adversarial Architects, 17 adversarial Adaptations, the invariants, per-user, per-patch, per-recommendation and per-save |
 | `demo_program.py` | Hostile Architect → repaired programme → a user who stops for four days → the same user recovered |
@@ -56,7 +56,7 @@ invocation and could never fail. Both triggers are now tested independently.
 offered and accepted (1,468 `add`, 184 `advance`), 5,010 saves written and read
 back, 1,000 check-ins (505 patched, 321 offered, 174 quiet), all five patch ops
 landed (soften 264, freeze 67, drop 19, defer 17, resume 184), **zero invariant
-violations**; 108 unit tests. A separate fuzz over 12,000 random programmes:
+violations**; 126 unit tests. A separate fuzz over 12,000 random programmes:
 `repair` leaves zero infeasible days, `build_program` returns zero invalid
 programmes.
 
@@ -126,6 +126,31 @@ The harness itself had to be fixed to report it: `state.dumps` raises a plain
 `ValueError`, not `StateError`, so the NaN killed the run instead of being
 counted, and a harness that dies on the first bug reports nothing about the
 other 1,900 users.
+
+## The bug the Adaptation adversaries found next
+
+`resume` is the only op that *adds* load, and `repair` cannot take it back:
+every sacrifice branch protects `start_day > today`, so a resume on a habit
+the user is already running pushed day 64 over the budget and nothing
+downstream was permitted to pay for it. The programme shipped with a day the
+user physically cannot do — the failure this codebase calls its most
+expensive, arriving through the one op written to be generous.
+
+`recommend._resumed` had validated before offering one since the day it was
+written. The path a *model* takes, through `adapt_program`, had no guard at
+all — and the adversaries found it on their first run. `apply_patch` now
+reverts the resume when the result does not validate, and only then: a
+programme that arrived infeasible is not resume's fault, and reverting would
+hide the real cause. Removing the reversal fails 3 named unit tests and
+raises 7 harness violations.
+
+Two harness faults surfaced alongside it, both mine. Splitting habits into
+measured and ticked on `hash(habit_id)` made the whole run non-reproducible,
+because Python randomises string hashing per process — the one property a
+2,000-user harness cannot do without. And `check_recommendations` was handed
+a *pre-patch* diagnosis while `recommend` recomputed its own, so the two
+disagreed about whether a user was still struggling and it reported a false
+positive. It diagnoses from what it was actually given now.
 
 ## Not built yet
 

@@ -25,7 +25,7 @@ life_reset/catalog.py    closed lists: 24 habits, 3 phases, the constraints
 life_reset/program.py    dose/ramp maths, validate, repair, apply_patch, record, render
 life_reset/agents.py     Architect and Adaptation, both LLM-optional
 life_reset/recommend.py  what to do next when it is going *well* — pure code
-life_reset/state.py      the stored shape: versioned JSON in, Program + record out
+life_reset/state.py      the stored shape (schema 3): JSON in, Program + record out
 life_reset/session.py    the loop an app runs: where() and check_in(). Policy only
 life_reset/nodes.py      AnthropicLLM — the ONLY file that imports anthropic
 eval_harness.py          2,000 synthetic users x 66 days, 12 hostile Architects
@@ -42,7 +42,7 @@ demo_factory.py          came with the spec; imports life_reset.nodes at module 
 Run from `life-reset/`. Never report a change as done without both.
 
 ```bash
-python tests.py            # 108 unit tests
+python tests.py            # 126 unit tests
 python eval_harness.py     # 2,000 users x 66 days
 ```
 
@@ -180,6 +180,21 @@ gated on a *per-habit* rate, so a user holding one habit at 100% while the rest
 collapse qualifies for both at once. `recommend` alone offers it; `check_in` is
 what does not. That conjunction is unreachable from the harness's own users, so
 both suites construct it deliberately — see the eased twin in `check_session`.
+
+**Meeting the ask is the whole ask.** `record_day` takes `did` — what the app
+measured, `1.5` of `2 glasses` — and freezes the verdict with it. There is no
+partial credit toward `done`: 1.8 of 2 litres is recorded honestly, shown as a
+fraction, and is not a kept day, for the same reason the reading gate does not
+accept a summary that was not written. `did` is never inferred either; a habit
+ticked with nothing measured keeps `did=None`, because "they said yes" and "we
+measured the ask" are different facts.
+
+**Only `resume` can make a running programme infeasible, so only `resume` can be
+taken back.** Every other op subtracts. `repair` cannot undo it — each sacrifice
+branch protects `start_day > today` — so a resume on a habit already underway
+pushed day 64 over budget with nothing allowed to pay for it. `apply_patch`
+reverts the resume and says so, and only when reverting actually helps: a
+programme that arrived infeasible is not resume's fault.
 
 **A lived day is a record, not a recomputation.** `record_day(program, day,
 done)` freezes what each habit asked and whether it happened; the app calls it
