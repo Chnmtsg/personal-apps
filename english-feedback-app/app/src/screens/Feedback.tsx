@@ -366,10 +366,15 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
                     categoryHistories.get(index)!.occurrenceNumber > 1 &&
                     (() => {
                       const h = categoryHistories.get(index)!;
-                      const phrase = labelFor(c.category).split(" (")[0].toLowerCase();
+                      // Deliberately "this", not the category name. The name is
+                      // already the row's own label directly above, so naming it
+                      // again was redundant — and it forced a verb agreement the
+                      // label cannot satisfy: plural labels ("Articles (a / an /
+                      // the)") produced "articles has come up", a grammar mistake
+                      // printed by a grammar teacher.
                       return (
                         <p className="mt-1.5 text-[12.5px] leading-[1.5] text-ink-faint">
-                          This is the {ordinal(h.occurrenceNumber)} time {phrase} has come up.
+                          This is the {ordinal(h.occurrenceNumber)} time this has come up.
                           {h.previousExample && (
                             <>
                               {" "}
@@ -628,20 +633,20 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
             ? "Lower is better — this counts mistakes fairly whether you write 50 words or 400."
             : `Your last entry was ${priorRate.toFixed(1)}. Lower is better — this counts mistakes fairly whether you write 50 words or 400.`}
         </p>
-        <dl className="mt-6 flex border-y border-rule">
-          <div className="flex-1 py-4">
-            <dd className="tnum font-mono text-[26px] leading-none">
-              {rate === null ? "—" : rate.toFixed(1)}
-            </dd>
-            <dt className="eyebrow mt-1.5">Per 100 words</dt>
-          </div>
-          {fb.cefr_estimate && (
-            <div className="flex-1 border-l border-rule py-4 pl-4">
+        {/* The per-100 figure is NOT repeated as a stat here: the headline
+            above already states it as a sentence, and a sentence teaches
+            where a bare number only grades. Seen printing "14.6" twice in
+            one card when the screen was first driven in a browser. The list
+            survives only for cefr_estimate, which legacy entries carry and
+            nothing else states. */}
+        {fb.cefr_estimate && (
+          <dl className="mt-6 flex border-y border-rule">
+            <div className="flex-1 py-4">
               <dd className="tnum font-mono text-[26px] leading-none">{fb.cefr_estimate}</dd>
               <dt className="eyebrow mt-1.5">This entry</dt>
             </div>
-          )}
-        </dl>
+          </dl>
+        )}
         {fb.scores && (
           <dl className="mt-6 flex border-y border-rule">
             <div className="flex-1 py-4">
