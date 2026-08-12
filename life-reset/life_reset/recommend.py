@@ -41,6 +41,7 @@ from .catalog import (
     phase_for,
 )
 from .program import (
+    DayLog,
     Program,
     ProgramHabit,
     active_on,
@@ -342,7 +343,7 @@ def _add_recommendations(
 
 def recommend(
     program: Program,
-    logs: dict[int, set[str]],
+    logs: DayLog,
     today: int,
     limit: int = MAX_RECOMMENDATIONS,
 ) -> list[Recommendation]:

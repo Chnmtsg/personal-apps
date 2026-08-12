@@ -7,7 +7,8 @@ deterministic ramp, and a validate/repair pair that turns any Architect output �
 including malformed, hostile or invented — into a programme feasible on all 66
 days.
 
-Not an app. No UI, no server, no persistence yet. A library with demos.
+Not an app. No UI and no server. `state.py` decides how a run is *stored*, but
+there is no store — where the bytes go is the caller's. A library with demos.
 
 **Read `STATUS.md` first.** `README.md` and `AGENTS.md` are a *specification
 written before the code*, and they describe substantially more than exists —
@@ -21,10 +22,10 @@ is the inventory.
 
 ```
 life_reset/catalog.py    closed lists: 24 habits, 3 phases, the constraints
-life_reset/program.py    dose/ramp maths, validate, repair, apply_patch, render
+life_reset/program.py    dose/ramp maths, validate, repair, apply_patch, record, render
 life_reset/agents.py     Architect and Adaptation, both LLM-optional
 life_reset/recommend.py  what to do next when it is going *well* — pure code
-life_reset/state.py      the stored shape: versioned JSON in, Program out. No I/O
+life_reset/state.py      the stored shape: versioned JSON in, Program + record out
 life_reset/nodes.py      AnthropicLLM — the ONLY file that imports anthropic
 eval_harness.py          2,000 synthetic users x 66 days, 12 hostile Architects
 tests.py                 unit tests — the layer the harness cannot cover
@@ -40,7 +41,7 @@ demo_factory.py          came with the spec; imports life_reset.nodes at module 
 Run from `life-reset/`. Never report a change as done without both.
 
 ```bash
-python tests.py            # 42 unit tests
+python tests.py            # 78 unit tests
 python eval_harness.py     # 2,000 users x 66 days
 ```
 
@@ -121,6 +122,14 @@ reads that as the signal to substitute the cheap fallback programme.
 
 **Nothing computable is left to the model.** It classifies, extracts and
 phrases. Every number the user sees traces to `catalog.py` through `dose_for`.
+
+**A lived day is a record, not a recomputation.** `record_day(program, day,
+done)` freezes what each habit asked and whether it happened; the app calls it
+as the day is lived and stores the result. From then on that day is read, never
+re-derived. `diagnose` reads the record too — it used to decide "was this asked"
+from the habit's *current* `start_day`, so deferring a habit on day 30 quietly
+re-scored the fortnight behind it. The one place `state.py` stores something
+derivable, and deliberately.
 
 **A save round-trips exactly, or it is refused.** `state.from_dict` reading what
 `state.to_dict` wrote must give back an equal `Program` — the harness asserts it
@@ -207,15 +216,23 @@ Ordered by how likely they are to bite.
    built to make explicit. There is still no *store* — where the bytes go is the
    caller's, deliberately.
 
-   **`dose_for` still has no memory**, and that is the part of this gap that is
-   not closed: **`soften`, `freeze` and `resume` all rewrite the past.** `dose_for` is a pure function of the habit's *current* state, so
-   softening on day 30 changes what day 10 renders as having asked for, and
-   resuming pushes the freeze pin over a span the user has already lived. No
-   single value of `frozen_day` can express "held at 20 until today, ramping
-   after" — the pin is one number and the curve it describes has no elbow. The
-   fix is not another field; it is a stored record of what each day actually
-   asked, which is this gap. Until then, what is asked of a past day is a
-   reconstruction, not a receipt.
+   **`dose_for` still has no memory, and now nothing asks it to.** It is a pure
+   function of the habit's *current* state, so softening on day 30 still changes
+   what it says about day 10 — that was never fixed, because fixing it is not
+   what the problem needed. Schema 2 records each lived day instead: what every
+   habit asked and whether it happened. A past day is read, so the drift has
+   nowhere to land, and `ProgramHabit` stayed a four-field row rather than
+   growing a list of dated adjustments through `dose_for`, `repair`,
+   `apply_patch`, `recommend` and the schema at once. The rejected design is
+   worth knowing: an `Adjustment(day, scale, frozen_day, ramp_shift)` list
+   replayed up to the day being asked about is strictly more correct and would
+   also have fixed the resume jump properly, at the cost of rewriting the
+   function whose arithmetic once survived 165,000 clean day-renders.
+
+   What is left of it: an *unrecorded* day is still a reconstruction. Days the
+   app never wrote a record for get today's numbers, and a schema-1 save carries
+   `asked=None` because that value was never written down and inventing it now
+   would be the re-judging the record exists to prevent.
 4. **The Architect is asked to order by importance and the code discards it.**
    `_respace` re-sorts by `(start_day, habit_id)`, so sacrifice order is
    effectively alphabetical. Either carry the index through or delete the

@@ -42,10 +42,12 @@ from life_reset.catalog import (
 )
 from life_reset.program import (
     MAX_PATCH_HABITS,
+    DayLog,
     Program,
     active_on,
     day_minutes,
     dose_for,
+    record_day,
     validate,
 )
 from life_reset import state
@@ -192,7 +194,7 @@ def check_patch(before: Program, after: Program, meta: dict, today: int,
 # ---------------------------------------------------------------------------
 
 
-def check_round_trip(prog: Program, logs: dict[int, set[str]] | None,
+def check_round_trip(prog: Program, logs: DayLog | None,
                      tag: str, f: Failures) -> int:
     """Per programme. Written down, read back, and still the same run.
 
@@ -215,7 +217,7 @@ def check_round_trip(prog: Program, logs: dict[int, set[str]] | None,
     inheriting the coverage of the layer above it.
     """
 
-    def round_trip(p: Program, lg: dict[int, set[str]] | None, what: str) -> None:
+    def round_trip(p: Program, lg: DayLog | None, what: str) -> None:
         try:
             back = state.loads(state.dumps(p, lg))
         except state.StateError as exc:
@@ -247,7 +249,7 @@ def check_round_trip(prog: Program, logs: dict[int, set[str]] | None,
     return 2
 
 
-def check_recommendations(prog: Program, logs: dict[int, set[str]], today: int,
+def check_recommendations(prog: Program, logs: DayLog, today: int,
                           diag: dict, tag: str, f: Failures) -> dict[str, int]:
     """Per user. Every suggestion offered, taken in the order it was offered.
 
@@ -316,9 +318,14 @@ def check_recommendations(prog: Program, logs: dict[int, set[str]], today: int,
 
 
 def synthetic_logs(prog: Program, today: int, rng: random.Random,
-                   struggling: bool) -> dict[int, set[str]]:
-    """A user who is doing fine, or one who has stopped."""
-    logs: dict[int, set[str]] = {}
+                   struggling: bool) -> DayLog:
+    """A user who is doing fine, or one who has stopped.
+
+    Recorded through `record_day`, the same call an app makes, so the asks in
+    here are the asks that stood on the day rather than whatever the
+    programme looks like by the time the harness gets around to reading it.
+    """
+    logs: DayLog = {}
     for day in range(1, today):
         done = set()
         for p in active_on(prog, day):
@@ -326,7 +333,7 @@ def synthetic_logs(prog: Program, today: int, rng: random.Random,
             keep -= 0.05 * (habit(p.habit_id).friction - 1)
             if rng.random() < max(0.05, keep):
                 done.add(p.habit_id)
-        logs[day] = done
+        logs[day] = record_day(prog, day, done)
     return logs
 
 
@@ -404,7 +411,8 @@ def main() -> int:
                 # harness patched people and then stopped watching, which is the
                 # same shape as the ratchet bug the op was written to fix.
                 later = min(today + TRAILING_DAYS, PROGRAM_DAYS)
-                back = {d: {p.habit_id for p in active_on(after, d)} for d in range(1, later)}
+                back = {d: record_day(after, d, [p.habit_id for p in active_on(after, d)])
+                        for d in range(1, later)}
                 for k, n in check_recommendations(
                     after, back, later, diagnose(after, back, later), f"{kind}/u{i}+back", f
                 ).items():

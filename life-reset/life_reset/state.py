@@ -29,10 +29,22 @@ something they earned. Four rules hold it together:
   whole run over one habit. Anything else malformed is corruption in bytes this
   library itself wrote, and guessing at it manufactures a plausible programme
   that is not theirs.
+* **A lived day is a record, not a recomputation.** `logs` stores every habit a
+  day asked, what it asked for, and whether it happened — see `DayEntry`. That
+  is the one place the first rule is deliberately inverted, and the reason is
+  that `dose_for` answers from the habit's *current* state: soften on day 30 and
+  it will tell you day 12 asked for less than it did. Fine for a prescription,
+  false for a record. Writing the ask down at the time is also what let
+  `ProgramHabit` stay a plain four-field row instead of growing a list of dated
+  adjustments — nothing asks `dose_for` about the past once the past is written
+  down.
 
-Adding schema version 2: bump `SCHEMA_VERSION`, and give `from_dict` a branch
-that upgrades a v1 dict before it is read. That branch must be additive — it may
-fill in a new field with a default, and may never drop or reinterpret one.
+Adding a schema version: bump `SCHEMA_VERSION` and give `_upgrade` a branch.
+Additive only — an upgrade may fill a new field with a default and may never
+drop or reinterpret one, because the run it is touching is one somebody is
+partway through. `_upgrade` carries 1 -> 2 as the worked example, including the
+part that matters most: what it does with a value the old schema never recorded
+and this one cannot honestly reconstruct.
 """
 
 from __future__ import annotations
@@ -41,12 +53,12 @@ import json
 import math
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from .catalog import PROGRAM_DAYS, is_known
-from .program import Program, ProgramHabit
+from .program import DayEntry, DayLog, Program, ProgramHabit
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Exactly what a save carries, and the guard against a derived value creeping
 # in. `tests.py` asserts the written keys are these and nothing else, so adding
@@ -72,7 +84,7 @@ class Loaded:
     """
 
     program: Program
-    logs: dict[int, set[str]]
+    logs: DayLog
     notes: tuple[str, ...] = ()
 
 
@@ -81,14 +93,15 @@ class Loaded:
 # ---------------------------------------------------------------------------
 
 
-def to_dict(program: Program, logs: Mapping[int, Iterable[str]] | None = None) -> dict:
+def to_dict(program: Program, logs: DayLog | None = None) -> dict:
     """A save, as plain JSON-able data. Deterministic: same run, same bytes.
 
     Habit order is preserved rather than sorted — `program_day` renders in the
-    order the habits were chosen, so the order is data. Log ids *are* sorted,
-    because they come from a `set` and would otherwise make the same state
-    serialise two different ways, which breaks content hashing and makes every
-    sync look like a change.
+    order the habits were chosen, so the order is data. Days and the habits
+    inside them *are* sorted, because they come from dicts built in whatever
+    order the app happened to record them; without it the same state serialises
+    two different ways, which breaks content hashing and makes every sync look
+    like a change.
     """
     out: dict[str, Any] = {
         "version": SCHEMA_VERSION,
@@ -106,11 +119,17 @@ def to_dict(program: Program, logs: Mapping[int, Iterable[str]] | None = None) -
         ],
     }
     if logs is not None:
-        out["logs"] = {str(day): sorted(ids) for day, ids in sorted(logs.items())}
+        out["logs"] = {
+            str(day): {
+                hid: {"asked": entry.asked, "done": bool(entry.done)}
+                for hid, entry in sorted(entries.items())
+            }
+            for day, entries in sorted(logs.items())
+        }
     return out
 
 
-def dumps(program: Program, logs: Mapping[int, Iterable[str]] | None = None,
+def dumps(program: Program, logs: DayLog | None = None,
           *, indent: int | None = None) -> str:
     """`allow_nan=False` on purpose. Python's json writes bare `NaN` and
     `Infinity` by default, which is not JSON, and a scale of NaN would load back
@@ -138,6 +157,40 @@ def _whole(value: Any) -> int | None:
     return int(n)
 
 
+def _upgrade(raw: dict, version: int) -> tuple[dict, list[str]]:
+    """Bring an older save up to `SCHEMA_VERSION`. Additive only.
+
+    An upgrade may fill a new field with a default and may never drop or
+    reinterpret an existing one — the programme it is touching is one somebody
+    is partway through.
+
+    **1 -> 2: the day record.** Schema 1 stored a day as a list of habit ids and
+    meant "these were done". It had nowhere to put what a day *asked*, and
+    nowhere to put a habit that was asked and missed. Neither can be recovered:
+    the ask is `dose_for` on the programme as it stood that day, and softening
+    since then has moved it — recomputing it now is precisely the re-judging the
+    record exists to prevent. So what is known is kept (`done`), and what was
+    never written down stays unknown (`asked=None`) rather than being invented.
+    A missed day in a schema-1 save is simply absent, and stays absent.
+    """
+    notes: list[str] = []
+    if version < 2:
+        raw = dict(raw)
+        old = raw.get("logs")
+        if isinstance(old, dict) and old:
+            raw["logs"] = {
+                day: {hid: {"asked": None, "done": True} for hid in ids}
+                for day, ids in old.items()
+                if isinstance(ids, list)
+            }
+            notes.append(
+                f"upgraded {len(raw['logs'])} day(s) from schema 1: they record what was "
+                "done but not what was asked, and that number is not recoverable"
+            )
+        raw["version"] = 2
+    return raw, notes
+
+
 def from_dict(raw: Any) -> Loaded:
     """Read a save. @raises StateError on anything this build cannot honour."""
     if not isinstance(raw, dict):
@@ -152,10 +205,12 @@ def from_dict(raw: Any) -> Loaded:
             f"{SCHEMA_VERSION}). Update before opening it — reading it here would drop "
             "whatever the newer build added, on a run that is already underway."
         )
-    if version < SCHEMA_VERSION:
-        # No older schema has ever shipped, so this is corruption rather than
-        # history. When v2 arrives, the upgrade branch goes here.
+    if version < 1:
         raise StateError(f"unknown schema version {version}")
+    if version < SCHEMA_VERSION:
+        raw, upgrade_notes = _upgrade(raw, version)
+    else:
+        upgrade_notes = []
 
     user_id = raw.get("user_id")
     if not isinstance(user_id, str) or not user_id:
@@ -213,28 +268,41 @@ def from_dict(raw: Any) -> Loaded:
         habits.append(ProgramHabit(habit_id=hid, start_day=start_day, scale=scale,
                                    frozen_day=frozen))
 
-    logs: dict[int, set[str]] = {}
+    logs: DayLog = {}
     raw_logs = raw.get("logs")
     if raw_logs is not None:
         if not isinstance(raw_logs, dict):
             raise StateError("logs is not an object")
-        for key, done in raw_logs.items():
+        for key, entries in raw_logs.items():
             try:
                 day = int(key)
             except (TypeError, ValueError) as exc:
                 raise StateError(f"log key {key!r} is not a day number") from exc
-            if not isinstance(done, list) or not all(isinstance(x, str) for x in done):
-                raise StateError(f"log for day {day} is not a list of habit ids")
+            if not isinstance(entries, dict):
+                raise StateError(f"the record for day {day} is not an object")
             if not 1 <= day <= PROGRAM_DAYS:
-                notes.append(f"log for day {day} is outside the {PROGRAM_DAYS}-day run")
-            # Ids unknown to the catalog are kept here deliberately. A log is a
-            # record of something the user actually did; dropping it because the
+                notes.append(f"a record for day {day} is outside the {PROGRAM_DAYS}-day run")
+            # Ids unknown to the catalog are kept here deliberately, and this is
+            # the opposite call to the one made for the programme above. A
+            # record is what the user actually did; dropping it because the
             # catalog moved would rewrite their history to match our build.
-            logs[day] = set(done)
+            day_log: dict[str, DayEntry] = {}
+            for hid, entry in entries.items():
+                if not isinstance(hid, str) or not isinstance(entry, dict):
+                    raise StateError(f"day {day}: {hid!r} is not a habit record")
+                asked = entry.get("asked")
+                if asked is not None:
+                    asked = _finite(asked)
+                    if asked is None:
+                        raise StateError(f"day {day}, {hid}: unreadable asked {entry.get('asked')!r}")
+                if not isinstance(entry.get("done"), bool):
+                    raise StateError(f"day {day}, {hid}: done is not a boolean")
+                day_log[hid] = DayEntry(asked=asked, done=entry["done"])
+            logs[day] = day_log
 
     program = Program(user_id=user_id, start_date=start_date, minutes_budget=budget,
                       habits=tuple(habits))
-    return Loaded(program=program, logs=logs, notes=tuple(notes))
+    return Loaded(program=program, logs=logs, notes=tuple(upgrade_notes + notes))
 
 
 def loads(text: str) -> Loaded:

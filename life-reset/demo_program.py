@@ -24,7 +24,7 @@ import sys
 from datetime import date
 
 from life_reset.agents import TRAILING_DAYS, adapt_program, build_program, diagnose
-from life_reset.program import PROGRAM_DAYS, render_program_day, validate
+from life_reset.program import PROGRAM_DAYS, record_day, render_program_day, validate
 from life_reset.recommend import apply_recommendation, recommend
 
 START = date(2026, 1, 1)
@@ -87,10 +87,10 @@ def main() -> None:
     section("3. A USER WHO STOPS — the counter does not reset")
     today = 24
     # Kept everything for a fortnight, then stopped dead for four days.
-    logs: dict[int, set[str]] = {}
-    for d in range(1, today):
-        live_ids = {p.habit_id for p in prog.habits if p.start_day <= d}
-        logs[d] = set() if d >= today - 4 else live_ids
+    logs = {
+        d: record_day(prog, d, () if d >= today - 4 else [p.habit_id for p in prog.habits])
+        for d in range(1, today)
+    }
 
     diag = diagnose(prog, logs, today)
     print(f"  overall completion  {diag['overall_rate']:.0%}")
@@ -116,8 +116,8 @@ def main() -> None:
 
     section("4. THE SAME USER, RECOVERED — the programme grows again")
     later = min(today + TRAILING_DAYS, PROGRAM_DAYS)
-    back: dict[int, set[str]] = {
-        d: {p.habit_id for p in after.habits if p.start_day <= d} for d in range(1, later)
+    back = {
+        d: record_day(after, d, [p.habit_id for p in after.habits]) for d in range(1, later)
     }
     print(f"  day {later}, having kept everything since the patch")
     print(f"  overall completion  {diagnose(after, back, later)['overall_rate']:.0%}\n")

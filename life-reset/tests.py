@@ -35,10 +35,12 @@ from life_reset.agents import (
 )
 from life_reset.catalog import HABITS, MAX_NEW_PER_WEEK, PROGRAM_DAYS, habit
 from life_reset.program import (
+    DayLog,
     Program,
     ProgramHabit,
     apply_patch,
     dose_for,
+    record_day,
     render_program_day,
     repair,
     validate,
@@ -179,9 +181,12 @@ def test_anchors() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _logs(prog: Program, today: int, kept: set[int]) -> dict[int, set[str]]:
-    live = {d: {p.habit_id for p in prog.habits if p.start_day <= d} for d in range(1, today)}
-    return {d: (live[d] if d in kept else set()) for d in live}
+def _logs(prog: Program, today: int, kept: set[int]) -> DayLog:
+    """Days 1..today-1, recorded as they would have been lived."""
+    return {
+        d: record_day(prog, d, [p.habit_id for p in prog.habits] if d in kept else [])
+        for d in range(1, today)
+    }
 
 
 def test_intervention_triggers() -> None:
@@ -356,8 +361,8 @@ def test_resume() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _kept_all(prog: Program, today: int) -> dict[int, set[str]]:
-    return {d: {p.habit_id for p in prog.habits if p.start_day <= d} for d in range(1, today)}
+def _kept_all(prog: Program, today: int) -> DayLog:
+    return _logs(prog, today, set(range(1, today)))
 
 
 def test_recommend() -> None:
@@ -464,7 +469,9 @@ def test_state() -> None:
         ProgramHabit("walk", 1), ProgramHabit("water", 8, scale=0.5),
         ProgramHabit("read", 15, frozen_day=30), ProgramHabit("vitamins", 22),
     )))
-    logs = {1: {"walk", "water"}, 3: {"walk"}, 30: set()}
+    logs = {1: record_day(prog, 1, ["walk", "water"]),
+            3: record_day(prog, 3, ["walk"]),
+            30: record_day(prog, 30, [])}
 
     back = state.loads(state.dumps(prog, logs))
     ok("the programme round-trips exactly", back.program == prog, (back.program, prog))
@@ -555,10 +562,78 @@ def test_state() -> None:
        [str(v) for v in validate(fixed)][:2])
 
 
+# ---------------------------------------------------------------------------
+# The day record — a lived day is read, never recomputed
+# ---------------------------------------------------------------------------
+
+
+def test_day_record() -> None:
+    section("a day that has been lived stops moving")
+    prog, _ = repair(Program("u", START, 90, (
+        ProgramHabit("walk", 1), ProgramHabit("read", 8), ProgramHabit("water", 15),
+    )))
+    lived = {d: record_day(prog, d, [p.habit_id for p in prog.habits]) for d in range(1, 30)}
+    before = {d: dict(e) for d, e in lived.items()}
+
+    # The whole point. `dose_for` answers from the habit's *current* state, so
+    # softening on day 30 moves what it says about day 12. The record does not
+    # move, because it was written down at the time.
+    eased, _ = apply_patch(prog, [{"op": "soften", "habit_id": "walk", "factor": 0.5}], today=30)
+    moved = [d for d in lived if lived[d] != before[d]]
+    ok("softening today does not change what a past day asked", not moved, moved[:3])
+
+    drifted = [d for d in range(1, 30)
+               if lived[d]["walk"].asked != dose_for(
+                   next(p for p in eased.habits if p.habit_id == "walk"), d)]
+    ok("and dose_for now disagrees with it, which is exactly why the record exists",
+       bool(drifted), "dose_for still matches, so nothing was proved")
+
+    # The oracle is the catalog, not dose_for: day one asks the start_dose.
+    off = [hid for hid, e in lived[1].items() if e.asked != habit(hid).start_dose]
+    ok("a recorded day one carries the catalog's own start_dose", not off, off)
+
+    section("a record says what was asked, not what the programme now says")
+    partial = record_day(prog, 20, ["walk"])
+    ok("every habit live that day is in the record",
+       set(partial) == {p.habit_id for p in prog.habits if p.start_day <= 20}, set(partial))
+    ok("a habit that had not started is absent, not recorded as missed",
+       all(p.start_day <= 20 for p in prog.habits if p.habit_id in partial))
+    ok("done is per habit, not per day",
+       partial["walk"].done and not partial["read"].done,
+       {k: v.done for k, v in partial.items()})
+
+    # diagnose used to derive "was this asked" from the habit's *current*
+    # start_day, so deferring a habit re-scored a fortnight the user had lived.
+    deferred, _ = apply_patch(prog, [{"op": "defer", "habit_id": "water", "days": 21}], today=16)
+    ok("deferring a habit does not rewrite the completion rate of days already lived",
+       diagnose(deferred, lived, 30)["per_habit"]["water"]["asked"]
+       == diagnose(prog, lived, 30)["per_habit"]["water"]["asked"],
+       (diagnose(deferred, lived, 30)["per_habit"]["water"],
+        diagnose(prog, lived, 30)["per_habit"]["water"]))
+
+    section("a schema-1 save keeps its history and admits what it lost")
+    v1 = state.to_dict(prog)
+    v1["version"] = 1
+    v1["logs"] = {"12": ["walk", "read"], "13": ["walk"]}
+    loaded = state.from_dict(v1)
+    ok("the days survive the upgrade", sorted(loaded.logs) == [12, 13], sorted(loaded.logs))
+    ok("what was known is kept", loaded.logs[12]["walk"].done and loaded.logs[13]["walk"].done)
+    # Reconstructing the ask from today's programme is the re-judging the record
+    # exists to prevent, so it stays unknown rather than being invented.
+    ok("what was never written down is not invented",
+       all(e.asked is None for day in loaded.logs.values() for e in day.values()),
+       loaded.logs)
+    ok("and the upgrade says so out loud",
+       any("not recoverable" in n for n in loaded.notes), loaded.notes)
+    ok("an upgraded save is written back at the current schema",
+       state.to_dict(loaded.program, loaded.logs)["version"] == state.SCHEMA_VERSION)
+
+
 def main() -> int:
     test_doses()
     test_anchors()
     test_state()
+    test_day_record()
     test_intervention_triggers()
     test_resume()
     test_recommend()

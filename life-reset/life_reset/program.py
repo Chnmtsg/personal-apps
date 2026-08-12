@@ -138,6 +138,58 @@ def day_index(start_date: date, on: date) -> int:
     return (on - start_date).days + 1
 
 
+# ---------------------------------------------------------------------------
+# The day record — what a day asked, frozen at the moment it was lived
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DayEntry:
+    """One habit, on one day: what it asked, and whether it happened.
+
+    `asked` is the whole point. Everything else here is derived on demand from
+    the catalog, and `dose_for` is a function of the habit's *current* state —
+    so softening on day 30 changes what `dose_for` says about day 12. That is
+    tolerable for a prescription and intolerable for a record: it means a day
+    the user lived can be re-described later, and once completion is judged
+    against a value rather than a tick, re-described becomes re-judged.
+
+    Writing the ask down at the time is what makes that impossible. A recorded
+    day is read, never recomputed, which is also why `ProgramHabit` did not need
+    to grow a list of dated adjustments — nothing asks `dose_for` about the past
+    once the past has a record.
+
+    `asked` is optional only for days restored from a schema-1 save, which
+    recorded that a habit was done without recording what it was asked for.
+    Inventing that number afterwards from the current programme would be exactly
+    the re-judging this class exists to prevent, so it stays unknown.
+    """
+
+    asked: float | None = None
+    done: bool = False
+
+
+# `{day: {habit_id: DayEntry}}`. A habit present on a day was *asked* that day;
+# `.done` says whether it happened. Presence alone used to mean "done", which
+# left nowhere to put a day that asked for something and did not get it.
+DayLog = dict[int, dict[str, DayEntry]]
+
+
+def record_day(program: Program, day: int, done: Iterable[str] = ()) -> dict[str, DayEntry]:
+    """Freeze what `day` asked of this user, and what they did about it.
+
+    Call it as the day is lived and store the result; from then on that day is a
+    fact rather than a re-derivation. Habits that had not started yet are absent
+    — they were not asked, and a record that claims otherwise would make every
+    early day look like a failure.
+    """
+    got = set(done)
+    return {
+        p.habit_id: DayEntry(asked=dose_for(p, day), done=p.habit_id in got)
+        for p in active_on(program, day)
+    }
+
+
 def program_day(program: Program, day: int) -> list[dict]:
     """Everything committed on `day`, in the order the habits were chosen."""
     out = []

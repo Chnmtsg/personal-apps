@@ -43,17 +43,17 @@ invocation and could never fail. Both triggers are now tested independently.
 | File | What it is |
 |---|---|
 | `life_reset/catalog.py` | The closed lists: 24 habits, 3 phases, the constraint constants |
-| `life_reset/program.py` | `dose_for`, `minutes_for`, `program_day`, `validate`, `repair`, `_respace`, `apply_patch` (five ops, `resume` included), `render_program_day` |
+| `life_reset/program.py` | `dose_for`, `minutes_for`, `program_day`, `validate`, `repair`, `_respace`, `apply_patch` (five ops, `resume` included), `DayEntry`/`record_day`, `render_program_day` |
 | `life_reset/agents.py` | Architect (`build_program`, `coerce_program`, `fallback_program`) and Adaptation (`diagnose`, `adapt_program`) |
 | `life_reset/recommend.py` | `recommend`, `apply_recommendation` — `add` and `advance`, pure code, no model |
-| `life_reset/state.py` | `SCHEMA_VERSION`, `to_dict`/`from_dict`, `dumps`/`loads` — the stored shape, no I/O |
+| `life_reset/state.py` | `SCHEMA_VERSION` 2, `to_dict`/`from_dict`, `dumps`/`loads`, `_upgrade` — the stored shape, no I/O |
 | `life_reset/nodes.py` | `AnthropicLLM` — the only file that imports `anthropic` |
 | `eval_harness.py` | 12 adversarial Architects, the invariants, per-user, per-patch and per-recommendation |
 | `demo_program.py` | Hostile Architect → repaired programme → a user who stops for four days → the same user recovered |
 
 **Current numbers:** 2,000 users, ~165,000 day-renders, 1,638 recommendations
 offered and accepted (1,372 `add`, 266 `advance`), 5,008 saves written and read
-back, **zero invariant violations**; 66 unit tests. A separate fuzz over 12,000
+back, **zero invariant violations**; 78 unit tests. A separate fuzz over 12,000
 random programmes: `repair` leaves zero infeasible days, `build_program` returns
 zero invalid programmes.
 
@@ -70,6 +70,25 @@ them has ever carried a `frozen_day`. Deleting that field from `to_dict` passed
 2,000 users clean while failing a unit test by name. The check now round-trips a
 twin with every optional field populated, and catching the same break went from
 zero violations to 2,599.
+
+## The decision behind schema 2
+
+`dose_for` answers from a habit's *current* state, so softening on day 30
+changes what it says day 12 asked for. Two ways out, and the cheap one is the
+one that was taken:
+
+| | |
+|---|---|
+| **Taken** — record the day | `record_day` freezes what each habit asked and whether it happened. A past day is read, so the drift has nowhere to land. `ProgramHabit` unchanged. |
+| **Rejected** — dated adjustments | `Adjustment(day, scale, frozen_day, ramp_shift)` replayed up to the day being asked about. Strictly more correct, also fixes the resume jump, and rewrites `dose_for`, `repair`, `apply_patch`, `recommend`, the schema and most tests at once. |
+
+The rejected one touches the function whose arithmetic error once survived
+165,000 clean day-renders, and `repair` is already at its stated complexity
+ceiling. The record buys the same guarantee where it is actually needed.
+
+`diagnose` moved with it: it used to decide whether a day counted from the
+habit's *current* `start_day`, so deferring a habit on day 30 re-scored the
+fortnight behind it. It now reads the record.
 
 ## Not built yet
 
