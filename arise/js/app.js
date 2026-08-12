@@ -791,8 +791,9 @@
         break;
       }
       case 'run-pick':
+        // Repaint the picker, not the page. See UI.refreshRunPicker.
         UI.toggleRunPick(id);
-        UI.render();
+        UI.refreshRunPicker();
         break;
       case 'run-end':
         UI.openConfirm({

@@ -2089,6 +2089,26 @@
   /** Forget the selection once it has become a run, so the next one starts fresh. */
   function resetRunPicks() { runPicks = null; }
 
+  /**
+   * Repaint the picker alone after a tap.
+   *
+   * Toggling one habit used to call `render()`, which rebuilds the whole view:
+   * twenty-four buttons and the page around them, then a scroll restore and a
+   * focus restore, for a single class change. On a phone that reads as a flash
+   * and a jump — a button that does not feel like it worked.
+   *
+   * `runPicker()` stays the only thing that builds this markup, so there is no
+   * second rendering path to drift from the first. The stub DOM in
+   * tools/render.js has no `getElementById` beyond a stand-in, which is why
+   * both writes are guarded rather than assumed.
+   */
+  function refreshRunPicker() {
+    const host = document.getElementById('runPicker');
+    if (host) host.innerHTML = runPicker();
+    const btn = document.querySelector('[data-act="run-start"]');
+    if (btn) btn.textContent = 'Start the run · ' + currentRunPicks().length + ' chosen';
+  }
+
   function pickCard(h, chosen) {
     const ask = A.formatValue('count', h.start) + ' → ' + A.formatValue('count', h.target) + ' ' + h.unit;
     return `<button type="button" class="pick ${chosen ? 'on' : ''}" data-act="run-pick"
@@ -2135,7 +2155,7 @@
           fit your minutes is dropped when the run is built, and you will be told
           what went — every one of the 66 days has to be a day you can actually do.
           Fewer than ${A.Run.MIN_HABITS} and the rest is filled in for you.</p>
-        ${runPicker()}
+        <div id="runPicker">${runPicker()}</div>
         <button class="btn primary block" data-act="run-start" style="margin-top:14px">Start the run · ${
           currentRunPicks().length
         } chosen</button>`;
@@ -2481,6 +2501,7 @@
   UI.runPicks = currentRunPicks;
   UI.toggleRunPick = toggleRunPick;
   UI.resetRunPicks = resetRunPicks;
+  UI.refreshRunPicker = refreshRunPicker;
   UI.openGoalDetail = openGoalDetail;
   UI.openGoalEditor = openGoalEditor;
   UI.openGoalRestart = openGoalRestart;
