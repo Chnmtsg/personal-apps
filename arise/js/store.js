@@ -258,6 +258,9 @@
       s.run.minutesBudget = Number(s.run.minutesBudget) || 45;
       // Bookkeeping added after runs shipped: absent means never checked in.
       if (typeof s.run.checkedOn !== 'number') s.run.checkedOn = null;
+      // Per-run checklists arrived after runs did. Absent means "use the
+      // catalog's defaults", which is what `A.Run.itemsFor` already does.
+      s.run.habits.forEach((p) => { if (!Array.isArray(p.items)) delete p.items; });
     }
     // Read this BEFORE merging defaults: base.meta says the program is installed
     // (seedState lays it out itself), which would mask an old account that has
@@ -904,6 +907,44 @@
     row.done = row.did != null && row.asked != null && row.did + 1e-9 >= row.asked;
     commit({ type: 'runValue', day: day, habitId: habitId });
     return row;
+  }
+
+  /**
+   * Tick one item of a checklist habit for today — one supplement, one step.
+   *
+   * The habit is done when every item is, and that verdict is frozen into the
+   * record here rather than derived on read, so the rule cannot change after
+   * the day is over.
+   */
+  function toggleRunItem(habitId, name) {
+    const day = runToday();
+    if (!state.run || day == null) return null;
+    const row = runEntryFor(day)[habitId];
+    if (!row || !row.items) return null;
+    A.Run.toggleItem(row, name);
+    commit({ type: 'runItem', day: day, habitId: habitId, item: name });
+    return row;
+  }
+
+  /**
+   * Rewrite a checklist. The catalog is closed; what is inside a habit is not.
+   *
+   * Only the run's own copy is touched, never the catalog, and never a day that
+   * has already been recorded — days behind keep the list they actually asked
+   * for, which is why the record stores the item names and not just a count.
+   */
+  function setRunItems(habitId, list) {
+    if (!state.run || !A.Run.isItemHabit(habitId)) return null;
+    const clean = (list || [])
+      .map((x) => String(x == null ? '' : x).trim())
+      .filter((x, i, all) => x && all.indexOf(x) === i)
+      .slice(0, 20);
+    if (!clean.length) return null;            // a checklist of nothing is not a habit
+    const p = (state.run.habits || []).find((x) => x.habitId === habitId);
+    if (!p) return null;
+    p.items = clean;
+    commit({ type: 'runItems', habitId: habitId });
+    return clean;
   }
 
   /**
@@ -1742,7 +1783,7 @@
     addGoal, updateGoal, archiveGoal, removeGoal, restartGoal,
     readingEntry, setReading, readingDays, journalEntry, setJournal, journalDays,
     run, runStatus, runToday, startRun, endRun, recordRunDay, runCheckIn, runApply,
-    toggleRunHabit, setRunValue, runUnknownHabits,
+    toggleRunHabit, setRunValue, toggleRunItem, setRunItems, runUnknownHabits,
     freezeStats, applyFreeze, clearFreeze,
     updateSettings, exportJson, inspectBackup, importJson, unreadableBackup, resetAll
   };

@@ -1990,16 +1990,36 @@
     if (row.frozen) marks.push('steady this week');
     if (row.softened) marks.push('eased back');
 
+    /* A checklist habit shows its checklist. Four supplements is four things
+       you can miss one of, so a single tick would be the app deciding that
+       three of four is the same as none — and the record already knows better. */
+    const items = entry && entry.items
+      ? Object.keys(entry.items).map((k) => ({ name: k, done: !!entry.items[k] }))
+      : null;
+
     return `<div class="runrow ${done ? 'is-done' : ''} ${measured && !done ? 'is-part' : ''}">
-      <button type="button" class="runrow-tick" data-act="run-tick" data-id="${esc(row.id)}"
-        aria-label="${done ? 'Undo' : 'Complete'} ${esc(row.name)}">✓</button>
-      <button type="button" class="runrow-main" data-act="run-value" data-id="${esc(row.id)}">
-        <span class="name">${esc(row.name)}</span>
-        <span class="sub">${esc(runAsk(row, entry))}${
-          measured ? ' · ' + esc(String(entry.did)) + ' done' : ''
-        }${marks.length ? ' · ' + esc(marks.join(', ')) : ''}</span>
-        ${frac != null ? `<span class="runrow-bar"><i style="width:${Math.round(frac * 100)}%"></i></span>` : ''}
-      </button>
+      <div class="runrow-head">
+        <button type="button" class="runrow-tick" data-act="run-tick" data-id="${esc(row.id)}"
+          aria-label="${done ? 'Undo' : 'Complete'} ${esc(row.name)}">✓</button>
+        <button type="button" class="runrow-main" data-act="run-value" data-id="${esc(row.id)}">
+          <span class="name">${esc(row.name)}</span>
+          <span class="sub">${esc(runAsk(row, entry))}${
+            measured ? ' · ' + esc(String(entry.did)) + ' done' : ''
+          }${marks.length ? ' · ' + esc(marks.join(', ')) : ''}</span>
+          ${frac != null ? `<span class="runrow-bar"><i style="width:${Math.round(frac * 100)}%"></i></span>` : ''}
+        </button>
+      </div>
+      ${
+        items
+          ? `<ul class="runitems">${items
+              .map(
+                (it) => `<li><button type="button" class="runitem ${it.done ? 'on' : ''}"
+                  data-act="run-item" data-id="${esc(row.id)}" data-item="${esc(it.name)}"
+                  aria-pressed="${it.done}"><i aria-hidden="true">${it.done ? '✓' : ''}</i>${esc(it.name)}</button></li>`
+              )
+              .join('')}</ul>`
+          : ''
+      }
     </div>`;
   }
 
@@ -2272,6 +2292,34 @@
    * the user has been working toward since this morning is the one they were
    * given this morning.
    */
+  /**
+   * Edit what is inside a checklist habit.
+   *
+   * The catalog is closed and stays closed — this changes only the run's own
+   * copy of the list. Days already recorded keep the list they actually asked
+   * for, which is the reason the record stores the item names rather than a
+   * count of them.
+   */
+  function openRunItems(habitId) {
+    const run = S.run();
+    const h = A.Run.habit(habitId);
+    if (!run || !h) return;
+    const p = (run.habits || []).find((x) => x.habitId === habitId);
+    const list = A.Run.itemsFor(p) || [];
+    openSheet(h.name, `
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">One per line, in the order you
+        do them. This changes your run only — days you have already recorded keep the list they
+        actually asked for.</p>
+      <label class="field"><span>The steps</span>
+        <textarea id="run_items" rows="8">${esc(list.join('\n'))}</textarea></label>
+      <div class="btn-row">
+        <button class="btn primary" data-act="run-save-items" data-id="${esc(habitId)}" style="flex:1">Save</button>
+      </div>
+      <p class="faint" style="font-size:var(--fs-xs);margin:10px 2px 0">Blank lines and repeats are
+        dropped. An empty list is not saved — a habit with nothing in it is not a habit.</p>
+    `);
+  }
+
   function openRunValue(habitId) {
     const run = S.run();
     const day = S.runToday();
@@ -2279,6 +2327,9 @@
     const h = A.Run.habit(habitId);
     const entry = ((run.log || {})[day] || {})[habitId];
     if (!h) return;
+    // A checklist is ticked item by item on the row itself, so tapping its name
+    // means "change what is in it" rather than "log a number".
+    if (A.Run.isItemHabit(habitId)) return openRunItems(habitId);
     const ask = entry && entry.asked != null ? entry.asked : A.Run.doseOn(
       (run.habits || []).find((p) => p.habitId === habitId) || { habitId: habitId, startDay: day }, day);
 
@@ -2498,6 +2549,7 @@
   UI.openReading = openReading;
   UI.openGoalLog = openGoalLog;
   UI.openRunValue = openRunValue;
+  UI.openRunItems = openRunItems;
   UI.runPicks = currentRunPicks;
   UI.toggleRunPick = toggleRunPick;
   UI.resetRunPicks = resetRunPicks;

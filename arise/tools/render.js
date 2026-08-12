@@ -869,7 +869,7 @@ behaves('the self-care habits added for tooth, face and vitamins are pickable', 
   const want = ['vitamins', 'floss', 'brush_teeth', 'skincare'];
   const absent = want.filter((id) => html.indexOf('data-id="' + id + '"') < 0);
   if (absent.length) return 'still unreachable: ' + absent.join(', ');
-  return html.indexOf('Take vitamins') > 0 && html.indexOf('Face routine') > 0
+  return html.indexOf('Take vitamins') > 0 && html.indexOf('Morning skincare') > 0
     ? '' : 'they are offered by id but not by name';
 });
 
@@ -951,7 +951,9 @@ behaves('a selection survives a re-render, and a store write is a re-render', ()
 
 behaves('and starting the run uses exactly that selection', () => {
   const chosen = UI.runPicks();
-  S.startRun(chosen, 90);
+  // Budget high enough that `repair` has no reason to trim: the claim under
+  // test is that the picks reach the run, not what a tight budget does to them.
+  S.startRun(chosen, 150);
   const got = S.run().habits.map((p) => p.habitId).sort().join(',');
   return got === chosen.slice().sort().join(',') ? '' : 'started with ' + got;
 });

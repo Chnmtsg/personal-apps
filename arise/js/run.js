@@ -55,16 +55,27 @@
     { id: 'sunlight', name: 'Morning daylight', domain: 'self_care', unit: 'min', start: 5, target: 20, step: 2.5, min: 1.0, friction: 2 },
     { id: 'cold_shower', name: 'Cold finish', domain: 'self_care', unit: 'sec', start: 15, target: 120, step: 15, min: 0.02, friction: 4 },
     { id: 'no_screens', name: 'Screens off before bed', domain: 'self_care', unit: 'min', start: 15, target: 60, step: 5, min: 0.1, friction: 4 },
-    /* Anchors: target === start, so there is nothing to ramp. You take the
-       vitamin or you do not, and a programme that ramped a supplement would be
-       making a medical claim this app has no business making. `doseOn`'s clamp
+    /* Item habits. The dose is the length of a checklist rather than a number,
+       because "take your vitamins" is four separate things you can miss one of,
+       and a skincare routine is an order you follow rather than five minutes
+       you spend. The list is stored per run and is the user's to edit: the
+       closed catalog decides which *habits* exist, never what is inside one.
+
+       Nothing downstream needed a new concept for this. `asked` is the item
+       count, `did` is how many were ticked, and three of four supplements is a
+       partial exactly the way 1.5 of 2 litres is. */
+    { id: 'vitamins', name: 'Take vitamins', domain: 'self_care', unit: 'items', start: 1, target: 1, step: 1, min: 0.5, friction: 1,
+      items: ['Multivitamin', 'Vitamin D3', 'Omega-3', 'Magnesium'] },
+    { id: 'skincare', name: 'Morning skincare', domain: 'self_care', unit: 'items', start: 1, target: 1, step: 1, min: 1.0, friction: 1,
+      items: ['Cleanser', 'Niacinamide ampoule', 'Hydrating ampoule', 'Moisturiser', 'SPF 50+'] },
+    { id: 'skincare_pm', name: 'Night skincare', domain: 'self_care', unit: 'items', start: 1, target: 1, step: 1, min: 1.0, friction: 1,
+      items: ['Cleansing oil', 'Second cleanse', 'Hydrating ampoule', 'Moisturiser'] },
+    /* Anchors: target === start, so there is nothing to ramp. `doseOn`'s clamp
        holds them flat with no special case anywhere, and they are the cheapest
        rows on any day, so `repair` never sacrifices one — an anchor is what a
        day still has on it after everything expensive has gone. */
-    { id: 'vitamins', name: 'Take vitamins', domain: 'self_care', unit: 'doses', start: 1, target: 1, step: 1, min: 0.5, friction: 1 },
     { id: 'floss', name: 'Floss', domain: 'self_care', unit: 'times', start: 1, target: 1, step: 1, min: 1.0, friction: 2 },
     { id: 'brush_teeth', name: 'Brush teeth', domain: 'self_care', unit: 'times', start: 1, target: 2, step: 1, min: 2.0, friction: 1 },
-    { id: 'skincare', name: 'Face routine', domain: 'self_care', unit: 'min', start: 1, target: 5, step: 1, min: 1.0, friction: 1 },
     // --- development ---
     { id: 'read', name: 'Read', domain: 'development', unit: 'min', start: 10, target: 45, step: 5, min: 1.0, friction: 2 },
     { id: 'deep_work', name: 'Deep work block', domain: 'development', unit: 'min', start: 25, target: 90, step: 10, min: 1.0, friction: 5 },
@@ -79,6 +90,27 @@
 
   const habit = (id) => BY_ID[id] || null;
   const isKnown = (id) => Object.prototype.hasOwnProperty.call(BY_ID, id);
+  const isItemHabit = (id) => !!(habit(id) && habit(id).items);
+
+  /**
+   * The checklist this habit runs with, or null when it is not an item habit.
+   *
+   * A run carries its own copy, so the user can add, rename and remove entries
+   * without touching the catalog. Falls back to the catalog's defaults until it
+   * has been edited, so a habit picked today already has sensible steps in it.
+   */
+  function itemsFor(rh) {
+    const h = habit(rh && rh.habitId);
+    if (!h || !h.items) return null;
+    const own = rh && Array.isArray(rh.items)
+      ? rh.items.filter((x) => typeof x === 'string' && x.trim())
+      : null;
+    return own && own.length ? own.slice() : h.items.slice();
+  }
+
+  /** What a habit costs the budget at its heaviest, item habits included. An
+      item habit's nominal target is 1 while its real cost is its list length. */
+  const topCost = (h) => (h.items ? h.items.length : h.target) * h.min;
 
   /* A stretch of the run, and the most habits allowed live in it. The cap is
      the point: a programme asking for nine things on day 5 is the one people
@@ -127,6 +159,10 @@
     if (day < rh.startDay) return 0;
     const h = habit(rh.habitId);
     if (!h) return 0;
+    /* A checklist does not ramp. Four supplements is four supplements on day
+       one and on day 66, and a programme that added a fifth in week three would
+       be inventing a vitamin. The number moves only when the user edits it. */
+    if (h.items) return (itemsFor(rh) || []).length;
     // A frozen habit keeps asking whatever it asked on the day it froze.
     const effective = rh.frozenDay == null ? day : Math.min(day, rh.frozenDay);
     const weeks = Math.max(0, Math.floor((effective - rh.startDay) / 7));
@@ -223,6 +259,26 @@
     const out = {};
     activeOn(run, day).forEach((p) => {
       const asked = doseOn(p, day);
+      const list = itemsFor(p);
+
+      /* An item habit freezes the checklist itself, not only its length. Edit
+         the list in week five and week two still shows the four supplements it
+         actually asked for that morning, with the one that was missed still
+         named. A count alone would remember that three of four were taken and
+         forget which. */
+      if (list) {
+        const state = {};
+        const all = !!ticked[p.habitId];
+        list.forEach((name) => { state[name] = all; });
+        out[p.habitId] = {
+          asked: list.length,
+          done: all && list.length > 0,
+          did: all ? list.length : null,
+          items: state
+        };
+        return;
+      }
+
       const measured = values[p.habitId];
       if (measured == null || !isFinite(measured)) {
         out[p.habitId] = { asked: asked, done: !!ticked[p.habitId], did: null };
@@ -231,6 +287,24 @@
       }
     });
     return out;
+  }
+
+  /**
+   * Tick or untick one item of a checklist, and re-freeze the verdict.
+   *
+   * `done` is recomputed here rather than derived on read, for the same reason
+   * it is frozen everywhere else: the rule turning three of four supplements
+   * into a yes or a no must not be changeable after the day is over.
+   */
+  function toggleItem(entry, name) {
+    if (!entry || !entry.items) return entry;
+    if (!Object.prototype.hasOwnProperty.call(entry.items, name)) return entry;
+    entry.items[name] = !entry.items[name];
+    const names = Object.keys(entry.items);
+    const ticked = names.filter((k) => entry.items[k]).length;
+    entry.did = ticked;
+    entry.done = names.length > 0 && ticked === names.length;
+    return entry;
   }
 
   /** How much of the ask was met, or null when nothing was measured. Capped at
@@ -293,7 +367,11 @@
       for (const p of live) {
         const h = habit(p.habitId);
         const d = doseOn(p, day);
-        if (d < h.start - 1e-9 || d > h.target + 1e-9) {
+        /* An item habit is bounded by its own checklist, which `doseOn` returns
+           directly — there is no ramp to leave its rails. Measuring it against
+           the catalog's nominal start and target would fail all four
+           supplements on every day of the run. */
+        if (!h.items && (d < h.start - 1e-9 || d > h.target + 1e-9)) {
           v.push({ kind: 'dose_in_bounds', day: day, detail: p.habitId + ' at ' + d + ' outside [' + h.start + ', ' + h.target + ']' });
         }
         if (day > p.startDay && doseOn(p, day - 1) - d > 1e-9) {
@@ -505,7 +583,7 @@
        a run that fails `validate` is the one thing this function may not do:
        every screen downstream assumes a run is feasible. */
     const cheapest = HABITS.slice()
-      .sort((a, b) => a.target * a.min - b.target * b.min || a.friction - b.friction)
+      .sort((a, b) => topCost(a) - topCost(b) || a.friction - b.friction)
       .slice(0, MIN_HABITS)
       .map((h) => h.id);
     const floor = repair(draft(cheapest), 0).run;
@@ -548,7 +626,7 @@
        be added to the opening week of almost any run. */
     const byCost = run.habits.slice().sort((a, b) => {
       const ha = habit(a.habitId), hb = habit(b.habitId);
-      return (ha ? ha.target * ha.min : 0) - (hb ? hb.target * hb.min : 0);
+      return (ha ? topCost(ha) : 0) - (hb ? topCost(hb) : 0);
     });
     for (const p of byCost) {
       const moved = Object.assign({}, run, {
@@ -944,7 +1022,7 @@
     HABITS, PHASES, RUN_DAYS, LAST_INTRO_DAY, MAX_NEW_PER_WEEK, MIN_HABITS, MAX_HABITS,
     MAX_PATCH_HABITS, TRAILING_DAYS, INTERVENTION_RATE, INTERVENTION_MISSES, PROTECTED_RATE,
     ADD_READY_RATE, ADVANCE_READY_RATE, MIN_EVIDENCE_DAYS,
-    DEFAULT_PICKS, habit, isKnown, phaseFor, doseOn, minutesOn, activeOn, dayMinutes, dayIndex,
+    DEFAULT_PICKS, habit, isKnown, isItemHabit, itemsFor, toggleItem, phaseFor, doseOn, minutesOn, activeOn, dayMinutes, dayIndex,
     where, runDay, recordDay, fractionOf, validate, repair, buildRun,
     applyPatch, diagnose, adapt, recommend, applyRecommendation, checkIn
   });

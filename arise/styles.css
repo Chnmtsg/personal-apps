@@ -1218,3 +1218,22 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 }
 .pick:has(:checked) .pick-effort { color: var(--accent-2); }
 .pick:has(:focus-visible) { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+
+/* ---- a checklist habit ----
+   Four supplements is four things you can miss one of, so the row carries the
+   list rather than a single tick. Deliberately quieter than the row above it:
+   these are steps within one habit, not habits. */
+.runrow-head { display: flex; align-items: center; gap: var(--sp-md); }
+.runitems { list-style: none; margin: var(--sp-sm) 0 0; padding: 0 0 0 52px; display: flex; flex-wrap: wrap; gap: 6px; }
+.runitem {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px; min-height: 34px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--stroke);
+  color: var(--muted); font-size: var(--fs-xs); font-weight: 600;
+}
+.runitem i { font-style: normal; width: 9px; font-weight: 900; }
+.runitem.on {
+  background: color-mix(in srgb, var(--good) 14%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--good) 40%, transparent);
+  color: var(--text);
+}

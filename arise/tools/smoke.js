@@ -979,13 +979,14 @@ const runStart = A.key(new Date(2026, 0, 1));
 /* Independent oracle: expected doses come from the catalog row directly, never
    from doseOn. The Python original shipped a wrong dose through ~165,000 clean
    day-renders precisely because its harness verified doseOn by calling doseOn. */
-const wrongDayOne = R.HABITS.filter((h) =>
+const RAMPING = R.HABITS.filter((h) => !h.items);
+const wrongDayOne = RAMPING.filter((h) =>
   R.doseOn({ habitId: h.id, startDay: 1, scale: 1, frozenDay: null }, 1) !== h.start);
-ok('day one asks exactly the catalog start dose, for all ' + R.HABITS.length + ' habits',
+ok('day one asks exactly the catalog start dose, for all ' + RAMPING.length + ' ramping habits',
    wrongDayOne.length === 0, wrongDayOne.map((h) => h.id));
 
 const wrongStep = [];
-R.HABITS.forEach((h) => {
+RAMPING.forEach((h) => {
   const rh = { habitId: h.id, startDay: 1, scale: 1, frozenDay: null };
   for (let w = 0; w < 10; w++) {
     const want = Math.min(h.start + w * h.step, h.target);
@@ -999,7 +1000,7 @@ R.HABITS.forEach((h) => {
 ok('the ramp advances one step a week until it reaches target', wrongStep.length === 0, wrongStep.slice(0, 3));
 
 const outOfBounds = [];
-R.HABITS.forEach((h) => {
+RAMPING.forEach((h) => {
   [0, 0.25, 0.5, 0.75, 1].forEach((scale) => {
     for (let d = 1; d <= R.RUN_DAYS; d++) {
       const v = R.doseOn({ habitId: h.id, startDay: 1, scale: scale, frozenDay: null }, d);
@@ -1009,7 +1010,7 @@ R.HABITS.forEach((h) => {
 });
 ok('no scale puts a dose outside [start, target]', outOfBounds.length === 0, outOfBounds.slice(0, 3));
 
-const anchors = R.HABITS.filter((h) => h.target === h.start);
+const anchors = RAMPING.filter((h) => h.target === h.start);
 ok('the catalog has anchors at all', anchors.length > 0);
 const drifted = anchors.filter((h) => {
   for (const scale of [0, 0.5, 1]) {
@@ -1368,6 +1369,96 @@ S.runCheckIn();
 const openedToday = S.run().log[S.runToday()];
 ok('the daily check-in opens today record, so tapping the run is not a penalty',
    !!openedToday && Object.keys(openedToday).length >= 0, openedToday);
+
+/* ------------------------------------------------------------------ */
+section('a habit whose dose is a checklist');
+
+{
+  const itemHabits = R.HABITS.filter((h) => h.items);
+  ok('the catalog has checklist habits', itemHabits.length >= 2, itemHabits.map((h) => h.id));
+  ok('vitamins is a list of named supplements, not one tick',
+     (R.habit('vitamins').items || []).length >= 4, R.habit('vitamins').items);
+  ok('and skincare is an ordered routine',
+     (R.habit('skincare').items || []).indexOf('SPF 50+') > 0, R.habit('skincare').items);
+
+  const run = R.buildRun(runStart, 90, ['vitamins', 'skincare', 'water']);
+  ok('a run of checklist habits validates', R.validate(run).length === 0,
+     R.validate(run).map((v) => v.kind));
+
+  /* The dose IS the checklist length. Measuring it against the catalog's
+     nominal target of 1 would fail every supplement on every day. */
+  const vitPh = run.habits.find((p) => p.habitId === 'vitamins');
+  ok('the dose is the number of items, on every day',
+     R.doseOn(vitPh, 1) === 4 && R.doseOn(vitPh, 66) === 4, [R.doseOn(vitPh, 1), R.doseOn(vitPh, 66)]);
+
+  const entry = R.recordDay(run, 1, [])['vitamins'];
+  ok('a fresh record names every item and ticks none',
+     entry.asked === 4 && entry.done === false && Object.keys(entry.items).length === 4, entry);
+
+  R.toggleItem(entry, 'Vitamin D3');
+  R.toggleItem(entry, 'Omega-3');
+  ok('two of four is a partial, counted and not kept',
+     entry.did === 2 && entry.done === false, entry);
+  ok('and it is drawn as a fraction like any other partial',
+     Math.abs(R.fractionOf(entry) - 0.5) < 1e-9, R.fractionOf(entry));
+  ok('which one was missed is remembered, not just how many',
+     entry.items['Magnesium'] === false && entry.items['Omega-3'] === true, entry.items);
+
+  R.toggleItem(entry, 'Multivitamin');
+  R.toggleItem(entry, 'Magnesium');
+  ok('all four is done', entry.done === true && entry.did === 4, entry);
+  R.toggleItem(entry, 'Magnesium');
+  ok('and unticking one takes it back off done', entry.done === false && entry.did === 3, entry);
+
+  ok('an item nobody has is ignored rather than invented',
+     R.toggleItem(entry, 'Creatine').items['Creatine'] === undefined, entry.items);
+}
+
+section('the checklist belongs to the run, the catalog stays closed');
+
+{
+  S.resetAll();
+  S.startRun(['vitamins', 'skincare', 'water'], 90);
+  S.toggleRunItem('vitamins', 'Vitamin D3');
+  const beforeAsked = S.run().log[1].vitamins.asked;
+  const beforeNames = Object.keys(S.run().log[1].vitamins.items).join('/');
+
+  const saved = S.setRunItems('vitamins', ['Multivitamin', ' Vitamin D3 ', 'Vitamin D3', 'Zinc', '', '  ']);
+  ok('blank lines and repeats are dropped, and entries trimmed',
+     saved.join(',') === 'Multivitamin,Vitamin D3,Zinc', saved);
+  ok('today now asks for the edited list',
+     R.doseOn(S.run().habits.find((p) => p.habitId === 'vitamins'), S.runToday()) === 3);
+
+  /* The reason the record stores names and not a count: a day already lived
+     keeps the list it actually asked for, including the one that was missed. */
+  ok('a day already recorded keeps the list it asked for',
+     S.run().log[1].vitamins.asked === beforeAsked &&
+     Object.keys(S.run().log[1].vitamins.items).join('/') === beforeNames,
+     [beforeAsked, S.run().log[1].vitamins.asked]);
+
+  ok('an empty checklist is refused — a habit with nothing in it is not a habit',
+     S.setRunItems('vitamins', ['', '   ']) === null &&
+     R.itemsFor(S.run().habits.find((p) => p.habitId === 'vitamins')).length === 3);
+  ok('and a habit that has no checklist cannot be given one',
+     S.setRunItems('water', ['a', 'b']) === null);
+
+  ok('the catalog itself is untouched by any of it',
+     R.habit('vitamins').items.join(',') === 'Multivitamin,Vitamin D3,Omega-3,Magnesium',
+     R.habit('vitamins').items);
+
+  /* A checklist run counts toward the streak the same way anything else does,
+     because `asked`, `did` and `done` are the same three fields throughout. */
+  S.resetAll();
+  S.startRun(['vitamins', 'skincare', 'water'], 90);
+  const today = S.runToday();
+  R.itemsFor(S.run().habits.find((p) => p.habitId === 'vitamins'))
+    .forEach((name) => S.toggleRunItem('vitamins', name));
+  ok('ticking every item marks the habit done in the day record',
+     S.run().log[today].vitamins.done === true, S.run().log[today].vitamins);
+  ok('and the day counts it toward what the day asked',
+     S.dayStatus(S.today()).rnTotal > 0 && S.dayStatus(S.today()).rnDone > 0,
+     S.dayStatus(S.today()));
+}
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

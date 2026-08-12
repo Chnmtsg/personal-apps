@@ -4,7 +4,7 @@
   "private": true,
   "description": "Development-time scripts only. The application does not depend on any of this — there is no build step and no bundle; index.html is served as-is. `package` copies the runtime set into dist/ for deployment, byte for byte.",
   "scripts": {
-    "test": "node tools/smoke.js && node tools/render.js",
+    "test": "node tools/smoke.js && node tools/render.js && node tools/wire.js",
     "verify": "npm test",
     "package": "node tools/package.js"
   }

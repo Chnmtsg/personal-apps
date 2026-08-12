@@ -818,6 +818,17 @@
       case 'run-value':
         UI.openRunValue(id);
         break;
+      case 'run-item':
+        S.toggleRunItem(id, actEl.dataset.item);
+        break;
+      case 'run-save-items': {
+        const box = $('#run_items');
+        if (!box) break;
+        const saved = S.setRunItems(id, box.value.split(/\r?\n/));
+        UI.closeSheet();
+        if (!saved) UI.toast('🗓 <span>A checklist needs at least one step, so nothing was saved.</span>', 'gold');
+        break;
+      }
       case 'run-save-value': {
         const el = $('#run_val');
         if (!el) break;

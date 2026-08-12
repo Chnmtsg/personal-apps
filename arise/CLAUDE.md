@@ -90,6 +90,7 @@ Run from `arise/`. Never report a change as done without these.
 ```bash
 node tools/smoke.js
 node tools/render.js
+node tools/wire.js
 ```
 
 or `npm test`, which runs both.
@@ -110,8 +111,12 @@ Two things they cannot catch.
 - `render.js` uses a hand-rolled stub DOM. `document.activeElement`,
   `document.contains`, `getClientRects` and `isConnected` do not exist on it.
   Guard any new DOM API so the stub degrades instead of throwing.
-- Neither suite loads `js/app.js`, so click routing and event wiring have no
-  automated coverage. Drive those by hand in a browser.
+- `tools/wire.js` drives `js/app.js` through its real click router against a
+  stub DOM. It exists because a stray newline inside a string literal once left
+  `app.js` unparseable while both other suites reported green — a syntax error
+  takes the whole file with it, so nothing wired up and the app was dead on
+  open. It cannot tell you a button is reachable, visible or styled, only that
+  tapping it does what the handler says. Real taps still need a browser.
 
 Serve over `http://`, never `file://` — service workers and install are blocked
 on `file://`.
