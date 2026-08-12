@@ -1,13 +1,25 @@
-# Arise
+# Discipline
 
 ## Purpose
 
-Arise is an offline-first personal-development tracker: goal progression,
+Discipline is an offline-first personal-development tracker: goal progression,
 streaks, a weekly training program, reading and journal.
 
 The goal is long-term maintainability, reliability, and clean architecture.
 
 Never sacrifice maintainability for short-term speed.
+
+**The product is named Discipline; the code is still `arise`.** The rename in
+2026-08 covered what the user sees — the title, the manifest, the brand mark and
+every string in the app. Three things deliberately did **not** move, and moving
+any of them later would be a breaking change, not a tidy-up:
+
+- `localStorage` key `arise.state.v1` — renaming it orphans every user's goals,
+  logs, streaks and journal, with no recovery. It is the one thing that must
+  never change.
+- the `window.Arise` / `window.Store` / `window.UI` globals, and the `arise/`
+  folder itself.
+- filenames inside `sw.js` ASSETS.
 
 ---
 
@@ -121,6 +133,30 @@ you must clear it or you will be reading stale assets:
 
 ---
 
+# Shipping it to a phone
+
+The app is static, so it deploys by drag-and-drop — no build, no git, no CLI.
+**It must be served over HTTPS**: service workers and install-to-home-screen
+only run on a secure context or `localhost`, so a LAN address like
+`http://192.168.x.x:8123` shows the app but silently loses offline caching and
+install, which is most of the point.
+
+What ships is exactly the runtime set — `index.html`, `styles.css`, `sw.js`,
+`manifest.webmanifest`, `js/`, `icons/`, `fonts/`. Everything else in this
+folder is development scaffolding and must not be uploaded: `tools/`,
+`knowledge/`, `.claude/`, `CLAUDE.md`, `README.md`, `serve.cmd`,
+`node_modules/`.
+
+Before uploading, check every asset in `sw.js` ASSETS exists in the folder being
+shipped — a missing precache entry makes `cache.add` fail silently for that one
+file, and the app still installs.
+
+**Each origin is its own storage.** Moving from `localhost:8123` to a hosted URL
+starts empty; the user's goals, logs and journal do not follow. Export from
+More → Export on the old origin and import on the new one before using it.
+
+---
+
 # Invariants
 
 These are the rules the app is built on. Breaking one is a Critical finding.
@@ -161,8 +197,27 @@ included, not just views.
 **Adding a `js/` file touches four places.** `index.html`, `sw.js` ASSETS, and
 the load lists in `tools/smoke.js` and `tools/render.js`.
 
-**Bump `sw.js` VERSION** after changing `styles.css` or anything in `js/`.
-Without it an installed copy keeps serving the old shell.
+**`index.html` is a shell. Nothing is inlined into it.** It links
+`./styles.css` and the six `./js/*.js` in fixed order, plus the manifest and
+icon links. A tooling export once replaced it with a 440KB self-extracting
+bundle that served `js/` and `styles.css` from `blob:` URLs decoded from a gzip
+payload — a snapshot taken mid-sprint. The app ran three fixes behind the tree
+for as long as it was there, and **both suites stayed green the whole time**,
+because they load `js/` from disk. That is the failure mode to watch for: a
+bundle makes the safety net measure code nobody runs. It also dropped the
+manifest and icon links (breaking PWA install) and added a Google Fonts
+`preconnect` to an app whose first constraint is that it makes no network calls.
+If a tool offers to inline the app into one file, say no.
+
+**Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
+anything in `fonts/`. Currently `discipline-v26`. Without it an installed copy keeps
+serving the old shell.
+
+**`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by
+`unicode-range` exactly as Google Fonts serves them, referenced from
+`styles.css` with local `./fonts/…` URLs and precached in `sw.js` ASSETS. A
+webfont either ships with this app or is not used — there is no third option,
+because there are no network calls.
 
 **The app is fully offline.** No network calls, no accounts, no telemetry, no
 secrets. If a change needs a server, stop and raise it first.

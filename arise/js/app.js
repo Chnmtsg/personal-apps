@@ -1,4 +1,4 @@
-/* Arise — wiring: events, celebrations, install prompt, service worker. */
+/* Discipline — wiring: events, celebrations, install prompt, service worker. */
 (function (root) {
   'use strict';
 
@@ -69,8 +69,47 @@
   /** Run a mutation, then diff for anything worth celebrating. */
   function act(fn) {
     const before = snapshot();
-    fn();
+    const out = fn();
     celebrate(before);
+    return out;
+  }
+
+  /* ---------- the two day-level goal actions ----------
+     Named once, because there are now three ways to reach each of them — the
+     tick, the day strip and a swipe — and three copies of "what keeping a goal
+     means" would be three things to keep in step. */
+
+  /** A short buzz, where the device has one. Completion only, never undo. */
+  function buzz(ms) {
+    try {
+      if (navigator.vibrate) navigator.vibrate(ms);
+    } catch (err) {
+      /* a device that refuses to vibrate is not a failure worth reporting */
+    }
+  }
+
+  function keepGoal(id, dateKey) {
+    const g = S.goalById(id);
+    if (!g) return;
+    const kept = act(() => S.hitGoalTarget(dateKey, id));
+    if (!kept) return; // un-ticking *is* the undo; it does not need one of its own
+    buzz(12);
+    UI.toastAction(`${esc(g.icon || '🎯')} <span><b>${esc(g.name)}</b> kept</span>`, {
+      act: 'goal-hit',
+      id: id,
+      date: dateKey
+    });
+  }
+
+  function skipGoal(id, dateKey) {
+    const g = S.goalById(id);
+    if (!g) return;
+    if (!S.skipGoal(dateKey, id)) return; // un-skipping is likewise its own undo
+    UI.toastAction(`⏭ <span><b>${esc(g.name)}</b> skipped</span>`, {
+      act: 'goal-skip',
+      id: id,
+      date: dateKey
+    });
   }
 
   /* ---------- helpers ---------- */
@@ -225,7 +264,7 @@
     switch (a) {
       /* --- goals --- */
       case 'goal-hit':
-        act(() => S.hitGoalTarget(sheetDate, id));
+        keepGoal(id, sheetDate);
         break;
       case 'goal-log':
         UI.openGoalLog(id, sheetDate);
@@ -245,7 +284,7 @@
         break;
       }
       case 'goal-skip':
-        S.skipGoal(sheetDate, id);
+        skipGoal(id, sheetDate);
         UI.closeSheet();
         break;
       case 'goal-clear':
@@ -739,22 +778,22 @@
         }
         break;
       case 'export':
-        download(`arise-backup-${A.key()}.json`, S.exportJson());
+        download(`discipline-backup-${A.key()}.json`, S.exportJson());
         UI.toast('⬇️ <span>Backup downloaded</span>');
         break;
       case 'download-unreadable': {
-        // Arise cannot parse these bytes, but they are still the user's data and
+        // Discipline cannot parse these bytes, but they are still the user's data and
         // getting them off the device is worth more than anything we can say.
         const raw = S.unreadableBackup();
         if (raw == null) {
           UI.openConfirm({
             title: 'The unreadable copy is gone',
-            body: 'Arise could not find the data it failed to read, so there is nothing to download. Restore from a backup instead — More → Import.',
+            body: 'Discipline could not find the data it failed to read, so there is nothing to download. Restore from a backup instead — More → Import.',
             confirmLabel: 'OK'
           });
           break;
         }
-        download(`arise-unreadable-${A.key()}.json`, raw);
+        download(`discipline-unreadable-${A.key()}.json`, raw);
         UI.toast('⬇️ <span>Unreadable copy downloaded</span>');
         break;
       }
@@ -772,7 +811,7 @@
             // reason goes in a sheet the user can actually read and dismiss.
             UI.openConfirm({
               title: 'That backup could not be read',
-              body: `${err.message}\n\nYour existing data has not been touched. Pick a file exported from Arise with More → Export.`,
+              body: `${err.message}\n\nYour existing data has not been touched. Pick a file exported from Discipline with More → Export.`,
               confirmLabel: 'OK'
             });
             return;
@@ -816,6 +855,109 @@
         break;
     }
   });
+
+  /* ---------- swipe and hold on a goal card ----------
+     The tick is a 40px target in the far corner of a full-width card; on a phone
+     held in one hand that is the hardest pixel on the screen to reach. These
+     give the same three actions a target the size of the whole card:
+
+       swipe right    keep it          (the tick, without aiming at the tick)
+       swipe left     skip it
+       press and hold log part of it   (the value sheet)
+
+     All three end in `keepGoal` / `skipGoal` / `UI.openGoalLog` — the same
+     functions a tap goes through — so a gesture can never mean something a tap
+     does not. Nothing here is covered by the suites: it is event wiring in
+     app.js, which neither suite loads. Drive it by hand in a browser. */
+
+  const SWIPE_COMMIT = 92; // px of travel before a gesture means it
+  const HOLD_MS = 480;     // press that becomes "open it and log part of it"
+
+  let drag = null;
+  let holdTimer = null;
+  /* A committed swipe still ends in a click on whatever was under the finger —
+     usually .gcard-open, which would open the sheet on top of the action just
+     taken. Swallow exactly one. */
+  let swallowClick = false;
+
+  function endDrag() {
+    if (!drag) return;
+    drag.card.classList.remove('is-swiping', 'will-keep', 'will-skip');
+    drag.card.style.transform = '';
+    drag = null;
+  }
+
+  function cardGoalId(card) {
+    return card.dataset.goal || '';
+  }
+
+  document.addEventListener('pointerdown', (ev) => {
+    if (ev.button != null && ev.button !== 0) return;
+    const card = ev.target.closest && ev.target.closest('.gcard');
+    if (!card || card.classList.contains('locked')) return;
+    if (ev.target.closest('.gcard-tick')) return; // the tick is its own control
+
+    const id = cardGoalId(card);
+    if (!id) return;
+    drag = { card: card, x: ev.clientX, dx: 0, moved: false };
+
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => {
+      if (!drag || drag.moved) return;
+      endDrag();
+      swallowClick = true;
+      buzz(10);
+      UI.openGoalLog(id, UI.viewDate());
+    }, HOLD_MS);
+  });
+
+  window.addEventListener('pointermove', (ev) => {
+    if (!drag) return;
+    const dx = ev.clientX - drag.x;
+    // Under the slop threshold this is still a tap, or a vertical scroll.
+    if (!drag.moved && Math.abs(dx) > 6) {
+      drag.moved = true;
+      clearTimeout(holdTimer);
+      drag.card.classList.add('is-swiping');
+    }
+    if (!drag.moved) return;
+    drag.dx = Math.max(-150, Math.min(150, dx));
+    drag.card.style.transform = `translateX(${drag.dx}px)`;
+    // The card states its own verdict while it moves, so releasing is never a guess.
+    drag.card.classList.toggle('will-keep', drag.dx > SWIPE_COMMIT);
+    drag.card.classList.toggle('will-skip', drag.dx < -SWIPE_COMMIT);
+  });
+
+  window.addEventListener('pointerup', () => {
+    if (!drag) return;
+    clearTimeout(holdTimer);
+    const id = cardGoalId(drag.card);
+    const dx = drag.dx;
+    const moved = drag.moved;
+    endDrag();
+    if (!moved) return;
+    swallowClick = true;
+    if (dx > SWIPE_COMMIT) keepGoal(id, UI.viewDate());
+    else if (dx < -SWIPE_COMMIT) skipGoal(id, UI.viewDate());
+  });
+
+  window.addEventListener('pointercancel', () => {
+    clearTimeout(holdTimer);
+    endDrag();
+  });
+
+  document.addEventListener(
+    'click',
+    (ev) => {
+      if (!swallowClick) return;
+      swallowClick = false;
+      if (ev.target.closest && ev.target.closest('.gcard')) {
+        ev.stopPropagation();
+        ev.preventDefault();
+      }
+    },
+    true // capture: it has to run before the router below it
+  );
 
   /* ---------- inputs ---------- */
 
@@ -932,7 +1074,7 @@
     e.preventDefault();
     deferredInstall = e;
   });
-  window.addEventListener('appinstalled', () => UI.toast('🎉 <span>Arise installed</span>'));
+  window.addEventListener('appinstalled', () => UI.toast('🎉 <span>Discipline installed</span>'));
 
   window.addEventListener('hashchange', () => {
     UI.go((location.hash || '').replace('#/', '') || 'today');
@@ -961,10 +1103,10 @@
     if (!open.length) return;
     lastNudge = k;
     try {
-      new Notification('Arise', {
+      new Notification('Discipline', {
         body: `${open.length} goal${open.length === 1 ? '' : 's'} still open — ${left} min before the day rolls over.`,
         icon: './icons/icon-192.png',
-        tag: 'arise-day'
+        tag: 'discipline-day'
       });
     } catch (err) {
       /* notifications are best-effort by design */
@@ -990,7 +1132,7 @@
     lastKey = S.today();
     UI.go((location.hash || '').replace('#/', '') || 'today');
   } catch (err) {
-    console.error('Arise: failed to start.', err);
+    console.error('Discipline: failed to start.', err);
     const view = $('#view');
     if (view) view.innerHTML = UI.recoveryPanel(err);
   }

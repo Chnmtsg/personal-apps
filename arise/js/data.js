@@ -1,4 +1,4 @@
-/* Arise — seed data, constants and pure helpers.
+/* Discipline — seed data, constants and pure helpers.
    Loaded as a classic script; everything hangs off window.Arise. */
 (function (root) {
   'use strict';

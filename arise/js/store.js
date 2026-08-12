@@ -1,4 +1,4 @@
-/* Arise — state, persistence and all derived stats (streaks, XP, rewards). */
+/* Discipline — state, persistence and all derived stats (streaks, XP, rewards). */
 (function (root) {
   'use strict';
 
@@ -129,7 +129,7 @@
     } catch (err) {
       // Storage itself is unavailable (blocked, or a private window that refuses).
       // There is nothing to lose here — nothing was ever readable.
-      console.warn('Arise: storage could not be read.', err);
+      console.warn('Discipline: storage could not be read.', err);
     }
 
     if (raw) {
@@ -138,7 +138,7 @@
         checkClock();
         return state;
       } catch (err) {
-        console.warn('Arise: saved data could not be read.', err);
+        console.warn('Discipline: saved data could not be read.', err);
         return startFresh(raw);
       }
     }
@@ -177,7 +177,7 @@
       localStorage.setItem(QUARANTINE_KEY, raw);
       return localStorage.getItem(QUARANTINE_KEY) === raw;
     } catch (err) {
-      console.error('Arise: the unreadable copy could not be quarantined.', err);
+      console.error('Discipline: the unreadable copy could not be quarantined.', err);
       return false;
     }
   }
@@ -351,7 +351,7 @@
       // Every view still renders from the in-memory state, so without this the
       // app reports success while nothing persists and the user finds out days
       // later. Announce it and let the banner offer an export.
-      console.error('Arise: save failed (storage full?).', err);
+      console.error('Discipline: save failed (storage full?).', err);
       if (state.meta.storageError == null) {
         state.meta.storageError = 'unwritable';
         emit({ type: 'storageError' });
@@ -551,9 +551,11 @@
     return !done;
   }
 
-  /** Deliberately skipping a scheduled day: honest, and it still breaks the chain. */
+  /** Deliberately skipping a scheduled day: honest, and it still breaks the chain.
+      Toggles, and returns the state it landed in — the caller needs to know
+      whether it just skipped or just un-skipped to say the right thing. */
   function skipGoal(dateKey, goalId) {
-    if (isFuture(dateKey)) return;
+    if (isFuture(dateKey)) return false;
     const e = ensureGoalLog(dateKey, goalId);
     e.skipped = !e.skipped;
     if (e.skipped) {
@@ -562,6 +564,7 @@
     }
     e.at = Date.now();
     commit({ type: 'goalSkip', dateKey, goalId });
+    return e.skipped;
   }
 
   function clearGoalEntry(dateKey, goalId) {
@@ -1162,7 +1165,7 @@
   /**
    * A challenge is a fixed-length run the day counter counts against: DAY 5 / 66.
    *
-   * It is optional on purpose. Arise works without one — the counter then just
+   * It is optional on purpose. Discipline works without one — the counter then just
    * counts days since you installed it — because a finish line you did not
    * choose is a deadline, and this app does not set deadlines for people.
    *
@@ -1461,17 +1464,17 @@
     try {
       parsed = JSON.parse(text);
     } catch (err) {
-      throw new Error('That file is not readable as JSON, so it is not an Arise backup.');
+      throw new Error('That file is not readable as JSON, so it is not a Discipline backup.');
     }
     const isObj = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
-    if (!isObj(parsed)) throw new Error('Not an Arise backup file.');
+    if (!isObj(parsed)) throw new Error('Not a Discipline backup file.');
 
     // Present in every version of the format: without them this is some other file.
     const missing = [];
     if (!isObj(parsed.plan)) missing.push('the weekly plan');
     if (!isObj(parsed.logs)) missing.push('the day logs');
     if (missing.length) {
-      throw new Error(`This file is missing ${missing.join(' and ')}, so it is not an Arise backup.`);
+      throw new Error(`This file is missing ${missing.join(' and ')}, so it is not a Discipline backup.`);
     }
 
     // Added in later versions: absent is fine, wrong type is not.
@@ -1493,8 +1496,8 @@
     if (typeof v !== 'number' || !isFinite(v)) throw new Error('This backup does not say which format it is in.');
     if (v > STATE_VERSION) {
       throw new Error(
-        `This backup was written by a newer version of Arise (format ${v}; this copy reads ${STATE_VERSION}). ` +
-          'Update Arise before restoring it — importing it here would drop whatever the newer version added.'
+        `This backup was written by a newer version of Discipline (format ${v}; this copy reads ${STATE_VERSION}). ` +
+          'Update Discipline before restoring it — importing it here would drop whatever the newer version added.'
       );
     }
 

@@ -1,4 +1,4 @@
-/* Arise — the built-in dumbbell training program.
+/* Discipline — the built-in dumbbell training program.
 
    Kept out of data.js because this is a *program* (a specific 6-day split with
    its own prescriptions and coaching notes), not the app's generic seed data.

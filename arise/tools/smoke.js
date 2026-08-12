@@ -394,6 +394,17 @@ ok('cannot log the future', S.toggleExercise(tomorrow, 'anything') === false);
 ok('cannot log a future goal value', S.setGoalValue(tomorrow, hist.id, 400) === false);
 ok('cannot write a future summary', S.setReading(tomorrow, { summary: 'nope' }) === false);
 
+/* A skip is a toggle, and the caller has to be able to tell which way it went —
+   an undo offered for "skipped" when the tap actually un-skipped would put the
+   day back where the user had just taken it from. */
+section('skipping says which way it went');
+const skipDay = A.addDays(t, -2);
+ok('skipping reports that it skipped', S.skipGoal(skipDay, hist.id) === true);
+ok('and the entry agrees', !!S.goalsForDay(skipDay).find((e) => e.goal.id === hist.id && e.skipped));
+ok('skipping again reports the un-skip', S.skipGoal(skipDay, hist.id) === false);
+ok('and the entry agrees again', !S.goalsForDay(skipDay).find((e) => e.goal.id === hist.id && e.skipped));
+ok('a future day cannot be skipped at all', S.skipGoal(tomorrow, hist.id) === false);
+
 section('clock tampering is noticed');
 const tampered = JSON.parse(S.exportJson());
 tampered.meta.maxSeen = A.addDays(t, 30); // as if the app had already seen a later date

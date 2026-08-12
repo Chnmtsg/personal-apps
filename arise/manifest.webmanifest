@@ -1,6 +1,6 @@
 {
-  "name": "Arise — Personal Development Tracker",
-  "short_name": "Arise",
+  "name": "Discipline — Personal Development Tracker",
+  "short_name": "Discipline",
   "description": "Goals that step from where you are now to a target you set, a streak that survives real life, and reading you can't tick off until you've written what you took from it.",
   "start_url": "./index.html",
   "scope": "./",

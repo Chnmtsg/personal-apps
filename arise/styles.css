@@ -210,7 +210,7 @@ button { cursor: pointer; }
 
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-  display: grid; grid-template-columns: repeat(6, 1fr);
+  display: grid; grid-template-columns: repeat(5, 1fr);
   height: calc(var(--tab-h) + var(--safe-b)); padding-bottom: var(--safe-b);
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(14px);
@@ -1047,3 +1047,88 @@ body { font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif; }
 .plan-day.is-today .plan-day-head { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .plan-day.is-today h3::after { color: var(--accent-2); }
 .heat i { border-radius: 2.5px; }
+
+/* ================= reach: the day, done with one thumb =================
+   Everything below serves one idea — the work of a day happens in the bottom
+   third of the screen, where a thumb actually is. The card is swipeable, the
+   next thing to do sits above the tab bar, and undoing a mistake is in the
+   toast rather than three taps away inside a sheet. */
+
+/* --- goal card: swipe to keep, swipe to skip ---
+   The card carries its own verdict while it moves. A tinted plate behind it
+   would be invisible: .gcard sets `isolation: isolate` over an opaque
+   background, so anything painted behind it is painted behind the card. */
+.gcard {
+  transition: transform 0.2s cubic-bezier(0.3, 1, 0.4, 1), background 0.18s, border-color 0.18s;
+  /* Vertical scrolling stays with the page; horizontal is ours to read. */
+  touch-action: pan-y;
+}
+.gcard.is-swiping { transition: background 0.18s, border-color 0.18s; }
+.gcard.will-keep {
+  background: color-mix(in srgb, var(--good) 16%, var(--surface));
+  border-color: color-mix(in srgb, var(--good) 48%, transparent);
+}
+.gcard.will-keep .gcard-tick { border-color: var(--good); color: var(--good); }
+.gcard.will-skip {
+  background: color-mix(in srgb, var(--muted) 12%, var(--surface));
+  border-color: var(--stroke-strong);
+  opacity: 0.8;
+}
+
+/* Some of it, but not the ask. Gold, never green: it is not a kept day. */
+.gcard.is-part { background: color-mix(in srgb, var(--gold) 10%, var(--surface)); border-color: color-mix(in srgb, var(--gold) 34%, transparent); }
+.gcard.is-part .gcard-mono { background: color-mix(in srgb, var(--gold) 18%, var(--surface-2)); color: var(--gold); }
+.gcard.is-part .gcard-tick { border-color: color-mix(in srgb, var(--gold) 50%, transparent); color: var(--gold); }
+.gcard.is-part .gcard-bar > i { background: var(--gold); }
+
+/* A gesture nobody is told about is a gesture nobody uses. */
+.gesture-hint {
+  margin: -2px 4px var(--sp-md);
+  font-size: var(--fs-xs); line-height: 1.45; color: var(--faint);
+}
+
+/* --- the day strip ---
+   What is left, and one tap to keep it, pinned above the tab bar. */
+.today-strip {
+  position: fixed; left: 0; right: 0; z-index: 39;
+  bottom: calc(var(--tab-h) + var(--safe-b));
+  display: flex; align-items: center; gap: var(--sp-md);
+  padding: 10px var(--sp-lg);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--stroke);
+}
+.today-strip-body { flex: 1; min-width: 0; }
+.today-strip b { display: block; font-size: var(--fs-md); font-weight: 800; }
+.today-strip span {
+  display: block; font-size: var(--fs-xs); color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.today-strip .btn { flex: none; min-height: 44px; }
+/* The strip is fixed, so the page has to end above it rather than under it. */
+body:has(.today-strip) { padding-bottom: calc(var(--tab-h) + var(--safe-b) + 66px); }
+/* …and a toast must clear the strip, not land behind it. */
+body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80px); }
+
+/* --- undo, inside the toast that announced the thing ---
+   .toasts is pointer-events:none so a toast never eats a tap; a toast that
+   carries an action has to take its own taps back. */
+.toast.has-action { pointer-events: auto; padding: 9px 9px 9px 15px; gap: 12px; }
+.toast .undo-btn {
+  flex: none; min-height: 36px; padding: 0 12px;
+  border: 1px solid var(--stroke-strong); border-radius: 10px;
+  background: none; color: var(--accent-2);
+  font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.06em;
+}
+
+/* --- Rewards, promoted out of the tab bar into More --- */
+.more-rewards {
+  display: flex; align-items: center; gap: var(--sp-md);
+  width: 100%; min-height: 60px; padding: var(--sp-md) var(--sp-lg);
+  margin-bottom: var(--sp-md); border-radius: var(--r);
+  background: var(--surface); border: 1px solid var(--stroke); color: var(--text);
+  text-align: left;
+}
+.more-rewards .ico { flex: none; width: 20px; height: 20px; color: var(--gold); }
+.more-rewards b { flex: 1; font-size: var(--fs-lg); font-weight: 700; }
+.more-rewards i { font-style: normal; color: var(--faint); }

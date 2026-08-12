@@ -1,8 +1,8 @@
-# Arise Project
+# Discipline Project
 
 ## Project Vision
 
-Arise is a personal-development tracker for one person, on their own phone.
+Discipline is a personal-development tracker for one person, on their own phone.
 
 The goal is NOT to record habits and workouts. A notes app does that.
 
@@ -155,7 +155,7 @@ These are decisions, not gaps. Re-proposing one needs a reason.
 
 - **Alarms and reliable reminders.** A PWA cannot wake anyone: browsers do not run
   timers in the background, and iOS delivers web push to a home-screen install
-  unreliably and without timing guarantees. Arise tracks a wake-up; it must never
+  unreliably and without timing guarantees. Discipline tracks a wake-up; it must never
   imply it causes one. The reminder setting fires only while the app is open.
 - **Cloud sync and accounts.** Data stays on the device.
 - **Anti-cheat.** Winding the device clock back cannot be prevented offline. The

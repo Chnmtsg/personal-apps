@@ -1,4 +1,4 @@
-# Coding Standards — Arise
+# Coding Standards — Discipline
 
 ## General
 

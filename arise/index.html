@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Arise — Personal Development Tracker</title>
+<title>Discipline — Personal Development Tracker</title>
 <meta name="description" content="Set goals that progress from where you actually are to a target you choose, keep the streak, and write before you can call the reading done.">
 <meta name="theme-color" content="#100e0c" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f7f2ea" media="(prefers-color-scheme: light)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Arise">
+<meta name="apple-mobile-web-app-title" content="Discipline">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icons/favicon.svg" type="image/svg+xml">
@@ -23,7 +23,7 @@
 <header class="topbar" id="topbar">
   <div class="brand">
     <span class="brand-mark" aria-hidden="true">↑</span>
-    <span class="brand-text">Arise</span>
+    <span class="brand-text">Discipline</span>
   </div>
   <div class="topbar-right">
     <!-- The label lives on the button, not the contents: render() rewrites the
@@ -43,15 +43,18 @@
 <main id="view" class="view" tabindex="-1"></main>
 
 <!-- `data-icon` names an entry in the icon table in `js/ui.js`, which paints it
-     in on first render. The paths deliberately do NOT live here: the same six
+     in on first render. The paths deliberately do NOT live here: the same five
      shapes inlined in two files is two copies to keep in step, and the copy in
-     the shell is the one nobody would remember to update. -->
+     the shell is the one nobody would remember to update.
+
+     Five tabs, not six. Rewards is the one screen you visit after the fact
+     rather than to do something, so it moved to the top of More — see
+     `renderMore()` — and the four daily screens each got a wider target. -->
 <nav class="tabbar" id="tabbar" aria-label="Primary">
   <button type="button" data-nav="today"    data-icon="sun"      class="tab"><i>Today</i></button>
   <button type="button" data-nav="plan"     data-icon="calendar"  class="tab"><i>Plan</i></button>
   <button type="button" data-nav="read"     data-icon="book"     class="tab"><i>Read</i></button>
   <button type="button" data-nav="progress" data-icon="chart"    class="tab"><i>Stats</i></button>
-  <button type="button" data-nav="rewards"  data-icon="trophy"   class="tab"><i>Rewards</i></button>
   <button type="button" data-nav="more"     data-icon="grid"     class="tab"><i>More</i></button>
 </nav>
 

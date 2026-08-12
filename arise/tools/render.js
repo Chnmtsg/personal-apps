@@ -776,5 +776,73 @@ behaves('a future day keeps the goal sheet read-only', () => {
   return html.indexOf('data-act="goal-log"') < 0 ? '' : 'a future day offers a way to log it';
 });
 
+/* ---------- the day, reachable with one thumb ----------
+   The swipe and press-and-hold gestures live in js/app.js, which neither suite
+   loads — they have to be driven by hand in a browser. What can be checked here
+   is everything they share with a tap: the states a card renders in, and the
+   strip that carries the day's next ask down to where a thumb is. */
+console.log('\nreach');
+
+S.resetAll();
+UI.setViewDate(S.today());
+
+behaves('Today pins what is left to a strip above the tab bar', () => {
+  const html = renderRoute('today');
+  if (html.indexOf('class="today-strip"') < 0) return 'no day strip';
+  if (html.indexOf('left today') < 0) return 'the strip does not say what is left';
+  return /today-strip[\s\S]*data-act="(goal-hit|open-read)"/.test(html) ? '' : 'the strip offers no way to act on it';
+});
+
+behaves('a kept day says so rather than asking for more', () => {
+  const k = S.today();
+  S.goalsForDay(k).forEach((e) => {
+    if (e.goal.gate === 'summary') S.setReading(k, { book: 'Deep Work', minutes: 25, summary: 'Attention is trainable.' });
+    else S.hitGoalTarget(k, e.goal.id);
+  });
+  const html = renderRoute('today');
+  if (html.indexOf('Day kept.') < 0) return 'a finished day still asks for something';
+  return html.indexOf('Keep it</button>') < 0 ? '' : 'it still offers a goal to keep';
+});
+
+behaves('a day being reviewed carries no strip — it is not today’s work', () => {
+  UI.setViewDate(A.addDays(S.today(), -2));
+  const html = renderRoute('today');
+  UI.setViewDate(S.today());
+  return html.indexOf('class="today-strip"') < 0 ? '' : 'a past day offers today’s action';
+});
+
+behaves('a goal logged short of its ask is neither done nor untouched', () => {
+  const g = S.addGoal({ name: 'Walk', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10 });
+  S.setGoalValue(S.today(), g.id, 3);
+  const html = renderRoute('today');
+  S.removeGoal(g.id);
+  if (/class="gcard[^"]*is-done/.test(html)) return 'short of the ask, and rendered as kept';
+  return /class="gcard[^"]*is-part/.test(html) ? '' : 'a partial log renders as if nothing happened';
+});
+
+behaves('a card names the goal it is for, so a gesture knows what it hit', () => {
+  // The day above was kept outright, so the cards are all under "Done".
+  UI.setTodayFilter('done');
+  const html = renderRoute('today');
+  UI.setTodayFilter('todo');
+  if (html.indexOf('class="gcard') < 0) return 'no cards to check';
+  return /<article class="gcard[^>]*data-goal="[^"]+"/.test(html) ? '' : 'no goal id on the card';
+});
+
+behaves('Rewards is reachable from More, now that it has no tab', () => {
+  const html = renderRoute('more');
+  return html.indexOf('data-nav="rewards"') > 0 ? '' : 'Rewards left the tab bar with no way back to it';
+});
+
+/* The tab bar lives in index.html, which neither suite loads. A tab pointing at
+   a route the app does not have would show up nowhere but on a phone. */
+behaves('every tab in the shell is a route the app has', () => {
+  const shell = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const tabs = (shell.match(/data-nav="[a-z]+"\s+data-icon/g) || []).map((s) => s.match(/data-nav="([a-z]+)"/)[1]);
+  if (tabs.length !== 5) return `the shell has ${tabs.length} tabs, not five`;
+  const unknown = tabs.filter((t) => ROUTES.indexOf(t) < 0);
+  return unknown.length ? `tabs with no route: ${unknown.join(', ')}` : '';
+});
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

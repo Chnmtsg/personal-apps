@@ -1,4 +1,4 @@
-/* Arise — views, rendering and interaction. */
+/* Discipline — views, rendering and interaction. */
 (function (root) {
   'use strict';
 
@@ -262,9 +262,14 @@
       .filter(Boolean)
       .join('');
 
+    /* Something was logged, but it did not reach the ask. Its own state, gold:
+       calling it done would be a lie and calling it nothing would erase the
+       work. Derived here from the entry, never guessed from the rendered text. */
+    const part = !!logged && !entry.done && !entry.skipped;
+
     return `<article class="gcard ${entry.done ? 'is-done' : ''} ${entry.skipped ? 'is-skipped' : ''} ${
-      locked ? 'locked' : ''
-    }" style="--hue:${hue}">
+      part ? 'is-part' : ''
+    } ${locked ? 'locked' : ''}" style="--hue:${hue}" data-goal="${g.id}">
       <span class="gcard-mono" aria-hidden="true">${esc((g.name || '?').trim().charAt(0).toUpperCase())}</span>
       <button type="button" class="gcard-open" data-act="goal-detail" data-id="${g.id}">
         <span class="gcard-badges">
@@ -296,7 +301,7 @@
     // would hide it, and the two routes out are the only recovery there is.
     if (st.meta.storageError === 'unreadable') {
       out += `<section class="banner warn stack">
-        <div><b>Saved data could not be read</b><p>Arise started fresh rather than guess at it. Your previous data has
+        <div><b>Saved data could not be read</b><p>Discipline started fresh rather than guess at it. Your previous data has
           <b>not</b> been deleted — download the unreadable copy to keep it, or restore from a backup.</p></div>
         <div class="btn-row">
           <button class="btn primary" data-act="import">Restore from backup</button>
@@ -452,6 +457,38 @@
       : `<div class="empty"><span class="big">🎯</span>No goals scheduled for this day.<br>
          <button class="link" data-nav="plan">Set some up →</button></div>`;
 
+    // A gesture nobody is told about is a gesture nobody has. The wiring is in
+    // js/app.js; this is the one line that makes it discoverable.
+    const gestureHint =
+      !future && shown.length
+        ? `<p class="gesture-hint">Swipe a card right to keep it, left to skip. Press and hold to log part of it.</p>`
+        : '';
+
+    /* The day's next ask, pinned just above the tab bar.
+       The primary action of the app used to live under the clock at the top of
+       the screen, which on a phone is the one place a thumb cannot reach. The
+       strip is fixed, so where it sits in this template is a matter of reading
+       order only; it renders for today alone, never for a day being reviewed. */
+    const nextUp = buckets.todo[0];
+    const stripBody = !nextUp
+      ? buckets.skipped.length
+        ? `<b>Nothing left to log.</b><span>${buckets.skipped.length} skipped today.</span>`
+        : `<b>Day kept.</b><span>Nothing else is asked of you today.</span>`
+      : `<b>${buckets.todo.length} left today</b><span>Next: ${esc(nextUp.goal.name)}</span>`;
+    const nextGated = nextUp && nextUp.goal.gate === 'summary';
+    const strip =
+      offset !== 0 || future || !entries.length
+        ? ''
+        : `<aside class="today-strip">
+            <div class="today-strip-body">${stripBody}</div>
+            ${
+              nextUp
+                ? `<button class="btn primary" data-act="${nextGated ? 'open-read' : 'goal-hit'}"
+                     data-id="${nextUp.goal.id}" data-date="${k}">${nextGated ? 'Write it' : 'Keep it'}</button>`
+                : ''
+            }
+          </aside>`;
+
     return `
       ${offset === 0 ? banners() : ''}
 
@@ -500,6 +537,7 @@
       </div>
 
       ${cards}
+      ${gestureHint}
       ${readCard}
 
       <div class="section-head"><h2>${esc(A.DAY_NAMES[A.weekday(k)])} workout</h2>
@@ -557,6 +595,7 @@
       }
       ${frozen ? `<button class="btn ghost block" data-act="unfreeze" data-date="${k}" style="margin-top:10px">❄️ Frozen — tap to undo</button>` : ''}
       ${st.done > 0 ? `<button class="btn ghost block" data-act="clear-day" style="margin-top:4px">Reset this day's log</button>` : ''}
+      ${strip}
     `;
   }
 
@@ -1022,7 +1061,7 @@
     const goals = S.activeGoals();
     openSheet(r ? 'Edit reward' : 'New reward', `
       <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Name something you actually want, and what it costs in
-        days. Arise will not buy it for you — it just refuses to say you earned it before you did.</p>
+        days. Discipline will not buy it for you — it just refuses to say you earned it before you did.</p>
       <div class="grid-2">
         <label class="field"><span>Reward</span>
           <input type="text" id="rw_name" maxlength="40" value="${esc(v.name)}" placeholder="New sneakers"></label>
@@ -1150,6 +1189,13 @@
     }).join('');
 
     return `
+      <!-- Rewards left the tab bar for this row: it is the one screen you open
+           after the fact rather than to do something, and the four daily screens
+           are worth more thumb than it is. -->
+      <button type="button" class="more-rewards" data-nav="rewards">
+        ${icon('trophy')}<b>Rewards</b><i aria-hidden="true">›</i>
+      </button>
+
       <div class="section-head"><h2>Difficulty</h2></div>
       <div class="mode-grid">${modeCards}</div>
       <p class="faint" style="font-size:var(--fs-sm);margin:2px 4px 0">
@@ -1215,7 +1261,7 @@
         <p class="faint" style="font-size:var(--fs-sm);margin:10px 2px 0">
           Being straight with you: a web app <b>cannot</b> be an alarm clock. Browsers don't run timers in
           the background, and iOS only delivers web notifications to a home-screen install, unreliably.
-          Arise <b>tracks</b> your wake-up; it can't wake you. Keep using your phone's alarm for that.
+          Discipline <b>tracks</b> your wake-up; it can't wake you. Keep using your phone's alarm for that.
         </p>
       </div>
 
@@ -1239,7 +1285,7 @@
           <button class="btn" data-act="onboard">Open</button>
         </div>
         <div class="row">
-          <div class="body"><div class="name">Install Arise</div><div class="sub">Add to your home screen and run offline</div></div>
+          <div class="body"><div class="name">Install Discipline</div><div class="sub">Add to your home screen and run offline</div></div>
           <button class="btn" data-act="install">Install</button>
         </div>
         <div class="row">
@@ -1255,7 +1301,7 @@
           <button class="btn danger" data-act="reset">Reset</button>
         </div>
       </div>
-      <p class="faint" style="text-align:center;font-size:var(--fs-xs);margin:18px 0 0">Arise · offline-first PWA · your data never leaves this device</p>
+      <p class="faint" style="text-align:center;font-size:var(--fs-xs);margin:18px 0 0">Discipline · offline-first PWA · your data never leaves this device</p>
     `;
   }
 
@@ -1910,17 +1956,38 @@
 
   /* ================= toasts & confetti ================= */
 
-  function toast(msg, kind) {
+  function toast(msg, kind, ms) {
     const el = document.createElement('div');
     el.className = 'toast ' + (kind || '');
     el.innerHTML = msg;
     $('#toasts').appendChild(el);
+    // An action taken from the toast has answered it; the toast should not sit
+    // there afterwards offering to be taken again.
+    const btn = el.querySelector('.undo-btn');
+    if (btn) btn.addEventListener('click', () => el.remove());
     setTimeout(() => {
       el.classList.add('out');
       setTimeout(() => el.remove(), 300);
-    }, 2400);
+    }, ms || 2400);
   }
   UI.toast = toast;
+
+  /**
+   * A toast carrying one action — undo, in practice.
+   *
+   * The button is an ordinary `data-act` control, so the router in `js/app.js`
+   * runs it exactly as it would from a card, and there is no second copy of
+   * what undoing means. It lives longer than a plain toast because a message
+   * you must read *and then act on* needs longer than one you only read.
+   */
+  function toastAction(msg, action) {
+    const attrs = ['act', 'id', 'date']
+      .filter((k) => action[k] != null)
+      .map((k) => `data-${k}="${esc(String(action[k]))}"`)
+      .join(' ');
+    toast(`${msg}<button type="button" class="undo-btn" ${attrs}>${esc(action.label || 'UNDO')}</button>`, 'has-action', 5000);
+  }
+  UI.toastAction = toastAction;
 
   function confetti() {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -2031,7 +2098,7 @@
       el.innerHTML = fn();
     } catch (err) {
       // Previously this left a white screen and a console line nobody would see.
-      console.error('Arise: a view failed to render.', err);
+      console.error('Discipline: a view failed to render.', err);
       el.innerHTML = recoveryPanel(err);
       return; // never restore focus onto a panel the user did not ask for
     }
@@ -2039,8 +2106,12 @@
     window.scrollTo({ top: keepScroll, behavior: 'instant' });
     restoreFocus(el, focused);
 
+    /* Rewards has no tab of its own any more — it is reached from More, so More
+       is the tab you are on while you are there. Without this, opening Rewards
+       leaves the bar with nothing lit and no sense of where you have got to. */
+    const tabRoute = route === 'rewards' ? 'more' : route;
     document.querySelectorAll('.tab').forEach((t) => {
-      const on = t.dataset.nav === route;
+      const on = t.dataset.nav === tabRoute;
       /* The tab's icon is drawn from the same table as every other icon in the
          app, rather than sitting as a second copy of the paths in index.html
          where the two would drift apart. Painted once: the tab bar is static
@@ -2050,7 +2121,7 @@
       }
       t.classList.toggle('active', on);
       // The active tab was styling alone, so assistive tech had no way to tell
-      // which of the six you were on.
+      // which of the five you were on.
       if (t.setAttribute) {
         if (on) t.setAttribute('aria-current', 'page');
         else t.removeAttribute('aria-current');

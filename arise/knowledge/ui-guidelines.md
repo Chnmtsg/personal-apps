@@ -1,4 +1,4 @@
-# UI Guidelines — Arise
+# UI Guidelines — Discipline
 
 ## Design Philosophy
 
@@ -147,6 +147,12 @@ Most important information first.
 On Today that order is: what today asks, then the tick to record it, then progress
 toward the next step. A streak is context, never the headline.
 
+Five tabs: Today, Plan, Read, Stats, More. Rewards is reached from the top of
+More — it is the one screen you open after the fact rather than to do something,
+and the four daily screens are worth more thumb than it is. A route without a tab
+still lights the tab it lives under, or the bar goes blank and the user loses
+track of where they are.
+
 Reduce visual clutter.
 
 ---
@@ -166,6 +172,24 @@ overlapping targets are worse than one small one.
 No horizontal scrolling.
 
 Respect `env(safe-area-inset-bottom)` for anything fixed to the bottom.
+
+**The day's work belongs in the bottom third.** A phone is held in one hand, and
+the top corners of a 6-inch screen are the hardest pixels on it to reach. The
+primary action of a screen goes near the tab bar, not under the clock — which is
+why Today ends in a fixed strip carrying the next thing by name and one tap to
+keep it. Anything fixed there must clear the tab bar *and* be cleared in turn by
+the toasts, or a message lands behind the thing that raised it.
+
+**A gesture is an accelerator, never the only route.** Swipe right to keep a goal,
+left to skip, press and hold to log part of it — all three end in the same
+functions a tap goes through, and every one of them is still reachable by tapping
+a visible control. A gesture nobody is told about is a gesture nobody has, so
+Today carries one line saying what they are.
+
+**Give a destructive or lossy action an undo where it happened.** A completion
+toast carries UNDO for five seconds rather than making the user find the sheet
+that could reverse it. `.toasts` is `pointer-events: none` so a toast can never
+eat a tap — a toast that carries an action has to opt its own taps back in.
 
 ---
 

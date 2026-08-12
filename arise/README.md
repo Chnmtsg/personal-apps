@@ -1,4 +1,4 @@
-# Arise — Personal Development Tracker (PWA)
+# Discipline — Personal Development Tracker (PWA)
 
 An offline-first personal development tracker: set goals that progress from **where you actually are**
 to a target **you** choose, keep a streak that survives real life, and plan your training week by week.
@@ -44,7 +44,7 @@ This is the heart of the app, and it's built around three rules.
 A goal is `start → target`, not `start + step forever`. You wake at 7:30 and want 6:00; the ladder is
 six 15-minute rungs and **it stops at the bottom**. A progression with only a step size is a countdown
 to failure — at −15 min/week you're being asked to wake at 3:45am by week twelve, and at −30 you hit
-midnight by week fourteen. Arise cannot do that: `valueAt(level)` is clamped to the target, and once
+midnight by week fourteen. Discipline cannot do that: `valueAt(level)` is clamped to the target, and once
 you're there the goal switches to maintenance ("Target reached — now just hold it").
 
 ### 2. You level up by performing, never because a week passed
@@ -93,7 +93,7 @@ list is frozen into that day's log, so editing next week never rewrites last wee
   drop it.
 - **Best streak is a high-water mark.** Clearing or editing an old day never revokes a record.
 - **Clock changes are noticed.** Streaks are dated on this device, so winding the clock back is the
-  easy cheat. Arise can't prevent it offline, so it detects it and says so instead of quietly
+  easy cheat. Discipline can't prevent it offline, so it detects it and says so instead of quietly
   rewarding it.
 
 ---
@@ -123,6 +123,18 @@ the summary is what completes the day, so there's no separate checkbox to fall o
 with its ask, its streak and how close the next step is; the day's workout; the reading gate; habits;
 and a journal box. Page back with `‹` to backfill.
 
+A goal card is worked with the whole card, not with the tick in its far corner — on a phone held in one
+hand that corner is the hardest pixel on the screen to reach:
+
+- **swipe right** to keep it, **swipe left** to skip it. The card tints as it passes the commit point,
+  so letting go is never a guess.
+- **press and hold** to open the value sheet and log *part* of it. A goal logged short of its ask gets
+  its own gold state — not green, because it is not a kept day, and not blank, because the work happened.
+- every completion raises a toast carrying **UNDO** for five seconds.
+
+Pinned above the tab bar is the **day strip**: how much is left, the next thing by name, and one tap to
+keep it. When there is nothing left it says so — *Day kept.* — and stops asking.
+
 ### The run
 
 A **run** is a fixed length to count against — 66 days by default, because that is the figure the
@@ -132,7 +144,7 @@ deadline, and this app doesn't set deadlines for people.
 
 The bar under the counter carries two numbers on one track, and the distinction is the point: grey is
 how much of the run has **elapsed**, orange is how many of those days you actually **kept**. Elapsed
-time is not progress, and Arise won't draw it as if it were. Starting a new run archives the old one
+time is not progress, and Discipline won't draw it as if it were. Starting a new run archives the old one
 rather than deleting it; finished runs keep their record. Start or end one from **More → The run**.
 
 **Plan** — your goals (create, edit, pause, re-baseline) and the seven-day workout split. Whatever you
@@ -148,9 +160,12 @@ at 06:30 don't sum to anything, so clock goals report days kept and nothing else
 Streaks, level/XP, the goal ladders, an 18-week heat map, weekly goal history and a 30-day training mix
 sit below that — deliberately. The app invented XP; it did not invent the hours.
 
-**Rewards** — **your own rewards** first: promise yourself something real ("14 days of workouts → new
+**Rewards** — reached from the top of **More**, not from a tab of its own: it is the one screen you open
+after the fact rather than to do something, and the four daily screens are worth more thumb than it is.
+
+**your own rewards** first: promise yourself something real ("14 days of workouts → new
 sneakers", "30 days of reading → the next book"), tied either to your overall streak or to one goal's
-streak. Arise tracks the distance and tells you when you've earned it; collecting it records that you
+streak. Discipline tracks the distance and tells you when you've earned it; collecting it records that you
 actually bought the thing. No XP for that one — inventing points for buying yourself trainers is the
 kind of unearned number this app refuses to show. A reward is earned on the **best** run the streak
 ever reached, so a slip afterwards can't take back something you already won.
@@ -174,7 +189,7 @@ than numerically smaller.
 
 ## The built-in training program
 
-Arise ships with a six-day dumbbell split, and every exercise carries its own coaching notes —
+Discipline ships with a six-day dumbbell split, and every exercise carries its own coaching notes —
 tap **ℹ️** on any row in Today to see how to perform it, what to aim for, and what to avoid.
 
 An earlier version led that sheet with a generated stick-figure animation. It was removed: a figure
@@ -210,7 +225,7 @@ afterwards is never overwritten by a later update.
 
 ## What a PWA can't do
 
-Arise **tracks** your wake-up; it cannot wake you. Browsers don't run timers in the background, and iOS
+Discipline **tracks** your wake-up; it cannot wake you. Browsers don't run timers in the background, and iOS
 only delivers web push to a home-screen install, unreliably and without timing guarantees. The reminder
 setting sends a browser notification when the app is open and the day is nearly over — that's the
 honest limit. Keep using your phone's alarm.
@@ -218,13 +233,13 @@ honest limit. Keep using your phone's alarm.
 Everything lives in `localStorage` under `arise.state.v1` on your device — nothing is uploaded. Use
 **More → Export** for a JSON backup. Clearing your browser's site data wipes the app; export first.
 
-If Arise ever finds saved data it cannot read, it does **not** quietly start over. The unreadable bytes
+If Discipline ever finds saved data it cannot read, it does **not** quietly start over. The unreadable bytes
 are copied to `arise.state.v1.unreadable` and verified before anything is allowed to overwrite them, and
 Today shows a banner offering two routes: restore from a backup, or download the unreadable copy so the
-data leaves the device even though the app cannot parse it. If that copy cannot be made, Arise refuses to
+data leaves the device even though the app cannot parse it. If that copy cannot be made, Discipline refuses to
 write at all rather than replace your only data with a blank app.
 
-The same goes the other way. If a write is refused — storage full, or private browsing blocking it — Arise
+The same goes the other way. If a write is refused — storage full, or private browsing blocking it — Discipline
 says so in a banner and offers an export, instead of showing you green ticks for a day that was never
 saved. And because saving is debounced by a fraction of a second, a pending write is forced out when the
 app is backgrounded or closed, so the last tap of the day cannot be lost to a timer that never ran.

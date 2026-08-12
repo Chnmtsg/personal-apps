@@ -1,8 +1,8 @@
-/* Arise service worker — offline-first app shell. */
+/* Discipline service worker — offline-first app shell. */
 /* Bump on every shipped change to styles.css or js/ — the fetch handler is
    cache-first, so without a new VERSION an existing install keeps serving the
    old shell until a second load. */
-const VERSION = 'arise-v25';
+const VERSION = 'discipline-v26';
 const ASSETS = [
   './',
   './index.html',

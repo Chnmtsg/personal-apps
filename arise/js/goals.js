@@ -1,4 +1,4 @@
-/* Arise — the progression engine.
+/* Discipline — the progression engine.
    Pure functions only: nothing here touches storage, so the whole thing is
    testable from node (see tools/smoke.js) and reusable by every section.
 
