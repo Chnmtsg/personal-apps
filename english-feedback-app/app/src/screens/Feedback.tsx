@@ -7,7 +7,7 @@ import { processQueue } from "../lib/queue";
 import { canRequeue } from "../lib/claim";
 import { FAIL_REASON_MESSAGES, labelFor } from "../lib/categories";
 import { buildSegments } from "../lib/highlight";
-import { buildFeedbackCards } from "../lib/cards";
+import { buildFeedbackCards, explanationRows } from "../lib/cards";
 import { useLoad } from "../lib/useLoad";
 
 interface Props {
@@ -65,6 +65,8 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
   // they belong to (ADR 0002 Part B). Lives outside `Correction` on purpose —
   // see shared/schema.ts's AlternativeSchema — so this lookup is the only
   // place the two are joined back together, for rendering only.
+  // A rule prints on its first appearance only — see explanationRows.
+  const showRule = useMemo(() => explanationRows(fb?.corrections ?? []), [fb]);
   const altsByIndex = useMemo(() => {
     const map = new Map<number, string[]>();
     for (const a of fb?.alternatives ?? []) map.set(a.for, a.phrasings);
@@ -408,12 +410,15 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
                             <EditSpan original={c.original} corrected={c.corrected} />
                           </p>
                         </div>
-                        <div className="mt-3 rounded-2xl bg-sunk p-4">
-                          <Eyebrow>The rule</Eyebrow>
-                          <p className="mt-2 text-[14.5px] leading-relaxed text-ink-muted">
+                        {/* One quiet line, not a labelled panel: the rule is at
+                            most 20 words and it sits under twelve of these.
+                            Suppressed on an exact repeat — the same sentence
+                            printed five times is what made this card long. */}
+                        {showRule[index] && (
+                          <p className="mt-2.5 text-[14.5px] leading-[1.55] text-ink-muted">
                             {c.explanation ?? c.rule}
                           </p>
-                        </div>
+                        )}
                         {/* "You could also say" — passive reading only, never
                             a choice (ADR 0002 Part B). Deliberately no
                             EditSpan, no accent rule bar, no tick: this is not

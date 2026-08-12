@@ -27,6 +27,33 @@ function hasAppendix(fb: Feedback): boolean {
 }
 
 /**
+ * Which rows of the changes list should print their rule.
+ *
+ * A model-sourced correction falls back to `ruleFor(category, level)`, which
+ * returns one identical sentence per category, and a pattern-sourced one
+ * always takes its text from the taxonomy. So an entry with five article
+ * mistakes carries the same sentence five times. Printing it five times
+ * teaches nothing the first printing did not, and it is most of what makes
+ * the card long — the sentences themselves are capped at 20 words.
+ *
+ * Compared by exact text, never by category: two corrections in one category
+ * can legitimately carry different wording from the model, and suppressing a
+ * sentence the learner has not seen would hide teaching rather than
+ * repetition. Identical text is noise; different text is a lesson.
+ */
+export function explanationRows(
+  corrections: ReadonlyArray<{ explanation?: string; rule?: string }>
+): boolean[] {
+  const seen = new Set<string>();
+  return corrections.map((c) => {
+    const text = (c.explanation ?? c.rule ?? "").trim();
+    if (text === "" || seen.has(text)) return false;
+    seen.add(text);
+    return true;
+  });
+}
+
+/**
  * The card stack for one entry's feedback: the teacher's message, every
  * change as one list (`ambiguous` folds into that same card — see
  * Feedback.tsx), the corrected text, then closing — plus one legacy
