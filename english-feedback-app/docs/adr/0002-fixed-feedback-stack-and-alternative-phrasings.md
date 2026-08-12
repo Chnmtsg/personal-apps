@@ -1,6 +1,24 @@
 # 0002. A fixed four-card Feedback stack, and alternative phrasings that never enter the record
 
-## Status: proposed
+## Status: accepted 2026-08-12 — **Part A superseded by 0003** (same day). Part B stands.
+
+Part A (the fixed four-card stack) shipped in `48eba47` and Part B (alternative
+phrasings) in `646763d`, both on 2026-08-12. Later the same day ADR 0003
+replaced Part A's card stack with a single scrolling page: the fixed stack cured
+the card-per-correction problem but left the screen carrying two navigation
+models at once — swipe between cards and scroll inside them — and the owner
+still read the result as messy. Everything Part A settled about *order and
+content* survives in 0003 (message → changes → corrected text → closing, diff
+order, `ambiguous` trailing, legacy fields grouped and subordinate); only the
+container changes.
+
+**Part B is untouched and remains in force**: alternatives ride the teacher's
+existing note, live in a parallel `alternatives` array outside `Correction`,
+are bounded in code by `worker/src/alternatives.ts`, render as passive reading
+inside the taught row, and are counted nowhere. `PROMPT_VERSION` 8 stands.
+
+Read Part A below as history: it is why the app stopped putting one correction
+on one card, and why 0003 did not simply revert to that.
 
 ## Context
 
@@ -49,6 +67,10 @@ reason this app exists rather than a chat window is that its memory is real.
 Two changes, deliberately separable. **Part A ships alone and first.**
 
 ### Part A — the fixed stack (client only, no schema, no prompt, no cost)
+
+> **Superseded by ADR 0003 on 2026-08-12.** The stack is now one scrolling
+> page. The table below records what shipped in `48eba47`; its order and
+> content carried over to 0003's sections, its navigation model did not.
 
 The Feedback stack is exactly four cards for every entry the current pipeline
 produces:
@@ -149,6 +171,9 @@ bounds live on `FeedbackSchema`, downstream of the Worker's own normalisation.
 not in the card-2 heading, not in the card-1 eyebrow, not in `per100`. They are
 never passed to `buildSegments` and never appear on card 3.
 
+(ADR 0003 keeps every one of those rules; "card 2" and "card 3" now read as
+the changes section and the corrected-text section of one page.)
+
 The presence of alternatives is what makes a row the taught one — that is the
 hierarchy the list needs so twelve rows do not read as twelve equal disasters.
 No `highlighted` field is revived to mark it.
@@ -194,6 +219,8 @@ upgrade of an already-correct sentence.
   per correction as the teaching order, and architecture.md's client paragraph
   still says "card stack". CLAUDE.md gains the new invariant and its Known Gaps
   entry for the notes→edits zip should note that alternatives now ride it.
+  (Both files are rewritten again by ADR 0003; the wording that landed for
+  Part A stood for a few hours only.)
 - **The notes→edits zip carries slightly more weight.** It was already a Known
   Gap. The blast radius is bounded to within-sentence misattachment, as above.
 - **Nothing is backfilled.** Entries stored before this ADR have no
@@ -238,6 +265,9 @@ code, not prompt trust.
 
 ## What implementers must not do
 
+(Part A's UI clauses are superseded by ADR 0003's own must-not list, which is
+stricter. Every Part B clause below still binds.)
+
 - Do **not** add a second model call, a second agent, or any stage whose job is
   to check the alternatives. If they come back wrong, fix the teacher's prompt.
 - Do **not** put alternatives inside `CorrectionSchema` or `StoredCorrection`,
@@ -259,6 +289,9 @@ code, not prompt trust.
   `isNormalEntry` gate on the `stackRef` focus effect. The acute branch's
   feedback object stays an explicit literal — never a spread of agent output.
   Any change that does touch it goes through `safety-reviewer` before commit.
+  (ADR 0003 removes `isNormalEntry` and the focus effect along with the
+  carousel that needed them, under `safety-reviewer` review; the rule about
+  the explicit literal in `pipeline.ts` is permanent.)
 - Do **not** delete the legacy render paths (`fluency_notes`, `vocabulary`,
   `drills`, `pattern_watch`, `scores`, `cefr_estimate`, `coach_reply`,
   `highlighted`, `patterns[]`, `one_thing_to_fix`, `what_went_well`). They move;

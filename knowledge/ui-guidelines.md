@@ -65,9 +65,9 @@ shadow. Do not reintroduce shadows for depth.
 
 Exception: a shadow is allowed on an element that is genuinely floating above
 the page, not separated from a neighbouring card — the Write screen's Analyse
-button and the toast are elevation, not card separation. The Feedback card
-stack shows depth with two offset ghost cards behind the top card, not a
-shadow, so its `<article>` carries none.
+button and the toast are elevation, not card separation. The Feedback screen is
+a single scrolling page of sections, not a stack, so nothing on it floats and
+nothing on it carries a shadow.
 
 ---
 
@@ -75,24 +75,30 @@ shadow, so its `<article>` carries none.
 
 Most important information first.
 
-Feedback is a swipeable, **fixed** card stack (ADR 0002): the teacher's
-message, then every change in the entry as one scrollable list — in diff
-order, the reading order of the learner's own text, never re-sorted by
-severity — then the whole corrected text, then the closing card. `ambiguous`
-folds into the changes card as a trailing block rather than earning its own.
-Scores live on the closing card — after the teaching, never before it. Card
-count does not grow with how many corrections an entry has; a 12-error entry
-and a 1-error entry are both this same four-card stack.
+Feedback is one page, scrolled top to bottom in the order the teaching
+happens (ADR 0003): the teacher's message, then every change in the entry as
+one list — in diff order, the reading order of the learner's own text, never
+re-sorted by severity — then the whole corrected text, then the closing
+block. `ambiguous` sits at the end of the changes section rather than
+standing alone. The per-100-words number and any legacy score live in the
+closing block: after the teaching, never before it, never in a header and
+never in anything sticky. There is no swipe, no card stack, no card counter
+and no progress bar — one gesture, vertical, the one the phone already
+taught.
 
-One idea per card, but a card *may* scroll to repeat that one idea — "every
-change in this entry" is one idea said N times, not N ideas. What a card must
-never do is scroll to reveal a *different kind* of content partway down; if a
-card mixes two topics, it is two cards. The one named exception is the
-legacy appendix card: entries analysed before ADR 0001 carry 9-agent-era
-sections (fluency notes, vocabulary, drills, pattern watch) with no home in
-the fixed four, so they share one appendix card before closing, shown only
-when present. It is accepted as a legacy artefact, not a pattern to repeat,
-and it shrinks out of the app as those entries age out.
+A card is a container, not a step. Sections are cards in a vertical list,
+separated by a hairline rule on `bg-card`, and one section carries one idea.
+A section may run as long as its one idea requires — "every change in this
+entry" is one idea said N times, not N ideas. What a section must never do is
+put a different *kind* of content under the same heading; if it mixes two
+topics it is two sections. Legacy 9-agent-era content (pattern watch, fluency
+notes, vocabulary, drills) sits between the corrected text and the closing
+block, shown only on entries that carry it, and shrinks out of the app as
+those entries age out.
+
+Structure is carried by headings, not by gestures: one `<h1>` per screen,
+`<h2>` per section in visual order, no skipped levels, and no screen moves
+focus on mount.
 
 Reduce visual clutter.
 
