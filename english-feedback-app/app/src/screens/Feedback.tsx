@@ -250,7 +250,6 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
 
   const card = cards[i];
   const rate = per100(entry);
-  const highlightedSet = new Set(fb.highlighted ?? []);
 
   return (
     <div
@@ -391,20 +390,14 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
                               accent heading — WORK-04/WORK-21 follow-up). */}
                           <span className="eyebrow text-accent!">{labelFor(c.category)}</span>
                         </div>
-                        {(highlightedSet.has(index) || c.pattern_id !== undefined) && (
-                          <p className="mt-2 flex flex-wrap gap-1.5">
-                            {highlightedSet.has(index) && (
-                              <span className="rounded-full bg-accent px-2.5 py-1 text-[11px] font-medium text-paper">
-                                Your teacher picked this one
-                              </span>
-                            )}
-                            {c.pattern_id !== undefined && (
-                              <span className="tnum rounded-full bg-ink/5 px-2.5 py-1 text-[11px] text-ink-soft">
-                                #{c.pattern_id} on your checklist
-                              </span>
-                            )}
-                          </p>
-                        )}
+                        {/* No chips here. "Your teacher picked this one" and
+                            "#N on your checklist" were two pills on top of a
+                            category label, a quoted edit and a rule — four
+                            weights of type per row, twelve rows deep. The
+                            checklist number still does its work on the
+                            Patterns screen, where the map it refers to lives;
+                            `fb.highlighted` and `pattern_id` both stay stored
+                            and are untouched. */}
                         <div className="mt-3 border-l-2 border-accent pl-3.5">
                           <p className="font-serif text-lg leading-[30px]">
                             <EditSpan original={c.original} corrected={c.corrected} />
