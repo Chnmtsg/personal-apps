@@ -106,6 +106,7 @@
         goalPerWeek: 5,
         requireHabits: false,
         goalsCountTowardDay: true,
+        runCountsTowardDay: true,
         restCountsAsStreak: true,
         completionPct: 100,
         reduceMotion: false,
@@ -933,6 +934,13 @@
     if (!state.run || day == null) return null;
     if (state.run.checkedOn === day) return null;
     const out = A.Run.checkIn(state.run, day);
+    /* Open today's record here rather than on first tap. It used to appear the
+       moment a habit was ticked, which made *interacting* with the run worse
+       than ignoring it: tick one of four and the day is judged 1/4, leave the
+       section alone and the run asked nothing of you at all. Created once, from
+       today's programme, on the day itself — so it freezes what today asks and
+       re-derives nothing behind the user. */
+    runEntryFor(day);
     const carry = { log: state.run.log, checkedOn: day };
     if (out.patched) {
       carry.lastPatchDay = day;
@@ -998,20 +1006,45 @@
     return out;
   }
 
+  /**
+   * What the run asked of one calendar day, and what happened — from the
+   * record, never from the programme.
+   *
+   * `A.Run.runDay` would re-derive it from the run as it stands *now*, so
+   * easing a habit in week five would change what week two demanded and
+   * re-score days the user has already lived. The record is frozen when the day
+   * opens, which is the same reason `DayEntry.asked` exists.
+   *
+   * A day with no record contributes nothing, and that is the safe direction: a
+   * day the user never opened the app on is one we know nothing about, and it
+   * must not become a day the run retroactively decided they failed.
+   */
+  function runEntriesOn(dateKey) {
+    const run = state.run;
+    if (!run || !run.startDate) return [];
+    const day = A.daysBetween(run.startDate, dateKey) + 1;
+    const entry = (run.log || {})[day];
+    if (!entry) return [];
+    return Object.keys(entry).map((k) => entry[k]);
+  }
+
   function computeDayStatus(dateKey) {
     const l = state.logs[dateKey];
     const plan = dayPlan(dateKey);
     const habits = settings().requireHabits ? dayHabits(dateKey) : [];
     const gl = settings().goalsCountTowardDay ? goalsForDay(dateKey) : [];
+    const rn = settings().runCountsTowardDay ? runEntriesOn(dateKey) : [];
     const exDone = plan.filter((i) => l && l.ex && l.ex[i.id]).length;
     const hbDone = habits.filter((h) => l && l.hb && l.hb[h.id]).length;
     const glDone = gl.filter((x) => x.done).length;
+    const rnDone = rn.filter((e) => e.done).length;
     const extra = l && l.extra ? l.extra.length : 0;
-    const total = plan.length + habits.length + gl.length;
-    const done = exDone + hbDone + glDone;
+    const total = plan.length + habits.length + gl.length + rn.length;
+    const done = exDone + hbDone + glDone + rnDone;
     const shape = {
       done, total, exDone, exTotal: plan.length, hbDone, hbTotal: habits.length,
-      glDone, glTotal: gl.length, extra, frozen: !!state.freezes[dateKey]
+      glDone, glTotal: gl.length, rnDone, rnTotal: rn.length,
+      extra, frozen: !!state.freezes[dateKey]
     };
 
     if (isFuture(dateKey)) return Object.assign({ status: 'future', pct: 0 }, shape);

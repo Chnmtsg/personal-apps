@@ -1223,6 +1223,10 @@
           <label class="switch"><input type="checkbox" data-set="goalsCountTowardDay" ${s.goalsCountTowardDay ? 'checked' : ''}><i></i></label>
         </div>
         <div class="row">
+          <div class="body"><div class="name">The run counts toward the day</div><div class="sub">Only days the run actually recorded — it never reaches back</div></div>
+          <label class="switch"><input type="checkbox" data-set="runCountsTowardDay" ${s.runCountsTowardDay ? 'checked' : ''}><i></i></label>
+        </div>
+        <div class="row">
           <div class="body"><div class="name">Streak freezes</div><div class="sub">One earned per 10 completed days · ${fz.used} used of ${fz.earned} earned</div></div>
           <span class="pill ${fz.available ? 'good' : ''}">❄️ ${fz.available}</span>
         </div>

@@ -232,6 +232,38 @@ included, not just views.
 
 **Adding a `js/` file touches four places.** `index.html`, `sw.js` ASSETS, and
 the load lists in `tools/smoke.js` and `tools/render.js`.
+`tools/package.js` cross-checks the first two against each other, so a file the
+shell loads but the worker never precaches fails the build instead of vanishing
+the first time the user is offline.
+
+**A render never writes.** `renderRun` called the store's check-in, which is a
+write during a render *and* a hang: `commit` notifies the view, the view
+re-renders, the render checks in again — and softening does not change the logs,
+so `needsIntervention` never clears. It froze the Run screen for exactly the user
+the check-in exists to help. The daily check-in is an event owned by `js/app.js`
+(boot and the day rollover), guarded to once a day; a render reads
+`run.lastPatchDay` and calls `A.Run.recommend`, both pure. `tools/render.js`
+asserts the store is byte-identical across two renders of every run state.
+
+**A run day counts toward the streak, from its record and never from the
+programme.** `computeDayStatus` reads `run.log[day]` — the entries frozen when
+that day opened — so easing a habit in week five cannot change what week two was
+scored out of. Re-deriving it from the run as it stands demotes a complete day to
+a partial one, which `tools/smoke.js` asserts by name. A day with no run record
+contributes nothing, deliberately: a day the user never opened the app on is one
+we know nothing about, and must not become a day the run retroactively decided
+they failed. The daily check-in opens today's record, so *tapping* the run is
+never worse than ignoring it. `runCountsTowardDay` turns it off, the way
+`goalsCountTowardDay` does.
+
+**The run and the goals share nothing.** `js/run.js` is a port of the
+`life-reset` Python engine and sits beside `js/goals.js`: a goal ramps a target
+the user chose from a baseline they set and earns each step by performing; a run
+picks from a closed 24-habit catalog, ramps on the calendar, and is
+feasible-by-construction on all 66 days. Neither reads the other's data, a user
+may have both, and merging them would mean migrating every custom goal onto a
+catalog id it does not have.
+
 
 **`index.html` is a shell. Nothing is inlined into it.** It links
 `./styles.css` and the six `./js/*.js` in fixed order, plus the manifest and

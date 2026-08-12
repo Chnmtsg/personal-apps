@@ -1225,5 +1225,99 @@ S.endRun();
 ok('with no run there is nothing to toggle', S.toggleRunHabit('walk') === null);
 ok('and nothing unknown to report', S.runUnknownHabits().length === 0);
 
+/* ------------------------------------------------------------------ */
+section('the run counts toward the day, without reaching back');
+
+S.resetAll();
+const streakStart = A.addDays(S.today(), -20);
+
+/* A clean baseline: no run, a day completed on goals and workout alone. */
+const dayA = A.addDays(S.today(), -3);
+S.ensureLog(dayA);
+S.completeAll(dayA);
+S.goalsForDay(dayA).forEach((e) => {
+  if (e.goal.gate === 'summary') S.setReading(dayA, { book: 'B', minutes: 20, summary: 'Something worth writing down.' });
+  else S.hitGoalTarget(dayA, e.goal.id);
+});
+const beforeRun = S.dayStatus(dayA);
+ok('a day is complete before any run exists', beforeRun.status === 'complete', beforeRun);
+
+S.startRun(['walk', 'water', 'read'], 90);
+S.run().startDate = streakStart;
+S.commit({ type: 'fixture' });
+
+/* The guarantee that matters. A run started today must not change what a day
+   three days ago meant — that day has no run record, and a day the user never
+   opened the app on is one we know nothing about. It must not become a day the
+   run retroactively decided they failed. */
+const afterRun = S.dayStatus(dayA);
+ok('starting a run does not re-judge a day that has no run record',
+   afterRun.status === beforeRun.status && afterRun.total === beforeRun.total,
+   [beforeRun.status, beforeRun.total, afterRun.status, afterRun.total]);
+
+/* A recorded day does count — both ways. */
+const runDayNo = A.daysBetween(S.run().startDate, dayA) + 1;
+S.run().log[runDayNo] = A.Run.recordDay(S.run(), runDayNo, []);   // asked, none done
+S.commit({ type: 'fixture' });
+const withMissed = S.dayStatus(dayA);
+ok('a recorded day the run asked for adds to the day total',
+   withMissed.rnTotal > 0 && withMissed.total === beforeRun.total + withMissed.rnTotal, withMissed);
+ok('and missing all of it stops the day being complete',
+   withMissed.status !== 'complete', withMissed);
+
+S.run().log[runDayNo] = A.Run.recordDay(S.run(), runDayNo, S.run().habits.map((p) => p.habitId));
+S.commit({ type: 'fixture' });
+const withKept = S.dayStatus(dayA);
+ok('keeping the run restores the complete day', withKept.status === 'complete', withKept);
+ok('and the run is counted, not merely tolerated',
+   withKept.rnDone === withKept.rnTotal && withKept.rnTotal > 0, withKept);
+
+/* The frozen record is what makes this safe. Easing the run now changes what it
+   asks from here on; it must not change what an already-recorded day demanded. */
+const askedThen = S.run().log[runDayNo][S.run().habits[0].habitId].asked;
+const totalThen = S.dayStatus(dayA).total;
+S.run().habits.forEach((p) => { p.scale = 0.25; });
+S.commit({ type: 'fixture' });
+ok('easing the run does not move what a recorded day asked',
+   S.run().log[runDayNo][S.run().habits[0].habitId].asked === askedThen);
+ok('nor what that day was scored out of', S.dayStatus(dayA).total === totalThen,
+   [totalThen, S.dayStatus(dayA).total]);
+ok('nor whether it was complete', S.dayStatus(dayA).status === 'complete', S.dayStatus(dayA));
+
+/* The setting is the escape hatch, and it works in both directions. */
+S.updateSettings({ runCountsTowardDay: false });
+ok('turning it off takes the run back out of the day',
+   S.dayStatus(dayA).rnTotal === 0 && S.dayStatus(dayA).total === beforeRun.total, S.dayStatus(dayA));
+S.updateSettings({ runCountsTowardDay: true });
+ok('and turning it on puts it back', S.dayStatus(dayA).total === totalThen, S.dayStatus(dayA));
+
+/* A streak is the point of all this. */
+S.resetAll();
+S.startRun(['walk', 'water', 'read'], 90);
+S.run().startDate = A.addDays(S.today(), -5);
+S.commit({ type: 'fixture' });
+for (let back = 5; back >= 1; back--) {
+  const k = A.addDays(S.today(), -back);
+  const rd = A.daysBetween(S.run().startDate, k) + 1;
+  S.ensureLog(k);
+  S.completeAll(k);
+  S.goalsForDay(k).forEach((e) => {
+    if (e.goal.gate === 'summary') S.setReading(k, { book: 'B', minutes: 20, summary: 'Kept it.' });
+    else S.hitGoalTarget(k, e.goal.id);
+  });
+  S.run().log[rd] = A.Run.recordDay(S.run(), rd, S.run().habits.map((p) => p.habitId));
+}
+S.commit({ type: 'fixture' });
+ok('days kept on goals and the run together build a streak', S.currentStreak() >= 5, S.currentStreak());
+
+/* Opening the run must never be worse than ignoring it: the check-in opens
+   today's record, so a day is judged the same either way. */
+S.resetAll();
+S.startRun(['walk', 'water', 'read'], 90);
+S.runCheckIn();
+const openedToday = S.run().log[S.runToday()];
+ok('the daily check-in opens today record, so tapping the run is not a penalty',
+   !!openedToday && Object.keys(openedToday).length >= 0, openedToday);
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
