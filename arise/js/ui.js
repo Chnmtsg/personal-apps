@@ -2064,22 +2064,48 @@
     { id: 'development', name: 'Development' }
   ];
 
-  function pickCard(h, checked) {
+  /* The selection lives here rather than in the checkboxes it used to be.
+     `render()` replaces the whole of `#view` on every store commit, so anything
+     held in the DOM is lost the moment something else writes — silently, and
+     with the defaults back. View state survives a re-render, which is the same
+     reason `todayFilter` and `picker` live up here. It also means the picks can
+     be driven from tools/render.js instead of only from a browser. */
+  let runPicks = null;
+
+  function currentRunPicks() {
+    if (!runPicks) runPicks = A.Run.DEFAULT_PICKS.slice();
+    return runPicks.slice();
+  }
+
+  function toggleRunPick(id) {
+    if (!A.Run.isKnown(id)) return;
+    const list = currentRunPicks();
+    const at = list.indexOf(id);
+    if (at >= 0) list.splice(at, 1);
+    else list.push(id);
+    runPicks = list;
+  }
+
+  /** Forget the selection once it has become a run, so the next one starts fresh. */
+  function resetRunPicks() { runPicks = null; }
+
+  function pickCard(h, chosen) {
     const ask = A.formatValue('count', h.start) + ' → ' + A.formatValue('count', h.target) + ' ' + h.unit;
-    return `<label class="pick">
-      <input type="checkbox" name="run_pick" value="${esc(h.id)}"${checked ? ' checked' : ''} hidden>
+    return `<button type="button" class="pick ${chosen ? 'on' : ''}" data-act="run-pick"
+        data-id="${esc(h.id)}" aria-pressed="${chosen}">
       <b>${esc(h.name)}</b>
       <small>${esc(h.target === h.start ? A.formatValue('count', h.start) + ' ' + h.unit + ', every day' : ask)}</small>
       <i class="pick-effort" aria-label="effort ${h.friction} of 5">${'•'.repeat(h.friction)}</i>
-    </label>`;
+    </button>`;
   }
 
   function runPicker() {
-    const preset = A.Run.DEFAULT_PICKS;
+    const chosen = currentRunPicks();
     return PICK_DOMAINS.map((d) => {
       const rows = A.Run.HABITS.filter((h) => h.domain === d.id);
-      return `<div class="section-head"><h2>${esc(d.name)}</h2></div>
-        <div class="pickgrid">${rows.map((h) => pickCard(h, preset.indexOf(h.id) >= 0)).join('')}</div>`;
+      return `<div class="section-head"><h2>${esc(d.name)}</h2>
+          <span class="faint">${rows.filter((h) => chosen.indexOf(h.id) >= 0).length} of ${rows.length}</span></div>
+        <div class="pickgrid">${rows.map((h) => pickCard(h, chosen.indexOf(h.id) >= 0)).join('')}</div>`;
     }).join('');
   }
 
@@ -2110,7 +2136,9 @@
           what went — every one of the 66 days has to be a day you can actually do.
           Fewer than ${A.Run.MIN_HABITS} and the rest is filled in for you.</p>
         ${runPicker()}
-        <button class="btn primary block" data-act="run-start" style="margin-top:14px">Start the run</button>`;
+        <button class="btn primary block" data-act="run-start" style="margin-top:14px">Start the run · ${
+          currentRunPicks().length
+        } chosen</button>`;
     }
 
     const st = S.runStatus();
@@ -2450,6 +2478,9 @@
   UI.openReading = openReading;
   UI.openGoalLog = openGoalLog;
   UI.openRunValue = openRunValue;
+  UI.runPicks = currentRunPicks;
+  UI.toggleRunPick = toggleRunPick;
+  UI.resetRunPicks = resetRunPicks;
   UI.openGoalDetail = openGoalDetail;
   UI.openGoalEditor = openGoalEditor;
   UI.openGoalRestart = openGoalRestart;

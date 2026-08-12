@@ -770,9 +770,9 @@
       case 'run-start': {
         const sel = $('#run_budget');
         const budget = sel ? Number(sel.value) : 45;
-        const picks = Array.prototype.map.call(
-          document.querySelectorAll('input[name="run_pick"]:checked'), (el) => el.value);
+        const picks = UI.runPicks();
         S.startRun(picks, budget);
+        UI.resetRunPicks();
         UI.go('run');
         /* Say what the budget forced out, by name. `buildRun` repairs rather
            than refusing — every one of the 66 days has to be doable — so a
@@ -790,6 +790,10 @@
         }
         break;
       }
+      case 'run-pick':
+        UI.toggleRunPick(id);
+        UI.render();
+        break;
       case 'run-end':
         UI.openConfirm({
           title: 'End the run?',

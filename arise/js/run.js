@@ -491,7 +491,7 @@
     let out = null;
     for (let pass = 0; pass < 3; pass++) {
       out = repair(draft(toFloor(chosen)), 0).run;
-      if (out.habits.length >= MIN_HABITS) return out;
+      if (out.habits.length >= MIN_HABITS) return openOnDayOne(out);
       const survivors = out.habits.map((p) => p.habitId);
       /* Nothing new to try: the same survivors would be topped up the same way
          and repaired to the same place. Fall through to the floor below. */
@@ -509,7 +509,54 @@
       .slice(0, MIN_HABITS)
       .map((h) => h.id);
     const floor = repair(draft(cheapest), 0).run;
-    return floor.habits.length >= MIN_HABITS ? floor : out;
+    return openOnDayOne(floor.habits.length >= MIN_HABITS ? floor : out);
+  }
+
+  /**
+   * Pull a fresh run back so that day one asks for something.
+   *
+   * The draft lays habits out on days 1, 8, 15… and `repair` may drop whichever
+   * one was on day 1 — the default six against a 45-minute budget lost `walk`
+   * and `read`, leaving a 66-day run whose first habit arrived on day 8. Press
+   * Start and the app says "nothing has started yet" for a week, which reads
+   * exactly like the button did not work.
+   *
+   * The shift is uniform, so every gap between starts is unchanged and the
+   * rolling-window rule cannot break. It can only pull habits *earlier*, which
+   * a phase cap might refuse, so the result is validated and kept only if it is
+   * clean. Fresh runs only: `startDay` is what `repair` protects on a live one,
+   * and moving those would reschedule habits somebody is already running.
+   */
+  function openOnDayOne(run) {
+    const starts = (run.habits || []).map((p) => p.startDay);
+    if (!starts.length) return run;
+    const first = Math.min.apply(null, starts);
+    if (first <= 1) return run;
+
+    /* Pull the whole run back if that is legal: every habit keeps its place in
+       the queue and the run simply begins when the user pressed the button. */
+    const shifted = Object.assign({}, run, {
+      habits: run.habits.map((p) => Object.assign({}, p, { startDay: p.startDay - (first - 1) }))
+    });
+    if (!validate(shifted).length) return shifted;
+
+    /* It is not always legal. Pulling everything earlier makes every habit
+       reach a higher dose sooner, so at a tight budget the late days overflow —
+       eight habits against 30 minutes did. Failing that, move one habit to day
+       one and leave the queue alone. The cheapest is chosen because it is the
+       one most likely to fit: an anchor costs half a weighted minute, so it can
+       be added to the opening week of almost any run. */
+    const byCost = run.habits.slice().sort((a, b) => {
+      const ha = habit(a.habitId), hb = habit(b.habitId);
+      return (ha ? ha.target * ha.min : 0) - (hb ? hb.target * hb.min : 0);
+    });
+    for (const p of byCost) {
+      const moved = Object.assign({}, run, {
+        habits: run.habits.map((q) => (q === p ? Object.assign({}, q, { startDay: 1 }) : q))
+      });
+      if (!validate(moved).length) return moved;
+    }
+    return run;
   }
 
   /* ================= patching a live run ================= */

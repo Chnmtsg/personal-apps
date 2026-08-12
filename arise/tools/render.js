@@ -852,8 +852,9 @@ const RunE = A.Run;
 behaves('the start screen offers the whole catalog, grouped', () => {
   S.resetAll();
   const html = renderRoute('run');
-  const offered = (html.match(/name="run_pick" value="([a-z_]+)"/g) || [])
-    .map((m) => m.replace(/.*value="/, '').replace('"', ''));
+  // The pick buttons are the only data-id carriers on this screen.
+  const offered = (html.match(/data-id="([a-z_]+)"/g) || [])
+    .map((m) => m.slice(9, -1));
   const missing = A.Run.HABITS.map((h) => h.id).filter((id) => offered.indexOf(id) < 0);
   if (missing.length) return 'not offered: ' + missing.join(', ');
   return ['Fitness', 'Self-care', 'Development'].every((d) => html.indexOf('>' + d + '<') > 0)
@@ -866,7 +867,7 @@ behaves('the start screen offers the whole catalog, grouped', () => {
 behaves('the self-care habits added for tooth, face and vitamins are pickable', () => {
   const html = renderRoute('run');
   const want = ['vitamins', 'floss', 'brush_teeth', 'skincare'];
-  const absent = want.filter((id) => html.indexOf('value="' + id + '"') < 0);
+  const absent = want.filter((id) => html.indexOf('data-id="' + id + '"') < 0);
   if (absent.length) return 'still unreachable: ' + absent.join(', ');
   return html.indexOf('Take vitamins') > 0 && html.indexOf('Face routine') > 0
     ? '' : 'they are offered by id but not by name';
@@ -874,15 +875,15 @@ behaves('the self-care habits added for tooth, face and vitamins are pickable', 
 
 behaves('the default selection is what pressing Start without thinking gives', () => {
   const html = renderRoute('run');
-  const checked = (html.match(/value="([a-z_]+)" checked/g) || [])
-    .map((m) => m.replace('value="', '').replace('" checked', ''));
+  const on = (html.match(/class="pick on"[\s\S]{0,90}?data-id="[a-z_]+"/g) || [])
+    .map((m) => m.slice(m.lastIndexOf('data-id="') + 9, -1));
   const want = A.Run.DEFAULT_PICKS.slice().sort().join(',');
-  return checked.slice().sort().join(',') === want ? '' : 'checked ' + checked.join(',') + ', want ' + want;
+  return on.slice().sort().join(',') === want ? '' : 'on: ' + on.join(',') + ', want ' + want;
 });
 
 behaves('an anchor says it is every day rather than showing a ramp to itself', () => {
   const html = renderRoute('run');
-  const i = html.indexOf('value="vitamins"');
+  const i = html.indexOf('data-id="vitamins"');
   const card = html.slice(i, i + 400);
   if (card.indexOf('every day') < 0) return 'no anchor wording';
   return card.indexOf('→') < 0 ? '' : 'an anchor drawn as a ramp from 1 to 1';
@@ -920,6 +921,47 @@ behaves('a selection too heavy for the budget comes back smaller, knowably', () 
   const dropped = picks.filter((id) => got.indexOf(id) < 0);
   if (!dropped.length) return 'five heavy habits fitted a 30 minute budget, which cannot be right';
   return A.Run.validate(run).length === 0 ? '' : 'and what came back is still infeasible';
+});
+
+
+/* The selection used to live in the checkboxes themselves. `render()` replaces
+   the whole of `#view` on every store commit, so anything written to a goal, a
+   habit or the journal while somebody was choosing wiped their picks back to
+   the defaults — silently, and only noticeable once the run started with the
+   wrong habits in it. */
+behaves('a selection survives a re-render, and a store write is a re-render', () => {
+  S.resetAll();
+  UI.resetRunPicks();
+  UI.toggleRunPick('vitamins');
+  UI.toggleRunPick('floss');
+  UI.toggleRunPick('walk');                       // one of the defaults, off
+  const chosen = UI.runPicks().slice().sort().join(',');
+
+  S.setJournal(S.today(), { text: 'something else entirely' });   // commits
+  renderRoute('run');
+  if (UI.runPicks().slice().sort().join(',') !== chosen) return 'the picks changed under a commit';
+
+  const html = renderRoute('run');
+  if (html.indexOf('data-id="vitamins"') < 0) return 'vitamins is not offered at all';
+  const on = (html.match(/class="pick on"[\s\S]{0,90}?data-id="[a-z_]+"/g) || [])
+    .map((m) => m.slice(m.lastIndexOf('data-id="') + 9, -1));
+  if (on.indexOf('vitamins') < 0 || on.indexOf('floss') < 0) return 'chosen habits are not drawn as chosen';
+  return on.indexOf('walk') < 0 ? '' : 'a de-selected habit is still drawn as chosen';
+});
+
+behaves('and starting the run uses exactly that selection', () => {
+  const chosen = UI.runPicks();
+  S.startRun(chosen, 90);
+  const got = S.run().habits.map((p) => p.habitId).sort().join(',');
+  return got === chosen.slice().sort().join(',') ? '' : 'started with ' + got;
+});
+
+behaves('the button says how many are chosen, so the count is never a surprise', () => {
+  S.resetAll();
+  UI.resetRunPicks();
+  const html = renderRoute('run');
+  return html.indexOf(A.Run.DEFAULT_PICKS.length + ' chosen') > 0
+    ? '' : 'the start button does not say how many';
 });
 
 behaves('with no run, the screen says what it costs before what it gives', () => {

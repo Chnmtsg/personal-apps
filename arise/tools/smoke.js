@@ -1164,6 +1164,26 @@ section('every selection the picker allows builds a run that validates');
   }
   ok('1,200 random selections across 8 budgets all validate', broken.length === 0, broken.slice(0, 2));
   ok('and none of them is under the ' + R.MIN_HABITS + '-habit floor', smallest >= R.MIN_HABITS, smallest);
+
+  /* A run whose first habit arrives on day 8 reads exactly like the Start
+     button did not work: press it, and Today says nothing has started for a
+     week. The default six against 45 minutes did that, because `repair` drops
+     whichever habit was on day 1 and nothing pulled the rest back.
+     Budgets here are the ones the picker actually offers. */
+  const empty = [];
+  for (const budget of [30, 45, 60, 75, 90]) {
+    for (let i = 0; i < 120; i++) {
+      const picks = [];
+      const n = Math.floor(rnd() * 11);
+      for (let k = 0; k < n; k++) {
+        const id = ids[Math.floor(rnd() * ids.length)];
+        if (picks.indexOf(id) < 0) picks.push(id);
+      }
+      const built = R.buildRun(runStart, budget, picks);
+      if (!R.runDay(built, 1).length) empty.push(budget + ' min ' + JSON.stringify(picks));
+    }
+  }
+  ok('and every one of them asks for something on day one', empty.length === 0, empty.slice(0, 2));
 }
 
 /* ------------------------------------------------------------------ */
