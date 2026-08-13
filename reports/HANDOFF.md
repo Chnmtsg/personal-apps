@@ -1,335 +1,269 @@
-# Handoff — Arise
+# Handoff
 
-Written at the end of a long session, for whoever picks this up next. Read this
-before touching anything; it is short on purpose and everything in it is either
-a decision already made or a trap already sprung.
+Written at the end of a long session, for whoever picks this up next. Read it
+before touching anything. Everything here is a decision already made, a trap
+already sprung, or a question nobody has answered yet.
 
-**App:** `D:\3_Claude\Apps\arise` — offline-first personal-development tracker.
-Vanilla HTML/CSS/JS, no build step, no dependencies, no network, no accounts.
-
----
-
-## 1. State of the tree right now
-
-- `node tools/smoke.js` → **281 passed, 0 failed**
-- `node tools/render.js` → **111 passed, 0 failed**
-- `sw.js` VERSION → **arise-v24**
-- `js/` is six files: `data.js` → `program.js` → `goals.js` → `store.js` → `ui.js` → `app.js`
-- `tools/` is `smoke.js`, `render.js`, `make_icons.py`, `shot.html`
-- `fonts/` is new: three Archivo `.woff2` cuts, local, precached by `sw.js`
-- `index.html` is a 3.8KB shell again — see §4a before changing that
-- Nothing is half-finished. No work in progress, no stashed edits.
-- **Everything below is uncommitted.** The tree carries Sprint 1 plus the earlier
-  inline-`font-size` sweep. Nothing has been committed since `d3af89f`.
-
-**A full `/review` has completed.** All four reports are in
-`D:\3_Claude\Apps\reports\`. The Chief Architect ruling is the authority —
-`chief-architect.md`. Do not re-derive it, do not re-run the review, and do not
-argue with its rulings without a reason it did not consider.
-
-**Sprint 1 — the release gate — is done.** All seven items closed: WORK-01,
-WORK-08, WORK-03, WORK-02+07, WORK-06, WORK-05, WORK-10. Every fix was written
-test-first and then **broken again on purpose** to watch the new test fail; the
-`timeline` and `streak` halves of WORK-03 were broken separately, and each failed
-only its own assertion.
-
-What the numbers actually were, measured rather than inferred: goal-card title
-**1.12:1** and meta **2.43:1** on the card artwork in light mode before the fix,
-now **16.4:1** and **7.9:1** where the text sits; `#1a1410` on `--cream`
-**1.15:1** → **13.8:1**. Dark mode is unchanged pixel-for-pixel, because the new
-fixed tokens hold exactly the values dark mode already used.
+This replaces the previous arise-only handoff. Its traps and product direction
+are carried forward below; its numbers are not — it predates about twenty
+commits.
 
 ---
 
-## 2. What to do next
+## 0. Read this first: nothing is pushed, and the branch matters
 
-**Sprint 2**, per the ruling: **WORK-04** as its own main event and its own
-migration (grandfathering to a date that reproduces what each account already
-computes is the acceptance criterion, not a nicety), then **WORK-09**,
-**WORK-20** (halved — derive the guard, no `truncated` flag), **WORK-11**,
-**WORK-13**, **WORK-14 + WORK-30** in one commit, **WORK-16**, **WORK-17**,
-**WORK-18**. Confirm WORK-17's and WORK-18's provisional measurements while in
-there, and measure the WORK-19 tap at the end of the sprint.
+There is **no git remote**. Every branch below is local only.
 
-WORK-04 follows the `scheduleHistory` **pattern**, not the `askedOn` function —
-`dayPlan`/`dayHabits` have no goal object to resolve against, and the ruling is
-explicit that forcing one signature over both is the generalisation this project
-exists to avoid.
-
-**The sheet's primary action is now pinned.** `.sheet` caps at 88vh and
-`.sheet-body` scrolls, so on any phone-sized viewport the first-run sheet showed
-its pace cards and hid its own "Start" button 80–150px below the fold. One rule
-in `styles.css` sticks the action row to the bottom of the scrollport, and every
-sheet's primary action is wrapped in a `.btn-row` so the one rule reaches all of
-them. Measured across nine sheets at 620/700/740px: all visible and clickable,
-and every secondary (Pause, Delete, Skip) still reachable at the end of the
-scroll. Three traps are written into the comment above the rule — do not target
-`:last-child`, do not paint the background onto a bare button, and `bottom` is
-resolved against the scroll container's content box, so it needs `-20px` to sit
-flush rather than 20px high.
-
-Two things Sprint 1 leaves for whoever is next, neither of them blocking:
-
-- **`.gcard-streak.skip` still takes `--stroke-strong` for its border**, which
-  flips with the theme while the artwork under it does not. The text is fixed
-  (`--on-art-muted`); only the 1px border is faint in light mode. It is cosmetic,
-  and it belongs to whoever next opens `.gcard` for WORK-14.
-- **The `is-done` tick fills with `--cream`**, which in light mode is near-black
-  on near-black artwork. Its foreground is correct and legible now; what is
-  reduced is the *fill's* contrast against the card. Repainting the card art was
-  ruled out, so this needs a decision, not a patch.
-
----
-
-## 3. How to work here
-
-The project's own rules are in `arise/CLAUDE.md` and `arise/knowledge/*`. Read
-them; they are short and they are real, not decoration. Beyond those, the habits
-that actually earned their keep this session:
-
-**Break every fix on purpose.** After a fix passes, revert it and confirm the new
-test fails, then restore. This caught two tests that passed for the wrong reason
-and would have shipped as false assurance. `coding-standards.md` mandates it.
-
-**Green tests are not correctness.** Twice this session a serious defect survived
-a fully green suite: the value-log sheet became unreachable while `render.js`
-kept calling it directly, and a paused goal was mis-scored while the pause tests
-only checked `dayStatus`. When you fix something, ask what the test would have to
-look like to have caught it — not whether the existing ones still pass.
-
-**Verify by observation, not inference.** Compute the ratio, measure the DOM,
-take the screenshot. I nearly "fixed" a horizontal-overflow bug that did not
-exist, and I missed a real Critical for several rounds, both because I trusted
-a rendering instead of measuring one.
-
-**Say what has no coverage, every time.** `js/app.js` is loaded by neither suite.
-`render.js` uses a hand-rolled stub DOM with no `activeElement`, no
-`getClientRects`, no CSS. Any change landing there needs saying out loud and
-driving by hand.
-
-**Delete a feature? Leave a test that it stays deleted.** When the exercise
-animations were removed, the replacement tests assert *no* demonstration renders.
-
----
-
-## 4. Traps already sprung — do not repeat these
-
-- **Headless Chrome enforces a minimum window width.** `--window-size=412,…`
-  lays out at ~500px and crops to 412. It looks exactly like horizontal overflow
-  and is not. Screenshot at **600px or wider**, and measure geometry via the DOM
-  if you need real phone-width numbers.
-- **Headless here reports `prefers-color-scheme: dark`.** Every screenshot I took
-  was dark, which is why a light-mode Critical went unseen for the whole session.
-  If you change colour, verify light mode by computing ratios from the tokens.
-- **PowerShell 5.1 `Get-Content` reads UTF-8 as ANSI.** Round-tripping a file
-  through `Get-Content` + `Out-File` mangles every emoji into mojibake. Use the
-  Write tool for any file containing non-ASCII.
-- **A `/` inside a JS regex literal terminates it.** `/…<\/span>/` needs escaping;
-  a plain `indexOf` is usually better in a test.
-- **Writing JS through a Python heredoc:** `\n` inside a `'''…'''` string becomes
-  a real newline in the output, producing an unterminated JS string. Use
-  `chr(92) + 'n'` or just avoid generating code through scripts.
-- **`Number(x) || default` treats a valid `0` as missing.** This shipped a bug
-  where a run length of 0 silently became 66. Handle `NaN` explicitly.
-- **Tests coupled to implementation details rot silently.** An error-boundary test
-  broke `S.progress` to force a failure; when Today stopped calling `S.progress`,
-  the test passed while testing nothing. Break something the code path genuinely
-  depends on.
-- **Deleting dead code can take live code with it.** Removing `goalRow` +
-  `goalsBlock` also removed `goalCard`, which sat between them. The render suite
-  caught it instantly — run the suites after any deletion, not just after edits.
-
----
-
-## 4a. The bundle incident — read this before touching `index.html`
-
-A visual-tooling export once replaced `index.html` with a 440KB **self-extracting
-bundle**: a wrapper that unpacked a gzip payload and served `js/` and
-`styles.css` from `blob:` URLs. It has been undone. What it cost, and what to
-watch for if anything like it lands again:
-
-- **The app stopped running the files on disk.** The bundle carried a snapshot of
-  `js/` taken mid-Sprint-1, so WORK-05, WORK-06 and WORK-10 were silently absent
-  from the shipped app while their fixes sat correct and tested in `js/`. The
-  live app was again completing a reading goal that had not been met.
-- **Both suites still passed**, because they load `js/` from disk. A bundle makes
-  the safety net measure code nobody runs. That is the whole danger, and it is
-  invisible from the test output.
-- It also dropped `<link rel="manifest">` and both icon links (**PWA install
-  broken**) and added `<link rel="preconnect" href="https://fonts.gstatic.com">`,
-  a real network connection in an app whose first constraint is that it makes
-  none.
-
-The redesign inside it was kept in full. It was extracted rather than reverted:
-the CSS became `styles.css`, the three Archivo cuts became real files under
-`fonts/` (referenced by `unicode-range`, precached in `sw.js`), and the three
-view-layer edits — monogram tile instead of emoji artwork, emoji-free card meta,
-`STREAK`/`KEPT` text chips — were ported onto the current `js/ui.js` by hand,
-taking the design and none of the stale code.
-
-**The rule this leaves:** `index.html` is a shell. It links `./styles.css` and
-the six `./js/*.js` in fixed order, and nothing else belongs in it. If a tool
-offers to inline the app into one file, the answer is no — the four-places rule
-for adding a `js/` file exists precisely because the shell is the index of what
-runs. A design change belongs in `styles.css` and `js/ui.js`, where the suites
-and the next reader can both see it.
-
----
-
-## 4b. What Sprint 1 added to the safety net
-
-Neither suite loads `js/app.js`, and four of Sprint 1's seven items land in click
-handlers. Rather than only clicking through by hand, the paths were driven in a
-real headless browser from a throwaway page at the app root that loads
-`./index.html` in an iframe and dispatches real clicks into it, printing its
-results into its own body — read them back with `--dump-dom` rather than a
-screenshot, so the output is text. That drove: the goal card → detail → value-log
-route, `read-save` with the minutes cleared (asserting both the stored entry and
-the toast wording), `onboard-save` against a backdated goal, and `import` with
-both a junk file and a real backup — feeding the file by patching
-`document.createElement` to capture the input `pickFile` creates, then setting
-`input.files` from a `DataTransfer`.
-
-**That harness was itself broken on purpose**: with the `setReading` fix reverted,
-it failed and printed the real app rendering "Summary saved — reading complete"
-over an unmet goal. A driver that has never failed has not been shown to work.
-
-Two more recipes worth keeping, both deleted after use:
-
-- **Light mode without a light-mode browser.** Headless reports
-  `prefers-color-scheme: dark`, so light can never be requested here. Inject a
-  `<style>` into the iframe setting the light block's token values directly —
-  that is exactly what the media query does — then screenshot and *look*.
-- **Prove a colour no longer follows the theme.** Override `--text` / `--muted`
-  on the iframe's root to something absurd and assert the element does **not**
-  move, with a control element that does. That tests the mechanism rather than
-  the rendering, and it holds regardless of which theme the browser reports.
-
-When checking horizontal overflow, ignore anything inside an ancestor with
-`overflow-x: auto|scroll|hidden` or `position: fixed`. The decorative `.aurora`
-blobs are fixed, clipped and deliberately off-screen; count them and you get two
-false Criticals. Nothing overflows at 360px or 412px.
-
----
-
-## 5. Verification recipes
-
-These are not committed tooling — deliberately, the architect ruled against
-adding tools without justification. They are recipes. Use them, don't install them.
-
-**Screenshot the app.** Write a temp `_seed.html` at the app root that seeds
-`localStorage` and redirects to `./index.html` (this skips onboarding and gives
-the screens real content), then:
-
-```powershell
-$srv = Start-Process python -ArgumentList "-m","http.server","8210" -PassThru -WindowStyle Hidden
-$chrome = "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
-# first run seeds localStorage, second run renders with it — same --user-data-dir
-Start-Process $chrome -ArgumentList '--headless=new','--disable-gpu','--window-size=600,900',`
-  '--virtual-time-budget=3000',"--user-data-dir=$prof","--screenshot=$out\x.png",`
-  'http://localhost:8210/_seed.html' -Wait
-Start-Process $chrome -ArgumentList '--headless=new','--disable-gpu','--hide-scrollbars',`
-  '--window-size=600,1000','--virtual-time-budget=4000',"--user-data-dir=$prof",`
-  "--screenshot=$out\today.png",'http://localhost:8210/index.html#/today' -Wait
-Stop-Process -Id $srv.Id -Force
+```
+master                              a2e6480   the base everything forks from
+├─ repo-docs-three-projects         134abfa   root CLAUDE.md: three projects, not two
+│  ├─ arise-discipline-redesign     07814c5   16 commits — ALL the arise work
+│  └─ life-reset-habit-recommender  8173ae3   4 commits — the Python engine work
+└─ english-feedback-app-review-fixes da9951a  pre-existing, untouched this session
 ```
 
-Then `Read` the PNG. **Delete `_seed.html` afterwards** — it must never ship.
-Note: `Remove-Item` in the same PowerShell call as the Chrome path trips a
-sandbox guard; delete via Bash `rm -f` instead.
+`arise-discipline-redesign` is where the app is. **`master` still has the
+pre-rename app**: no Discipline branding, no 66-day run, no habit picker. Check
+out `master`, serve it, and you are looking at something twenty commits old.
 
-**Measure the real DOM at phone width.** Write a temp `_diag.html` that loads
-`./index.html` in a 412px-wide iframe, walks `body *` comparing
-`getBoundingClientRect().right` to `innerWidth`, and writes the results into its
-own body as text. Screenshot that page and read the text. This is how you get
-true geometry despite the minimum-width trap.
+**The most important open question, asked three times and never answered:** the
+user has an existing Netlify site and nobody knows which branch it builds. If it
+builds `master`, none of this session's work is deployed — which would account
+for a long run of "it didn't connect" reports that turned out to be part real
+bug, part stale build. Ask before debugging anything reported about the live
+site.
 
-**Check the stylesheet.** There is no CSS linter. After any token work, verify
-every `var(--…)` referenced from `styles.css` **and** from `js/` resolves against
-a definition, and that braces balance. An undefined token silently drops the
-property with every test still green.
-
----
-
-## 5b. The visual direction, and where it stops
-
-The user's reference is **lifereset.com**. Arise is already built on that
-skeleton — Day N/66, To-dos/Done/Skipped, goal cards with a streak pill — so the
-gap was never structural. It was the icon language, and that is now converted:
-`UI.icon()` in `js/ui.js`, documented under "Icons" in `knowledge/ui-guidelines.md`.
-Today went from 11 distinct emoji to 8, and the tab bar, card meta rows, top
-chips and plan info buttons are drawn icons.
-
-**The icon fields are converted too.** The user's ruling: a glyph they chose
-wins, a glyph a seed gave them yields to the drawn icon for its category. It is
-derived by comparing against the seed — no flag, no migration, nothing
-overwritten — and documented under "Icons" in `ui-guidelines.md`. Distinct emoji
-per screen, before → after:
-
-| screen | before | after | what is left |
-|---|---|---|---|
-| More | 22 | 8 | difficulty glyphs, banners |
-| Plan | 17 | 4 | difficulty glyphs |
-| Today | 11 | 5 | banners |
-| Stats | 7 | 2 | difficulty glyphs |
-| Read | 6 | 6 | the five mood faces |
-| Rewards | 12 | 12 | **milestone medals — see below** |
-
-Note `exGlyph`/`goalGlyph` return **HTML**, and escape user text themselves. The
-render suite's hostile-icon test covers this and was broken on purpose to prove
-it: without the escape, raw markup reaches four routes.
-
-**On the reference's game layer — reconsidered, and the earlier read was wrong.**
-"This Is Not A Game" says in its own last line: *"Nothing here says delete the
-game layer. It says keep it in its place, below the things that are true."* The
-test is whether a thing states something true about the user's life, not whether
-it is decorated. Life Reset's achievement card passes it — "wake up at 6 AM for
-10 days" is a real behaviour. **Approved, and next up:** earned milestones stated
-as facts, plus an unlock moment. No new XP, and Today is not touched.
-
-Most of the machinery already exists: `A.MILESTONES` in `data.js`, `rewards()`
-and `nextMilestone()` in `store.js`, claiming wired in `app.js`. What is missing
-is the unlock moment, medals that are drawn rather than emoji, and copy that
-leads with the fact rather than the encouragement.
-
-**One thing in the reference that still must not be copied.** Its goal cards are
-full-bleed illustrations. This app ships no image assets and makes no network
-calls, and users create goals no artwork could exist for. The monogram tile is
-the honest local answer; an illustration set is a product change with a real
-weight cost, not a styling tweak.
+**If the origin changes, every existing user starts empty.** `localStorage` is
+per-origin; goals, logs, streaks and journal do not follow a domain move. The
+only bridge is More → Export on the old origin, Import on the new one.
 
 ---
 
-## 6. Product direction — read before proposing features
+## 1. State of the tree — `arise-discipline-redesign`
+
+```bash
+cd arise
+npm test          # smoke 377, render 145, wire 15 — all green
+npm run package   # → dist/, exits non-zero if the package is unshippable
+serve.cmd         # http://localhost:8123
+```
+
+- `sw.js` VERSION → **`discipline-v36`**
+- `js/` is **seven** files, loaded in this order:
+  `data.js` → `program.js` → `goals.js` → `run.js` → `store.js` → `ui.js` → `app.js`
+- `tools/` is `smoke.js`, `render.js`, `wire.js`, `package.js`, `serve.py`,
+  `make_icons.py`, `shot.html`
+- `STATE_VERSION` is **4** — `arise.state.v1` gained a `run` key, default `null`
+- Nothing is half-finished. No stashed edits.
+
+Uncommitted, none of it mine, none of it blocking:
+`arise/.claude/scheduled_tasks.lock` (deleted), `reports/arise-2026-08-10/`
+(untracked), `arise/arise-redesign/` (untracked — see §4).
+
+---
+
+## 2. What this session built in arise
+
+**Discipline.** Every string the user sees is renamed. The `arise/` folder, the
+`window.Arise` globals and the `arise.state.v1` key deliberately did **not**
+move — renaming the storage key orphans every user's data with no recovery.
+
+**Reach.** Five tabs (Rewards moved under More). A goal card is worked with the
+whole card rather than the tick in its corner: swipe right to keep, left to
+skip, press and hold to log part of it. Today ends in a fixed strip carrying the
+next thing and one tap. Toasts carry UNDO for five seconds.
+
+**Netlify.** `netlify.toml` at the repo root (`base = arise`,
+`command = node tools/package.js`, `publish = dist`). `arise/_headers` carries
+the cache policy and a CSP that enforces the app's own no-network invariant at
+the browser. `tools/package.js` copies the runtime set byte for byte — **it is
+not a build step and must never become one** — and fails the build when `sw.js`
+ASSETS and `index.html` disagree about `js/`.
+
+**The 66-day run** (`js/run.js`), a port of the `life-reset` Python engine,
+sitting *beside* `goals.js` and sharing nothing with it. The Architect and
+Adaptation agents were dropped: both need a language model, and this app makes
+no network calls. What crossed over is the deterministic fallback each already
+had.
+
+- a 25-habit closed catalog, three phases, feasible-by-construction on all 66 days
+- checklist habits — `vitamins`, `skincare`, `skincare_pm` — whose dose is a
+  list of named items rather than a number, editable per run
+- a habit picker, with a "start everything on day one" toggle that is on by
+  default and opts out of the two ease-them-in rules while keeping the budget
+- the day record: what each day asked, frozen when the day opened
+- `runCountsTowardDay` — a kept run day counts toward the streak
+- `tools/wire.js`, a third suite that drives `js/app.js` through its click router
+
+---
+
+## 3. State of `life-reset-habit-recommender`
+
+Python, no dependencies, no network, no UI. `life-reset/STATUS.md` is the honest
+inventory and is current — read it rather than `README.md` / `AGENTS.md`, which
+are a specification written before the code and describe more than exists.
+
+```bash
+cd life-reset
+python tests.py          # 126
+python eval_harness.py   # 2,000 users, zero invariant violations
+python demo_program.py   # read the output; it catches what neither suite can
+```
+
+Added this session: four self-care habits, an `add`/`advance` recommender,
+`state.py` (schema 3 — the stored shape, no I/O), `session.py` (`where`,
+`check_in`), a `resume` op, seventeen adversarial Adaptations, partial credit.
+
+---
+
+## 4. Open, in priority order
+
+1. **Confirm the Netlify branch and origin.** §0. Blocks everything about the
+   live site.
+2. **Custom habits.** The user asked twice to "add and edit things in the
+   catalog". Checklist *items* are editable; the catalog of *habits* is closed,
+   and that closedness is what makes an unknown id a dropped habit rather than a
+   crash on day 41. User-defined habits need a per-run habit table and a story
+   for what `validate` does with something that has no catalog entry. It is a
+   design decision, not a toggle.
+3. **The exfoliation schedule.** Decided, not built. The user's Mon/Thu toner
+   cadence is to be a *goal*, not a run habit — `goals.js` already does weekday
+   schedules and `run.js` assumes every habit is daily. Nothing was created for
+   them: Plan → new goal, schedule Mon/Thu, baseline 2/week → target 3/week.
+4. **`arise/arise-redesign/`** — a complete stale copy of `js/` and `styles.css`
+   inside `arise/`. Its design was applied and committed long ago. Deleting it
+   was offered twice and never authorised; it is exactly the duplicate-snapshot
+   hazard §6a is about.
+5. **life-reset:** no store, deliberately — `state.py` decides the shape, where
+   the bytes go is the caller's. `diagnose` ignores `did`, so somebody doing 80%
+   every day looks identical to somebody doing nothing.
+
+---
+
+## 5. How to work here
+
+- **Run all three suites.** `npm test` runs them. `smoke.js` is the data layer,
+  `render.js` the views, `wire.js` the click router. The third exists because
+  neither of the others loads `js/app.js` at all.
+- **Adding a `js/` file touches four places:** `index.html`, `sw.js` ASSETS, and
+  the load lists in `smoke.js` and `render.js`. `package.js` cross-checks the
+  first two and fails the build when they disagree.
+- **Bump `sw.js` VERSION** after any change to `styles.css`, `js/` or `fonts/`.
+- **Serve with `serve.cmd`**, which runs `tools/serve.py` (no-store on
+  everything). Never `python -m http.server` — see §6.
+- Read the invariants in `arise/CLAUDE.md` before touching the run, the record or
+  the streak. Each is written as a rule with the bug that produced it.
+
+---
+
+## 6. Traps sprung this session — do not repeat these
+
+- **A class applied is not a style that exists.** `.pick:has(:checked)` survived
+  the markup changing from a label-and-checkbox to a button carrying `.on`. The
+  chosen habit had the class, had `aria-pressed="true"`, and passed a render test
+  that asserted the class — while looking identical to an unchosen one for four
+  commits, during which the user was told it worked. `render.js` now asserts the
+  stylesheet has a rule for every state class the run UI emits. **A test that
+  checks markup has not checked appearance.**
+- **`js/app.js` is invisible to two of the three suites.** A stray newline inside
+  a string literal left it unparseable while smoke and render both reported
+  green — and a syntax error takes the whole file, so nothing wires up and the
+  app is dead on open. That is what `wire.js` is for. Run it.
+- **The service worker will serve a stale app for days.** Fixed two ways:
+  `register(..., { updateViaCache: 'none' })`, because the browser will otherwise
+  serve `sw.js` *itself* from HTTP cache and `update()` re-reads the old worker;
+  and `tools/serve.py`, which sends `no-store`. Neither rescues a client already
+  stuck — that needs one manual unregister. More now prints the running build, so
+  "nothing happened" can be told apart from "I am on v26".
+- **Line-based Python surgery destroyed a file.** `s.split("\r\n")` on a file with
+  LF endings returns one element; the index search then matched at 0 and the
+  delete took all of `js/run.js`. It was restored from the last commit and redone.
+  **Use the Edit tool for surgical edits.** This repo has mixed CRLF and LF,
+  sometimes within one file.
+- **`str.replace()` fails silently.** Several edits to `styles.css`, `CLAUDE.md`
+  and `app.js` no-opped on a whitespace mismatch and were reported as done. One
+  was the `.pick.on` bug above; another made a commit message claim documentation
+  it did not contain. **Assert the match, or grep afterwards.**
+- **Writing JS through a Python heredoc mangles escapes.** `'\n'` becomes a real
+  newline and produces an unterminated string — twice this session, once shipping
+  a syntax error. Use `String.fromCharCode(10)`, or write the block to a file and
+  splice it.
+- **A harness only sees what its fixtures reach.** Three invariants were vacuous
+  when written: `advance` never fired because recovery was never modelled; the
+  codec round-trip never saw a `frozen_day` because the fallback only softens;
+  `never_both` needed a conjunction no synthetic user produced. Each is now
+  constructed deliberately and the summary prints per-kind counts so a zero is
+  visible. **When you add an invariant, ask what input would make it fail. If you
+  cannot name one, it is not an invariant.**
+
+Still true from the previous session: headless Chrome enforces a minimum window
+width and reports `prefers-color-scheme: dark`; PowerShell 5.1 `Get-Content`
+mangles UTF-8; a `/` inside a JS regex literal terminates it; `Number(x) ||
+default` treats a valid `0` as missing; tests coupled to implementation details
+rot silently; deleting dead code can take live code with it.
+
+---
+
+## 6a. The bundle incident — read before touching `index.html`
+
+A visual-tooling export once replaced `index.html` with a 440KB self-extracting
+bundle serving `js/` and `styles.css` from `blob:` URLs decoded from a gzip
+payload — a snapshot taken mid-sprint. The app ran three fixes behind the tree
+for as long as it was there, and **both suites stayed green the whole time**,
+because they load `js/` from disk. It also dropped the manifest and icon links,
+breaking PWA install, and added a Google Fonts `preconnect` to an app whose
+first constraint is that it makes no network calls.
+
+`index.html` is a shell: `./styles.css` and the seven `./js/*.js` in fixed
+order, the manifest and the icons, nothing else. If a tool offers to inline the
+app into one file, the answer is no. `tools/package.js` now checks this on every
+package, which is the one place that can see it.
+
+---
+
+## 7. Product direction — read before proposing features
 
 `arise/knowledge/project.md` has a section called **"This Is Not A Game"**. It is
-a first-class product constraint added this session at the user's direction, and
-it is the lens for every feature question:
+a first-class product constraint set by the user, and it is the lens for every
+feature question:
 
 > *Does this tell the user something true about their life, or does it only move
 > a counter the app invented?*
 
-The user was explicit: they do not want a Duolingo-shaped app. XP, levels and
-ranks still exist but are deliberately kept **below** the real ledger — days
-kept, hours actually done, summaries written. The top bar carries days kept, not
-a rank. Custom rewards pay out in sneakers and books, and grant no XP on purpose.
+The user does not want a Duolingo-shaped app. XP, levels and ranks exist but sit
+deliberately **below** the real ledger — days kept, hours actually done,
+summaries written. The top bar carries days kept, not a rank. Custom rewards pay
+out in sneakers and books and grant no XP on purpose.
 
-Things the architect placed **off limits this quarter**: any build step, bundler,
-framework or dependency; any network call, account or sync; a rewrite of the
-progression engine; caching over any number still derived wrongly; changing
-`clearDay`'s scope; any migration that recomputes a banked `bestStreak`; any
-expansion of the game layer onto Today; a second convention for fixed-surface
-foregrounds; and any global CSS sweep in a codebase whose suite cannot see CSS.
+Three rules the run added, in the same spirit:
+
+- **The run and the goals share nothing, deliberately.** A goal ramps a target
+  the user chose from a baseline they set, earning each step by performing. A run
+  picks from a closed catalog and ramps on the calendar. Merging them means
+  migrating every custom goal onto a catalog id it does not have.
+- **A day you have lived is never re-judged.** The one most likely to be broken
+  by a well-meaning feature. The run's day record exists for it:
+  `computeDayStatus` reads what a day *recorded*, never what the programme says
+  now.
+- **Feasibility is the product.** `validate` walks all 66 days. An infeasible day
+  41 is the most expensive bug this design can have, because the user does not
+  find it until day 41 — by which point they have earned 40.
+
+Off limits without raising it first: any build step, bundler, framework or
+dependency; any network call, account or sync; a rewrite of the progression
+engine; any migration that recomputes a banked `bestStreak`; any expansion of the
+game layer onto Today.
 
 ---
 
-## 7. Known-open, beyond the review
+## 8. Working with this user
 
-- **`js/app.js` has no automated coverage at all.** This is the single largest
-  untested surface and it is where two of the three Criticals live.
-- **~30 inline `style="font-size:…"` were swept onto the type scale**; the 5 that
-  remain are emoji glyphs and stay literal by design.
-- The user has been driving product direction directly and responds well to being
-  told plainly what is broken, including — especially — when it is something the
-  assistant broke. Two of the three Criticals in the latest review are regressions
-  I introduced. Saying so was more useful than hedging.
+They drive product direction directly, test on a real device, and report
+symptoms rather than causes — "it didn't connect", "it never updated". Every one
+of those turned out to be either a real bug or a stale build, and none of them
+was imprecision worth pushing back on. Check the code before assuming the
+report is wrong; three times this session the report was right and the
+assumption was not.
+
+They respond well to being told plainly what is broken, including — especially —
+when the assistant broke it.
