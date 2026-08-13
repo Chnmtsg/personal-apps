@@ -27,6 +27,14 @@ All paths in this file are relative to `english-feedback-app/`.
     `border-rule`) and never Tailwind palette steps.
   - `src/lib/importEntries.ts` — pure decision logic for restoring an exported
     backup (Settings): additive, idempotent, never overwrites an existing id.
+  - `src/dev/` — **dev-only** demo data, so the Feedback screen can be looked
+    at without a live model call. Reached from one `import.meta.env.DEV`
+    branch in `main.tsx`, so Rollup drops it from every production build;
+    a build is grepped for demo strings to prove it. Seeding goes through
+    `importEntries`, so it validates, skips existing ids and never deletes —
+    it cannot damage real writing. Run `seedDemo()` in the console or open
+    `/?seed=demo`. **Never put a seed file in `app/public/`: everything
+    there ships.**
   - `vite.config.ts` — PWA manifest, the woff2 precache glob, **and** the
     production env guard
 - `worker/` — Cloudflare Worker proxy running the pipeline
