@@ -422,7 +422,18 @@ test("an old entry with no natural_phrasings at all still parses", () => {
 // `npm run verify` fully green. This rebuilds the mirror from the source and
 // pins byte-equality.
 test("prompts/teacher.md and TEACHER_SYSTEM_PROMPT (shared/schema.ts) are byte-identical mirrors", () => {
-  const raw = readFileSync(new URL("../prompts/teacher.md", import.meta.url), "utf8");
+  // Normalise line endings before comparing. Git checks this file out with
+  // CRLF wherever core.autocrlf is on — the Windows default — while
+  // TEACHER_SYSTEM_PROMPT is a TS literal and is therefore always LF. A raw
+  // byte comparison then fails on a fresh clone even when the two are in
+  // perfect sync. Found by checking the branch out into a second worktree;
+  // the original working copy could not surface it, because the file there
+  // had never been through a checkout. What this test guards is the WORDS
+  // drifting apart, which line endings do not affect.
+  const raw = readFileSync(new URL("../prompts/teacher.md", import.meta.url), "utf8").replaceAll(
+    "\r\n",
+    "\n"
+  );
 
   // Strip the frontmatter block (--- ... ---) and its trailing blank line.
   const frontmatterEnd = raw.indexOf("\n---", 3);
