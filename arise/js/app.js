@@ -771,7 +771,7 @@
         const sel = $('#run_budget');
         const budget = sel ? Number(sel.value) : 45;
         const picks = UI.runPicks();
-        S.startRun(picks, budget);
+        S.startRun(picks, budget, UI.runTogether(), UI.draftItems());
         UI.resetRunPicks();
         UI.go('run');
         /* Say what the budget forced out, by name. `buildRun` repairs rather
@@ -790,6 +790,13 @@
         }
         break;
       }
+      case 'run-together':
+        UI.toggleRunTogether();
+        UI.render();
+        break;
+      case 'run-edit-items':
+        UI.openRunItems(id);
+        break;
       case 'run-pick':
         // Repaint the picker, not the page. See UI.refreshRunPicker.
         UI.toggleRunPick(id);
@@ -824,9 +831,15 @@
       case 'run-save-items': {
         const box = $('#run_items');
         if (!box) break;
-        const saved = S.setRunItems(id, box.value.split(/\r?\n/));
+        /* Before a run exists the list has nowhere to be stored against, so it
+           waits in the picker's draft and is handed to `startRun`. Editing what
+           is inside a habit before committing to 66 days of it is most of why
+           the editor is reachable from the picker at all. */
+        const lines = box.value.split(/\r?\n/);
+        const saved = S.run() ? S.setRunItems(id, lines) : UI.setDraftItems(id, lines);
         UI.closeSheet();
         if (!saved) UI.toast('🗓 <span>A checklist needs at least one step, so nothing was saved.</span>', 'gold');
+        else if (!S.run()) UI.render();
         break;
       }
       case 'run-save-value': {

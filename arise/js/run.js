@@ -345,19 +345,33 @@
     }
     if (v.some((x) => x.kind === 'unknown_habit')) return v;
 
+    /* Two of the rules below are about *easing somebody in*, not about whether
+       a day can be done: at most two new habits in any week, and a cap on how
+       many run at once early on. They are the right default for a programme a
+       machine laid out, and the wrong one for four things a person chose and
+       wants to start tonight — being told that flossing begins on day 22 reads
+       as the app refusing to do what it was asked.
+
+       `startTogether` opts out of both. What it cannot opt out of is the
+       minutes budget, which is the rule that decides whether a day is
+       physically doable, and that is the point of keeping them separate. */
+    const eased = !run.startTogether;
+
     const starts = habits.map((p) => p.startDay).sort((a, b) => a - b);
-    for (const day of starts) {
-      const window = starts.filter((d) => d >= day - 6 && d <= day);
-      if (window.length > MAX_NEW_PER_WEEK) {
-        v.push({ kind: 'new_per_week', day: day, detail: window.length + ' habits start within 7 days of day ' + day });
-        break;
+    if (eased) {
+      for (const day of starts) {
+        const window = starts.filter((d) => d >= day - 6 && d <= day);
+        if (window.length > MAX_NEW_PER_WEEK) {
+          v.push({ kind: 'new_per_week', day: day, detail: window.length + ' habits start within 7 days of day ' + day });
+          break;
+        }
       }
     }
 
     for (let day = 1; day <= RUN_DAYS; day++) {
       const live = activeOn(run, day);
       const cap = phaseFor(day).max;
-      if (live.length > cap) {
+      if (eased && live.length > cap) {
         v.push({ kind: 'phase_cap', day: day, detail: live.length + ' live, ' + phaseFor(day).name + ' allows ' + cap });
       }
       const minutes = live.reduce((n, p) => n + minutesOn(p, day), 0);
@@ -459,7 +473,12 @@
 
     const before = {};
     habits.forEach((p) => { before[p.habitId] = p.startDay; });
-    const spaced = respace(habits, today);
+    /* Respacing is the spacing rule's enforcement arm. A run the user asked to
+       start on day one has opted out of that rule, so moving its habits apart
+       would put back exactly what they opted out of. */
+    const spaced = run.startTogether
+      ? { placed: habits.slice(), unplaceable: [] }
+      : respace(habits, today);
     habits = spaced.placed;
     const moved = habits.filter((p) => before[p.habitId] !== p.startDay).map((p) => p.habitId);
     if (moved.length) notes.push('respaced start days: ' + moved.sort().join(', '));
@@ -542,12 +561,15 @@
    */
   const DEFAULT_PICKS = ['walk', 'water', 'read', 'stretch', 'journal', 'pushups'];
 
-  function buildRun(startDate, minutesBudget, picks) {
+  function buildRun(startDate, minutesBudget, picks, together) {
     const budget = minutesBudget || 45;
     const draft = (list) => ({
       startDate: startDate,
       minutesBudget: budget,
-      habits: list.map((id, i) => ({ habitId: id, startDay: 1 + i * 7, scale: 1, frozenDay: null })),
+      startTogether: !!together,
+      habits: list.map((id, i) => ({
+        habitId: id, startDay: together ? 1 : 1 + i * 7, scale: 1, frozenDay: null
+      })),
       log: {}
     });
     const toFloor = (list) => {
@@ -606,6 +628,7 @@
    * and moving those would reschedule habits somebody is already running.
    */
   function openOnDayOne(run) {
+    if (run.startTogether) return run;
     const starts = (run.habits || []).map((p) => p.startDay);
     if (!starts.length) return run;
     const first = Math.min.apply(null, starts);
@@ -832,6 +855,7 @@
     const taken = (run.habits || []).map((p) => p.startDay);
     const out = [];
     for (let day = Math.max(today + 1, 1); day <= LAST_INTRO_DAY; day++) {
+      if (run.startTogether) { out.push(day); continue; }
       const days = taken.concat([day]).sort((a, b) => a - b);
       if (days.every((x) => days.filter((y) => y >= x - 6 && y <= x).length <= MAX_NEW_PER_WEEK)) out.push(day);
     }

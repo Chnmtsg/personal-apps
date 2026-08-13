@@ -2092,6 +2092,10 @@
      reason `todayFilter` and `picker` live up here. It also means the picks can
      be driven from tools/render.js instead of only from a browser. */
   let runPicks = null;
+  let runTogether = true;   // chosen habits start today unless asked otherwise
+  /* Checklists edited before the run exists have nowhere to be stored yet, so
+     they wait here and are handed to `startRun`. */
+  const draftItems = {};
   /* The service worker version actually serving this page. See UI.setBuild. */
   let buildVersion = '';
 
@@ -2110,7 +2114,7 @@
   }
 
   /** Forget the selection once it has become a run, so the next one starts fresh. */
-  function resetRunPicks() { runPicks = null; }
+  function resetRunPicks() { runPicks = null; runTogether = true; }
 
   /**
    * Repaint the picker alone after a tap.
@@ -2136,10 +2140,17 @@
     const ask = A.formatValue('count', h.start) + ' → ' + A.formatValue('count', h.target) + ' ' + h.unit;
     return `<button type="button" class="pick ${chosen ? 'on' : ''}" data-act="run-pick"
         data-id="${esc(h.id)}" aria-pressed="${chosen}">
+      <i class="pick-mark" aria-hidden="true">${chosen ? '✓' : ''}</i>
       <b>${esc(h.name)}</b>
       <small>${esc(h.target === h.start ? A.formatValue('count', h.start) + ' ' + h.unit + ', every day' : ask)}</small>
       <i class="pick-effort" aria-label="effort ${h.friction} of 5">${'•'.repeat(h.friction)}</i>
-    </button>`;
+    </button>${
+      h.items
+        ? `<button type="button" class="pick-edit" data-act="run-edit-items" data-id="${esc(h.id)}">${
+            (A.Run.itemsFor({ habitId: h.id, items: draftItems[h.id] }) || []).length
+          } steps · edit</button>`
+        : ''
+    }`;
   }
 
   function runPicker() {
@@ -2173,6 +2184,17 @@
               .map((m) => `<option value="${m}"${m === 45 ? ' selected' : ''}>${m} min</option>`)
               .join('')}</select></label>
         </section>
+
+        <button type="button" class="pick together ${runTogether ? 'on' : ''}"
+          data-act="run-together" aria-pressed="${runTogether}">
+          <i class="pick-mark" aria-hidden="true">${runTogether ? '✓' : ''}</i>
+          <b>Start everything on day one</b>
+          <small>${
+            runTogether
+              ? 'All of it from today. Only your minutes still limit the run.'
+              : 'Eased in instead — two new habits a week, the rest waiting their turn.'
+          }</small>
+        </button>
 
         <p class="faint pickhint">Pick what you want in it. Anything that will not
           fit your minutes is dropped when the run is built, and you will be told
@@ -2304,10 +2326,15 @@
    * count of them.
    */
   function openRunItems(habitId) {
-    const run = S.run();
     const h = A.Run.habit(habitId);
-    if (!run || !h) return;
-    const p = (run.habits || []).find((x) => x.habitId === habitId);
+    if (!h) return;
+    const run = S.run();
+    /* Reachable from the picker too, where there is no run yet — the list is
+       held in a draft until `startRun` is given it. Editing what is in a habit
+       before committing to 66 days of it is the whole point of the screen. */
+    const p = run
+      ? (run.habits || []).find((x) => x.habitId === habitId)
+      : { habitId: habitId, items: draftItems[habitId] };
     const list = A.Run.itemsFor(p) || [];
     openSheet(h.name, `
       <p class="muted" style="margin-top:0;font-size:var(--fs-md)">One per line, in the order you
@@ -2558,6 +2585,20 @@
   UI.resetRunPicks = resetRunPicks;
   UI.refreshRunPicker = refreshRunPicker;
   UI.setBuild = (v) => { buildVersion = v; };
+  UI.runTogether = () => runTogether;
+  UI.toggleRunTogether = () => { runTogether = !runTogether; };
+  /** A checklist edited before the run exists. Cleaned by the same rule the
+      store uses, so what the picker shows is what `startRun` will get. */
+  UI.setDraftItems = (id, lines) => {
+    const clean = (lines || [])
+      .map((x) => String(x == null ? '' : x).trim())
+      .filter((x, i, all) => x && all.indexOf(x) === i)
+      .slice(0, 20);
+    if (!clean.length) return null;
+    draftItems[id] = clean;
+    return clean;
+  };
+  UI.draftItems = () => draftItems;
   UI.openGoalDetail = openGoalDetail;
   UI.openGoalEditor = openGoalEditor;
   UI.openGoalRestart = openGoalRestart;

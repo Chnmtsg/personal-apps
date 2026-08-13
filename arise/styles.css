@@ -1188,19 +1188,28 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .runrec li { color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }
 
 /* ---- the run's habit picker ----
-   Selection is `:has(:checked)`, so picking never re-renders and there is no
-   draft state to keep in step with the DOM: what is ticked when Start is
-   pressed is the whole of it. */
+   Selection is a class the view sets, not a CSS state selector. This was
+   `.pick:has(:checked)` against a `<label>` wrapping a hidden checkbox, and when
+   the markup became a `<button>` carrying `.on` the rule stopped matching
+   anything at all — a chosen habit had the class and `aria-pressed="true"` and
+   looked exactly like an unchosen one. The render test asserted the class was
+   applied, which is markup, and said nothing about whether it was drawn. */
 .pickhint { margin: var(--sp-md) 4px; font-size: var(--fs-sm); line-height: 1.5; }
 .pickgrid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: var(--sp-sm); margin-bottom: var(--sp-md);
 }
 .pick {
-  display: block; padding: var(--sp-md); border-radius: var(--r);
+  display: block; width: 100%; text-align: left; padding: var(--sp-md);
+  border-radius: var(--r); color: var(--text);
   background: var(--surface); border: 1px solid var(--stroke);
   cursor: pointer; transition: background 0.15s, border-color 0.15s;
 }
+/* The tick lives in the markup, not only in the colour. A selected state drawn
+   with `color-mix` alone vanishes on a browser that lacks it, and an
+   unsupported colour function fails silently — the whole declaration is
+   dropped, leaving no hint that anything was meant to change. */
+.pick-mark { float: right; font-style: normal; font-weight: 900; color: var(--accent-2); }
 .pick b { display: block; font-size: var(--fs-base); font-weight: 700; }
 .pick small {
   display: block; margin-top: 3px; color: var(--muted);
@@ -1212,12 +1221,17 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   display: block; margin-top: 6px; font-style: normal;
   letter-spacing: 0.22em; color: var(--faint); font-size: var(--fs-xs);
 }
-.pick:has(:checked) {
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+/* Two backgrounds on purpose. The first works on anything; the second is the
+   nicer tint where `color-mix` exists and is simply dropped where it does not,
+   leaving a card that is still unmistakably different. */
+.pick.on {
+  background: var(--surface-2);
+  border-color: var(--accent-2); border-width: 2px;
+  padding: calc(var(--sp-md) - 1px);
 }
-.pick:has(:checked) .pick-effort { color: var(--accent-2); }
-.pick:has(:focus-visible) { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.pick.on { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.pick.on b { color: var(--accent-2); }
+.pick.on .pick-effort { color: var(--accent-2); }
 
 /* ---- a checklist habit ----
    Four supplements is four things you can miss one of, so the row carries the
@@ -1236,4 +1250,15 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   background: color-mix(in srgb, var(--good) 14%, var(--surface-2));
   border-color: color-mix(in srgb, var(--good) 40%, transparent);
   color: var(--text);
+}
+
+/* The "start everything today" toggle and the per-habit step editor. */
+.pick.together { margin: var(--sp-md) 0 0; }
+.pick.together small { margin-top: 5px; line-height: 1.45; }
+.pick-edit {
+  display: block; width: 100%; margin: -6px 0 0; padding: 7px var(--sp-md);
+  border: 1px solid var(--stroke); border-top: 0;
+  border-radius: 0 0 var(--r) var(--r);
+  background: var(--surface-2); color: var(--accent-2);
+  font-size: var(--fs-xs); font-weight: 700; text-align: left;
 }

@@ -164,5 +164,42 @@ ok('saving an edited checklist reaches the store, deduped',
    A.Run.itemsFor(S.run().habits.find((p) => p.habitId === 'vitamins')).join(',') === 'Multivitamin,Zinc',
    A.Run.itemsFor(S.run().habits.find((p) => p.habitId === 'vitamins')));
 
+
+console.log('');
+console.log('everything starts on day one, and steps are editable first');
+S.endRun();
+UI.resetRunPicks();
+resolve('#run_budget').value = '90';
+A.Run.DEFAULT_PICKS.forEach((id) => click({ act: 'run-pick', id: id }));
+['vitamins', 'skincare', 'skincare_pm', 'floss'].forEach((id) => click({ act: 'run-pick', id: id }));
+
+resolve('#run_items').value = ['Multivitamin', 'Vitamin D3', 'Zinc'].join(String.fromCharCode(10));
+click({ act: 'run-edit-items', id: 'vitamins' });
+click({ act: 'run-save-items', id: 'vitamins' });
+ok('a checklist can be edited before the run exists',
+   (UI.draftItems().vitamins || []).join(',') === 'Multivitamin,Vitamin D3,Zinc', UI.draftItems().vitamins);
+
+click({ act: 'run-start' });
+const started = S.run();
+const days = started.habits.map((p) => p.startDay);
+ok('every chosen habit starts on day one', days.every((d) => d === 1), days);
+ok('and day one actually asks for all of them',
+   A.Run.runDay(started, 1).length === started.habits.length,
+   [A.Run.runDay(started, 1).length, started.habits.length]);
+ok('the run is still feasible', A.Run.validate(started).length === 0,
+   A.Run.validate(started).map((v) => v.kind));
+ok('the edited checklist came with it',
+   A.Run.itemsFor(started.habits.find((p) => p.habitId === 'vitamins')).join(',') === 'Multivitamin,Vitamin D3,Zinc',
+   A.Run.itemsFor(started.habits.find((p) => p.habitId === 'vitamins')));
+
+S.endRun();
+UI.resetRunPicks();
+click({ act: 'run-together' });
+['vitamins', 'floss', 'water'].forEach((id) => click({ act: 'run-pick', id: id }));
+click({ act: 'run-start' });
+const spread = S.run().habits.map((p) => p.startDay);
+ok('turning it off eases them in again instead',
+   spread.some((d) => d > 1) && A.Run.validate(S.run()).length === 0, spread);
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

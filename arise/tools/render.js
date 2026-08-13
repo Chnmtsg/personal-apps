@@ -849,6 +849,35 @@ console.log('\nthe 66-day run');
 
 const RunE = A.Run;
 
+
+/* A class the view sets is only half of a visual state. `.pick:has(:checked)`
+   survived the markup changing from a label-and-checkbox to a button carrying
+   `.on`, so a chosen habit had the class, had `aria-pressed="true"`, passed the
+   test above — and looked identical to an unchosen one. Assert the stylesheet
+   knows about every state class the run UI emits. */
+behaves('every state class the run UI emits is actually styled', () => {
+  // Comments stripped first: this file explains the bug it is guarding against,
+  // and a scan that reads prose reports the thing it is describing.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const needed = ['.pick.on', '.runrow.is-done', '.runrow.is-part', '.runitem.on'];
+  const missing = needed.filter((sel) => css.indexOf(sel) < 0);
+  if (missing.length) return 'no rule for: ' + missing.join(', ');
+  return css.indexOf(':has(:checked)') < 0 ? '' : 'a dead :has(:checked) rule is still in the sheet';
+});
+
+behaves('a chosen habit is marked in the markup, not only in colour', () => {
+  S.resetAll();
+  UI.resetRunPicks();
+  const html = renderRoute('run');
+  const i = html.indexOf('data-id="' + A.Run.DEFAULT_PICKS[0] + '"');
+  if (i < 0) return 'the default pick is not offered';
+  const card = html.slice(Math.max(0, i - 200), i + 200);
+  if (card.indexOf('pick-mark') < 0) return 'no mark element at all';
+  // An unsupported colour function fails silently; a tick does not.
+  return /pick-mark[^>]*>✓/.test(html) ? '' : 'nothing is ticked even though six are chosen';
+});
+
 behaves('the start screen offers the whole catalog, grouped', () => {
   S.resetAll();
   const html = renderRoute('run');

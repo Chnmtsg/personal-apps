@@ -830,11 +830,18 @@
     return st && st.running ? st.day : null;
   }
 
-  function startRun(picks, minutesBudget) {
+  function startRun(picks, minutesBudget, together, items) {
     // One run at a time. Replacing a live one would erase days the user earned,
     // which is the same thing the day counter refuses to do.
     if (state.run) return state.run;
-    state.run = A.Run.buildRun(today(), minutesBudget || 45, picks);
+    state.run = A.Run.buildRun(today(), minutesBudget || 45, picks, together !== false);
+    /* Checklists edited on the picker, before there was a run to store them
+       against. Applied only to habits that survived `buildRun`. */
+    if (items) {
+      state.run.habits.forEach((p) => {
+        if (Array.isArray(items[p.habitId]) && items[p.habitId].length) p.items = items[p.habitId].slice();
+      });
+    }
     commit({ type: 'runStart' });
     return state.run;
   }
