@@ -58,7 +58,7 @@ npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
-- `sw.js` VERSION → **`discipline-v48`**
+- `sw.js` VERSION → **`discipline-v49`**
 - `js/` is **eight** files, loaded in this order:
   `data.js` → `program.js` → `goals.js` → `run.js` → `photos.js` → `store.js` →
   `ui.js` → `app.js`

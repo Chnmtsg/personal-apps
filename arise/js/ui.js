@@ -399,27 +399,55 @@
        the fact that there is one. */
     const exDone = plan.filter((i) => l && l.ex && l.ex[i.id]).length;
 
+    /* A programme day is written as warm-up, then the main lifts, then a
+       stretch — and this list flattened all of it into one grey column. The
+       structure is already in the data: every exercise carries a category, and
+       the plan is stored in the order it is meant to be done.
+
+       So a heading goes in wherever the category CHANGES, rather than grouping
+       by category. Grouping would reorder the workout, and the order of a
+       workout is not decoration — you do not stretch before you press. A day
+       that genuinely alternates gets two headings with the same name, which is
+       the honest picture of a day that alternates. */
     const exHtml = plan.length
-      ? plan
-          .map((i) => {
-            const p = planLine(i);
-            const done = !!(l && l.ex && l.ex[i.id]);
-            // The row is a container, not a button, so the "how to" control can
-            // sit beside the toggle — same shape as a .goal row.
-            return `<div class="item tight ${done ? 'done' : ''} ${future ? 'locked' : ''}">
-              <button type="button" class="item-main" data-act="toggle-ex" data-id="${i.id}" ${future ? 'disabled' : ''}>
-                <span class="tick" aria-hidden="true">✓</span>
-                <span class="emoji" aria-hidden="true">${p.icon}</span>
-                <span class="body"><span class="name">${esc(p.name)}</span>${
-              i.note ? `<span class="sub">${esc(i.note)}</span>` : ''
-            }</span>
-                <span class="dose">${esc(p.dose)}</span>
-              </button>
-              <button type="button" class="icon-btn" data-act="ex-how" data-id="${i.exerciseId}" data-item="${i.id}"
-                aria-label="How to do ${esc(p.name)}">${icon('info')}</button>
-            </div>`;
-          })
-          .join('')
+      ? (function () {
+          let lastCat = null;
+          return plan
+            .map((i) => {
+              const p = planLine(i);
+              const done = !!(l && l.ex && l.ex[i.id]);
+              const ex = S.exerciseById(i.exerciseId);
+              const muscles = A.cleanMuscles(ex && ex.muscles)
+                .map((m) => A.MUSCLE_NAME[m])
+                .join(' · ');
+              /* Muscles first, the plan's own note second: "chest · triceps"
+                 says what the exercise is for, "per side" says how to do it. */
+              const sub = [muscles, i.note].filter(Boolean).join(' — ');
+              const head = p.cat !== lastCat
+                ? `<div class="block-head">${esc(p.cat)}</div>`
+                : '';
+              lastCat = p.cat;
+              // The row is a container, not a button, so the "how to" control can
+              // sit beside the toggle — same shape as a .goal row.
+              return `${head}<div class="item tight ${done ? 'done' : ''} ${future ? 'locked' : ''}">
+                <button type="button" class="item-main" data-act="toggle-ex" data-id="${i.id}" ${future ? 'disabled' : ''}>
+                  <span class="tick" aria-hidden="true">✓</span>
+                  <span class="emoji" aria-hidden="true">${p.icon}</span>
+                  <span class="body"><span class="name">${esc(p.name)}</span></span>
+                  <span class="dose">${esc(p.dose)}</span>${
+                /* Its own full-width line below the name, not inside `.body`.
+                   Sharing that column left roughly 150px for both, so
+                   "Dumbbell Floor Press" clipped to "Dumbbell Flo…" while the
+                   muscles wrapped underneath it anyway. */
+                sub ? `<span class="exsub">${esc(sub)}</span>` : ''
+              }
+                </button>
+                <button type="button" class="icon-btn" data-act="ex-how" data-id="${i.exerciseId}" data-item="${i.id}"
+                  aria-label="How to do ${esc(p.name)}">${icon('info')}</button>
+              </div>`;
+            })
+            .join('');
+        })()
       : `<div class="empty"><span class="big">🛌</span>No exercises scheduled for ${esc(A.DAY_NAMES[A.weekday(k)])}.<br>
          <button class="link" data-act="go-plan" data-day="${A.weekday(k)}">Plan this day →</button></div>`;
 
@@ -624,6 +652,13 @@
            hidden attribute instead would leave the whole section one CSS
            display rule away from being invisible but still reachable, which is
            a failure this app has shipped before. -->
+      ${
+        plan.length && !future
+          ? `<div class="fold-bar" aria-hidden="true"><i style="width:${
+              Math.round((exDone / plan.length) * 100)
+            }%"></i></div>`
+          : ''
+      }
       <div id="workoutBody">${
         !workoutOpen
           ? ''

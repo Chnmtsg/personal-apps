@@ -1146,7 +1146,7 @@ behaves('every state class the run UI emits is actually styled', () => {
                   '.lat.kept', '.lat.part', '.lat.missed', '.lat.unopened', '.lat.today',
                   '.lat.ahead', '.latphase.is-now', '.row.ahead',
                   '.item.tight', '.item.tight .dose', '.section-fold.is-open',
-                  '.section-fold.is-done .fold-tick', '.fold-main', '.how-photo img', '.how-photo-add', '.chip-pick.on', '.segbar.tight'];
+                  '.section-fold.is-done .fold-tick', '.fold-main', '.block-head', '.fold-bar', '.item.tight .exsub', '.item.tight .name', '.how-photo img', '.how-photo-add', '.chip-pick.on', '.segbar.tight'];
   const missing = needed.filter((sel) => css.indexOf(sel) < 0);
   if (missing.length) return 'no rule for: ' + missing.join(', ');
   return css.indexOf(':has(:checked)') < 0 ? '' : 'a dead :has(:checked) rule is still in the sheet';

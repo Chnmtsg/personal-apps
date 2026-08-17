@@ -1449,3 +1449,44 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   font-size: var(--fs-xs); letter-spacing: 0.1em; text-transform: uppercase;
   color: var(--faint); font-weight: 700;
 }
+
+/* The workout's own structure, brought back. A programme day is warm-up, then
+   the main lifts, then a stretch; the list used to flatten all three into one
+   grey column. The heading marks where the category changes rather than
+   grouping by it, because grouping would reorder the workout. */
+.block-head {
+  margin: var(--sp-md) 2px var(--sp-xs);
+  font-size: var(--fs-xs); letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--faint); font-weight: 700;
+}
+.list > .block-head:first-child { margin-top: var(--sp-xs); }
+
+/* How much of the day's training is done, under its heading. Thin on purpose:
+   the count beside the heading is the number, this is only the shape of it. */
+.fold-bar {
+  height: 3px; border-radius: 999px; background: var(--surface-2);
+  margin: 0 2px var(--sp-sm); overflow: hidden;
+}
+.fold-bar > i {
+  display: block; height: 100%; border-radius: 999px;
+  background: var(--good); transition: width 0.3s;
+}
+
+/* The muscle line under a workout row. It wraps to its own full-width line
+   rather than sharing the name's column: with both in `.body` there was about
+   150px for the pair, and the name lost. `order: 3` puts it after the tick,
+   which `order: 2` has already moved past the body. */
+.item.tight .item-main { flex-wrap: wrap; }
+.item.tight .exsub {
+  order: 3; flex-basis: 100%; margin-top: 3px; padding-left: 44px;
+  font-size: var(--fs-xs); color: var(--muted); line-height: 1.4; text-align: left;
+}
+.item.tight.done .exsub { color: var(--faint); }
+
+/* Let a workout name wrap instead of clipping. `.item .name` is nowrap with an
+   ellipsis, which suits a short goal name in a wide row; a tight workout row
+   leaves the body about 140px once the icon, dose, tick and how-to button have
+   taken theirs, and "Dumbbell Floor Press" became "Dumbbell Flo…". Two lines
+   beats a name you cannot read, and these rows are already two lines high
+   because of the muscles underneath. */
+.item.tight .name { white-space: normal; overflow: visible; line-height: 1.25; }
