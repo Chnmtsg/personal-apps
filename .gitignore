@@ -1,0 +1,31 @@
+# Dependencies — restored from the lockfiles, never committed.
+node_modules/
+
+# Build output. `arise/dist` is a byte-for-byte copy of the runtime set made by
+# tools/package.js, and english-feedback-app builds its own; both are produced
+# from what is already tracked.
+dist/
+build/
+.wrangler/
+.vite/
+
+# Real secrets. The *.example files ARE tracked on purpose — they document the
+# shape without carrying a value. `.env.development` is likewise tracked and
+# holds only a localhost URL. Anything below would hold the actual key.
+.env
+.env.local
+.env.production
+.dev.vars
+*.pem
+*.key
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Scratch: a lock file the scheduler writes, and screenshots.
+.claude/scheduled_tasks.lock
+*.log
