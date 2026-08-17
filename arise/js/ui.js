@@ -335,12 +335,6 @@
   function banners() {
     const st = S.get();
     let out = '';
-    if (!st.meta.onboarded) {
-      out += `<section class="banner accent">
-        <div><b>Set your starting point</b><p>Goals only work if week one matches where you actually are today.</p></div>
-        <button class="btn primary" data-act="onboard">Start</button>
-      </section>`;
-    }
     // Deliberately not dismissible: the data is still missing after any tap that
     // would hide it, and the two routes out are the only recovery there is.
     if (st.meta.storageError === 'unreadable') {
@@ -1430,10 +1424,6 @@
       <div class="section-head"><h2>App</h2></div>
       <div class="card">
         <div class="row">
-          <div class="body"><div class="name">Set your starting point</div><div class="sub">Re-run the baseline questions</div></div>
-          <button class="btn" data-act="onboard">Open</button>
-        </div>
-        <div class="row">
           <div class="body"><div class="name">Install Discipline</div><div class="sub">Add to your home screen and run offline</div></div>
           <button class="btn" data-act="install">Install</button>
         </div>
@@ -1648,11 +1638,18 @@
            than a select: most exercises are more than one muscle, and a
            multi-select on a phone is a scroll list nobody opens twice. -->
       <div class="field"><span>What it works</span>
-        <div class="chips">${A.MUSCLES.map((m) => {
-          const on = (v.muscles || []).indexOf(m.id) >= 0;
-          return `<button type="button" class="chip-pick ${on ? 'on' : ''}" data-act="ex-muscle"
-            data-muscle="${esc(m.id)}" aria-pressed="${on}">${esc(m.name)}</button>`;
-        }).join('')}</div>
+        ${(function () {
+          /* Grouped by region. Nineteen chips in one wrap is a wall; six short
+             rows under their own heading is a list you can find "triceps" in. */
+          const seen = [];
+          A.MUSCLES.forEach((m) => { if (seen.indexOf(m.group) < 0) seen.push(m.group); });
+          return seen.map((g) => `<div class="chip-group"><i>${esc(g)}</i>
+            <div class="chips">${A.MUSCLES.filter((m) => m.group === g).map((m) => {
+              const on = (v.muscles || []).indexOf(m.id) >= 0;
+              return `<button type="button" class="chip-pick ${on ? 'on' : ''}" data-act="ex-muscle"
+                data-muscle="${esc(m.id)}" aria-pressed="${on}">${esc(m.name)}</button>`;
+            }).join('')}</div></div>`).join('');
+        })()}
       </div>
       <label class="field"><span>How to do it — one step per line</span>
         <textarea id="e_how" rows="7" placeholder="Lie on the floor, knees bent…">${esc(v.how || '')}</textarea></label>
@@ -2109,39 +2106,6 @@
                .join('')}</div>`
           : ''
       }
-    `);
-  }
-
-  function openOnboarding() {
-    const s = S.settings();
-    const wake = S.activeGoals().find((g) => g.section === 'sleep' && g.direction === 'down' && g.unit === 'time');
-    const bed = S.activeGoals().find((g) => g.section === 'sleep' && g !== wake);
-    openSheet('Where are you starting?', `
-      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">
-        The fastest way to fail is to start week one at someone else's number. Put in what is
-        <b>true today</b> — the app moves you from there.
-      </p>
-      <label class="field"><span>What should we call you?</span>
-        <input type="text" id="ob_name" maxlength="24" value="${esc(s.name)}"></label>
-      ${wake ? `<div class="grid-2">
-        ${valueInput('ob_wake_now', 'time', wake.baseline, 'You wake up now at')}
-        ${valueInput('ob_wake_goal', 'time', wake.target, 'You want to wake at')}
-      </div>` : ''}
-      ${bed ? `<div class="grid-2">
-        ${valueInput('ob_bed_now', 'time', bed.baseline, 'You go to bed now at')}
-        ${valueInput('ob_bed_goal', 'time', bed.target, 'You want lights out at')}
-      </div>` : ''}
-      <label class="field"><span>Day rolls over at</span><select id="ob_boundary">
-        ${[0, 1, 2, 3, 4, 5, 6].map((h) => `<option value="${h}" ${s.dayBoundaryHour === h ? 'selected' : ''}>${A.prettyTime(h * 60)}</option>`).join('')}
-      </select></label>
-      <div class="section-head" style="margin-top:2px"><h2>Pace</h2></div>
-      <div class="mode-grid">${A.MODE_IDS.map((id) => {
-        const m = A.MODES[id];
-        return `<label class="mode-card ${s.mode === id ? 'on' : ''}">
-          <input type="radio" name="ob_mode" value="${id}" ${s.mode === id ? 'checked' : ''} hidden>
-          <span class="mode-glyph">${m.icon}</span><b>${esc(m.name)}</b><small>${esc(m.blurb)}</small></label>`;
-      }).join('')}</div>
-      <div class="btn-row"><button class="btn primary block" data-act="onboard-save">Start</button></div>
     `);
   }
 
@@ -2892,7 +2856,6 @@
   UI.resolveConfirm = resolveConfirm;
   UI.openTextPrompt = openTextPrompt;
   UI.resolveTextPrompt = resolveTextPrompt;
-  UI.openOnboarding = openOnboarding;
   UI.openRewardEditor = openRewardEditor;
   UI.openChallenge = openChallenge;
   UI.readingForm = readingForm;

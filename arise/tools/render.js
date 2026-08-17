@@ -179,7 +179,6 @@ const sheet = (name, fn) =>
     return sheetBody.innerHTML;
   });
 
-sheet('onboarding', () => UI.openOnboarding());
 sheet('goal editor (new)', () => UI.openGoalEditor(null));
 sheet('goal editor (existing)', () => UI.openGoalEditor(g0.id));
 sheet('goal detail', () => UI.openGoalDetail(g0.id));
@@ -1254,7 +1253,7 @@ behaves('and the four self-care habits together are a run that validates', () =>
    be the app deciding for the user without saying so — app.js names what went,
    and this is the arithmetic it names it from. */
 behaves('a selection too heavy for the budget comes back smaller, knowably', () => {
-  const picks = ['strength', 'run', 'deep_work', 'course', 'write'];
+  const picks = ['course', 'write', 'language', 'mobility', 'sunlight'];
   const run = A.Run.buildRun(S.today(), 30, picks);
   const got = run.habits.map((p) => p.habitId);
   const dropped = picks.filter((id) => got.indexOf(id) < 0);
@@ -1271,8 +1270,11 @@ behaves('a selection too heavy for the budget comes back smaller, knowably', () 
 behaves('a selection survives a re-render, and a store write is a re-render', () => {
   S.resetAll();
   UI.resetRunPicks();
-  UI.toggleRunPick('vitamins');
-  UI.toggleRunPick('floss');
+  /* Two habits that are NOT defaults, so toggling turns them ON. `vitamins` and
+     `floss` used to sit here and became defaults when the catalog was trimmed,
+     which quietly inverted what this test was doing. */
+  UI.toggleRunPick('skincare');
+  UI.toggleRunPick('sunlight');
   UI.toggleRunPick('walk');                       // one of the defaults, off
   const chosen = UI.runPicks().slice().sort().join(',');
 
@@ -1281,10 +1283,10 @@ behaves('a selection survives a re-render, and a store write is a re-render', ()
   if (UI.runPicks().slice().sort().join(',') !== chosen) return 'the picks changed under a commit';
 
   const html = renderRoute('run');
-  if (html.indexOf('data-id="vitamins"') < 0) return 'vitamins is not offered at all';
+  if (html.indexOf('data-id="skincare"') < 0) return 'skincare is not offered at all';
   const on = (html.match(/class="pick on"[\s\S]{0,90}?data-id="[a-z_]+"/g) || [])
     .map((m) => m.slice(m.lastIndexOf('data-id="') + 9, -1));
-  if (on.indexOf('vitamins') < 0 || on.indexOf('floss') < 0) return 'chosen habits are not drawn as chosen';
+  if (on.indexOf('skincare') < 0 || on.indexOf('sunlight') < 0) return 'chosen habits are not drawn as chosen';
   return on.indexOf('walk') < 0 ? '' : 'a de-selected habit is still drawn as chosen';
 });
 
@@ -1317,7 +1319,7 @@ behaves('with no run, the screen says what it costs before what it gives', () =>
 });
 
 behaves('a running run lists what today asks', () => {
-  S.startRun(['walk', 'water', 'read'], 90);
+  S.startRun(['walk', 'stretch', 'language'], 90);
   const html = renderRoute('run');
   if (html.indexOf('class="daynum"') < 0) return 'no day counter';
   if (html.indexOf('DAY <b>1</b>') < 0) return 'not on day 1';
@@ -1359,7 +1361,7 @@ behaves('a struggling run is offered nothing extra while it is being eased', () 
 
 behaves('a run that is being kept is offered something, with its reasons', () => {
   S.resetAll();
-  S.startRun(['walk', 'water', 'read'], 90);
+  S.startRun(['walk', 'stretch', 'language'], 90);
   const run = S.run();
   run.startDate = A.addDays(S.today(), -29);
   for (let d = 1; d < 30; d++) {
@@ -1384,7 +1386,7 @@ behaves('a finished run stops asking for anything', () => {
    had happened — sixty-five days of record with no way to look at them. */
 behaves('a running run draws all 66 of its days', () => {
   S.resetAll();
-  S.startRun(['walk', 'water', 'read'], 90, true);
+  S.startRun(['walk', 'stretch', 'language'], 90, true);
   const run = S.run();
   run.startDate = A.addDays(S.today(), -9);          // day 10
   const ids = run.habits.map((p) => p.habitId);
@@ -1443,7 +1445,7 @@ behaves('the ladder says when each habit joined, past ones included', () => {
 
 behaves('a habit that has not joined yet says how long that is', () => {
   S.resetAll();
-  S.startRun(['walk', 'water', 'read'], 90, false);   // eased in, so some start later
+  S.startRun(['walk', 'stretch', 'language'], 90, false);   // eased in, so some start later
   const html = renderRoute('run');
   const later = S.run().habits.filter((p) => p.startDay > 1);
   if (!later.length) return 'the fixture has nothing starting later';
@@ -1464,7 +1466,7 @@ behaves('a finished run can still be looked back on', () => {
 
 behaves('a run naming a habit this build lost says so, and shows the rest', () => {
   S.resetAll();
-  S.startRun(['walk', 'water', 'read'], 90);
+  S.startRun(['walk', 'stretch', 'language'], 90);
   S.run().habits.push({ habitId: 'moon_bathing', startDay: 1, scale: 1, frozenDay: null });
   S.commit({ type: 'fixture' });
   const html = renderRoute('run');
@@ -1476,7 +1478,7 @@ behaves('Today carries the run only while one is running', () => {
   S.resetAll();
   const without = renderRoute('today');
   if (without.indexOf('The run ·') >= 0) return 'a run section with no run';
-  S.startRun(['walk', 'water', 'read'], 90);
+  S.startRun(['walk', 'stretch', 'language'], 90);
   const withRun = renderRoute('today');
   if (withRun.indexOf('The run ·') < 0) return 'no run section with a run';
   return withRun.indexOf('data-nav="run"') > 0 ? '' : 'no way through to the whole run';
@@ -1489,7 +1491,7 @@ behaves('More offers the run beside Rewards', () => {
 
 behaves('the value sheet says what today asked, not what the run asks now', () => {
   S.resetAll();
-  S.startRun(['walk', 'water', 'read'], 90);
+  S.startRun(['walk', 'stretch', 'language'], 90);
   const id = S.run().habits[0].habitId;
   S.toggleRunHabit(id);                       // freezes today's ask into the record
   const frozen = S.run().log[1][id].asked;

@@ -45,9 +45,6 @@
     });
     w.addEventListener('error', (e) => { violations.push('error:' + (e.message || '?')); });
     const A = w.Arise, S = w.Store, UI = w.UI;
-    /* Any seeded shot is of a user who is already using the app, so the welcome
-       sheet is not part of the picture — and left alone it covers the screen. */
-    if (seed || q.get('run')) S.completeOnboarding({});
 
     /* `?workout=long` fills today with eight exercises — the leg day the cap on
        Today exists for, and more than any seeded plan has.
@@ -105,8 +102,6 @@
 
     UI.go(viewName);
     const open = q.get('open');
-    // boot() opens the welcome sheet on a 400ms timer, i.e. after this handler.
-    if (!open && !sheetWant && !q.get('csp')) setTimeout(() => UI.closeSheet(), 700);
     if (sheetWant === 'how') {
       const ex = S.get().exercises[0];
       const shot = q.get('photo') === '1'

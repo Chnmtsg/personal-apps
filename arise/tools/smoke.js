@@ -506,7 +506,7 @@ const v1 = {
   settings: { name: 'Old', goalPerWeek: 3 }
 };
 S.importJson(JSON.stringify(v1));
-ok('v1 state loads', S.get().version === 5, S.get().version);
+ok('v1 state loads', S.get().version === 6, S.get().version);
 // v3 → v4 is the 66-day run, and additive means additive: an account that has
 // never started one gets `null`, not a programme it did not ask for.
 ok('a state written before runs existed has no run', S.get().run === null, S.get().run);
@@ -519,26 +519,41 @@ ok('old settings survive', S.settings().name === 'Old' && S.settings().goalPerWe
    tagged", which is why it is never filled in for anything off the seed. */
 section('muscle groups');
 const pushup = S.get().exercises.filter((e) => e.name === 'Push-ups')[0];
-ok('a seeded exercise is tagged by the migration',
-   !!pushup && pushup.muscles.indexOf('chest') >= 0, pushup && pushup.muscles);
+ok('a catalogue exercise is tagged by head, not by region',
+   !!pushup && pushup.muscles.indexOf('triceps') >= 0 && pushup.muscles.indexOf('front_delts') >= 0,
+   pushup && pushup.muscles);
+ok('and every tag it carries is a real one',
+   pushup.muscles.every((m) => !!A.MUSCLE_NAME[m]), pushup.muscles);
+
 const sled = S.addExercise({ name: 'Sled push', category: 'Strength' });
 ok('an exercise the user creates starts untagged rather than guessed',
    Array.isArray(sled.muscles) && sled.muscles.length === 0, sled.muscles);
-S.updateExercise(sled.id, { muscles: ['legs', 'legs', 'not_a_muscle', 'GLUTES'] });
+S.updateExercise(sled.id, { muscles: ['quads', 'quads', 'not_a_muscle', 'GLUTES'] });
 ok('tags are cleaned to the catalog, deduplicated and case-folded',
-   S.exerciseById(sled.id).muscles.join(',') === 'legs,glutes', S.exerciseById(sled.id).muscles);
+   S.exerciseById(sled.id).muscles.join(',') === 'quads,glutes', S.exerciseById(sled.id).muscles);
 
-/* The user's own tagging outranks the seed's, even when they disagree. */
-S.updateExercise(pushup.id, { muscles: ['back'] });
-S.importJson(S.exportJson());
-ok('a re-migrated state keeps the tags the user chose',
-   S.exerciseById(pushup.id).muscles.join(',') === 'back', S.exerciseById(pushup.id).muscles);
+/* The v6 rule, and the two halves of it are deliberately different. A name the
+   catalogue still knows is re-derived from the catalogue, because nineteen
+   groups say more than nine ever could and v5 existed for hours. An exercise
+   the user made is theirs: its coarse tags are WIDENED, never dropped. */
+S.updateExercise(pushup.id, { muscles: ['lats'] });
+const beforeWiden = JSON.parse(S.exportJson());
+beforeWiden.version = 5;
+beforeWiden.exercises.forEach((e) => { if (e.name === 'Sled push') e.muscles = ['arms', 'legs']; });
+S.importJson(JSON.stringify(beforeWiden));
+ok('a catalogue exercise is re-derived from the catalogue on migration',
+   S.get().exercises.filter((e) => e.name === 'Push-ups')[0].muscles.indexOf('triceps') >= 0,
+   S.get().exercises.filter((e) => e.name === 'Push-ups')[0].muscles);
+const widened = S.get().exercises.filter((e) => e.name === 'Sled push')[0].muscles;
+ok("a user's own exercise has its old coarse tags widened, not dropped",
+   widened.indexOf('biceps') >= 0 && widened.indexOf('triceps') >= 0 && widened.indexOf('quads') >= 0,
+   widened);
 
 /* Built from scratch rather than from whatever the fixture's plan happens to
    hold: an assertion about counting has to know what it is counting. */
 const mDay = S.today();
-const lift = S.addExercise({ name: 'Trap bar deadlift', category: 'Strength', muscles: ['back', 'legs', 'glutes'] });
-const curl = S.addExercise({ name: 'Hammer curl', category: 'Strength', muscles: ['arms'] });
+const lift = S.addExercise({ name: 'Trap bar deadlift', category: 'Strength', muscles: ['lower_back', 'hamstrings', 'glutes'] });
+const curl = S.addExercise({ name: 'Hammer curl 2', category: 'Strength', muscles: ['biceps'] });
 const blank = S.addExercise({ name: 'Something new', category: 'Other' });
 S.get().plan[A.weekday(mDay)] = [];
 delete S.get().logs[mDay];                      // so the day re-freezes the new plan
@@ -553,18 +568,19 @@ const by = {};
 tally.rows.forEach((r) => { by[r.id] = r.count; });
 ok('one training day is one session', tally.sessions === 1, tally.sessions);
 ok('a three-muscle lift counts once against each of them',
-   by.back === 1 && by.legs === 1 && by.glutes === 1, tally.rows);
-ok('and a single-muscle lift counts once', by.arms === 1, tally.rows);
+   by.lower_back === 1 && by.hamstrings === 1 && by.glutes === 1, tally.rows);
+ok('and a single-muscle lift counts once', by.biceps === 1, tally.rows);
 ok('the counts deliberately overlap, so there is no honest total',
    tally.rows.reduce((n, r) => n + r.count, 0) === 4, tally.rows);
 ok('untagged work is counted apart rather than dropped silently',
    tally.untagged === 1, tally.untagged);
 ok('what was NOT trained is named, which is the half that changes tomorrow',
-   tally.missing.indexOf('Chest') >= 0 && tally.missing.indexOf('Legs') < 0, tally.missing);
+   tally.missing.indexOf('Chest') >= 0 && tally.missing.indexOf('Glutes') < 0, tally.missing);
 ok('a day nobody logged contributes nothing', S.muscleTally(1, A.addDays(mDay, -400)).sessions === 0);
 
-/* The same rule the whole app runs on: a lived day is read from its own frozen
-   list, so re-tagging an exercise today must not redraw last week. */
+/* The same rule the whole app runs on, and the honest limit of this one: the
+   tags live on the exercise, not frozen into the day, so re-tagging moves what
+   past days are credited with. Completion, streaks and the ledger do not move. */
 S.updateExercise(lift.id, { muscles: ['chest'] });
 ok('re-tagging an exercise DOES change what past days are credited with',
    S.muscleTally(7).rows.some((r) => r.id === 'chest'), S.muscleTally(7).rows);
@@ -1082,10 +1098,12 @@ ok('no day, scale or freeze moves an anchor off its single dose', drifted.length
 /* Feasibility is the product. An infeasible day 41 is not discovered until day
    41, by which point the user has earned 40 days. */
 const hostile = { startDate: runStart, minutesBudget: 45, log: {}, habits: [
-  { habitId: 'walk', startDay: 1 }, { habitId: 'walk', startDay: 1 },
-  { habitId: 'cold_plunge', startDay: 1 }, { habitId: 'deep_work', startDay: 1 },
-  { habitId: 'run', startDay: 1 }, { habitId: 'read', startDay: 900 },
-  { habitId: 'water', startDay: 1 }, { habitId: 'meditate', startDay: 1 }
+  { habitId: 'walk', startDay: 1 }, { habitId: 'walk', startDay: 1 },   // duplicated
+  { habitId: 'cold_plunge', startDay: 1 },                              // never existed
+  { habitId: 'read', startDay: 1 },                                     // retired in 2026-08
+  { habitId: 'course', startDay: 1 }, { habitId: 'write', startDay: 900 },
+  { habitId: 'language', startDay: 1 }, { habitId: 'mobility', startDay: 1 },
+  { habitId: 'stretch', startDay: 1 }, { habitId: 'journal', startDay: -4 }
 ] };
 const fixedRun = R.repair(hostile, 0).run;
 ok('a hostile run is repaired rather than rejected', R.validate(fixedRun).length === 0,
@@ -1098,20 +1116,26 @@ ok('no more than ' + R.MAX_NEW_PER_WEEK + ' habits start in any 7-day window',
    fixedStarts);
 
 /* A lived day is a record, not a recomputation. */
-const rec = R.buildRun(runStart, 90, ['walk', 'read', 'water']);
-const lived = R.recordDay(rec, 20, ['walk'], { water: 1 });
+/* Two anchors beside walk, and `together`, so `repair` has no reason to flatten
+   anything and every habit starts on day one. Both matter: with staggered starts
+   walk sat a ramp-week behind, and at a tight budget `repair` had already
+   flattened its ramp to 0.5 — either way the softened dose rounded onto the same
+   step as the unsoftened one, and the disagreement this block exists to
+   demonstrate became invisible rather than absent. */
+const rec = R.buildRun(runStart, 90, ['walk', 'floss', 'brush_teeth'], true);
+const lived = R.recordDay(rec, 20, ['walk'], { floss: 0 });
 const easedRun = R.applyPatch(rec, [{ op: 'soften', habitId: 'walk', factor: 0.5 }], 30).run;
 const walkNow = easedRun.habits.find((p) => p.habitId === 'walk');
 ok('softening today does not change what a recorded day asked',
-   R.recordDay(rec, 20, ['walk'], { water: 1 }).walk.asked === lived.walk.asked, lived.walk);
+   R.recordDay(rec, 20, ['walk'], { stretch: 1 }).walk.asked === lived.walk.asked, lived.walk);
 ok('and doseOn now disagrees with the record, which is exactly why it exists',
    R.doseOn(walkNow, 20) !== lived.walk.asked, [R.doseOn(walkNow, 20), lived.walk.asked]);
 ok('a measurement short of the ask is recorded and not counted as kept',
-   lived.water.did === 1 && lived.water.done === false, lived.water);
+   lived.floss.did === 0 && lived.floss.done === false, lived.floss);
 ok('a tick with nothing measured leaves did unknown rather than guessing',
    lived.walk.done === true && lived.walk.did === null, lived.walk);
-ok('fraction is what the app draws as 0 / 2L',
-   Math.abs(R.fractionOf(lived.water) - 1 / lived.water.asked) < 1e-9, R.fractionOf(lived.water));
+ok('fraction is what the app draws as a part-done bar',
+   R.fractionOf(lived.floss) === 0, R.fractionOf(lived.floss));
 
 /* ------------------------------------------------------------------ */
 section('the run looked back on');
@@ -1119,7 +1143,7 @@ section('the run looked back on');
 /* Day 1 kept in full, day 2 half, day 3 opened and nothing done, day 4 never
    opened at all. The fourth is the one that matters: a day with no record is a
    day nobody told us anything about, and it must not be drawn as a failure. */
-const seen = R.buildRun(runStart, 90, ['walk', 'read', 'water'], true);
+const seen = R.buildRun(runStart, 90, ['walk', 'stretch', 'language'], true);
 const allIds = seen.habits.filter((p) => p.startDay === 1).map((p) => p.habitId);
 ok('the fixture has enough on day one for a partial to be possible',
    allIds.length >= 2, allIds);
@@ -1170,7 +1194,7 @@ let opTrouble = null;
 [[{ op: 'soften', habitId: 'walk', factor: 'half' }],
  [{ op: 'soften', habitId: 'walk', factor: null }],
  [{ op: 'soften', habitId: 'walk', factor: NaN }],
- [{ op: 'defer', habitId: 'read', days: 'soon' }],
+ [{ op: 'defer', habitId: 'language', days: 'soon' }],
  [{ op: 'obliterate', habitId: 'walk' }],
  [{}]].forEach((ops) => {
   try {
@@ -1192,7 +1216,7 @@ ok('a finished run decides nothing',
    R.checkIn(rec, 80).patched === false && R.checkIn(rec, 80).recommendations.length === 0);
 
 /* Step in, or offer more — never both. */
-const keeping = R.buildRun(runStart, 90, ['walk', 'read', 'water']);
+const keeping = R.buildRun(runStart, 90, ['walk', 'stretch', 'language']);
 keeping.log = {};
 for (let d = 1; d < 30; d++) keeping.log[d] = R.recordDay(keeping, d, keeping.habits.map((p) => p.habitId));
 const good = R.checkIn(keeping, 30);
@@ -1211,7 +1235,7 @@ good.recommendations.forEach((r) => {
 ok('the whole list can be accepted in order, none refused', refused.length === 0, refused);
 ok('and the run is still feasible on all 66 days', R.validate(cur).length === 0, R.validate(cur).slice(0, 2));
 
-const slipping = R.buildRun(runStart, 90, ['walk', 'read', 'water']);
+const slipping = R.buildRun(runStart, 90, ['walk', 'stretch', 'language']);
 slipping.log = {};
 for (let d = 1; d < 30; d++) {
   slipping.log[d] = R.recordDay(slipping, d, d % 4 === 0 ? slipping.habits.map((p) => p.habitId) : []);
@@ -1225,7 +1249,7 @@ ok('the patched run is still feasible', R.validate(bad.run).length === 0, R.vali
 S.resetAll();
 const goalsBefore = S.goals().length;
 ok('a fresh account has no run', S.run() === null);
-S.startRun(['walk', 'water', 'read'], 90);
+S.startRun(['walk', 'stretch', 'language'], 90);
 ok('starting one stores it', S.run() !== null && S.run().habits.length >= R.MIN_HABITS);
 ok('and leaves the goal engine completely alone', S.goals().length === goalsBefore, S.goals().length);
 ok('the run knows which day it is on', S.runToday() === 1, S.runToday());
@@ -1233,7 +1257,7 @@ S.recordRunDay(1, [S.run().habits[0].habitId]);
 ok('a recorded day is frozen into the run', !!S.run().log[1], S.run().log[1]);
 const beforeSecond = S.run().habits.length;
 ok('starting a second run is refused rather than erasing days already earned',
-   S.startRun(['plank'], 45).habits.length === beforeSecond);
+   S.startRun(['floss'], 45).habits.length === beforeSecond);
 ok('a run survives export and import intact',
    (function () {
      const blob = S.exportJson();
@@ -1304,7 +1328,7 @@ const retired = {
   habits: [
     { habitId: 'walk', startDay: 1, scale: 1, frozenDay: null },
     { habitId: 'moon_bathing', startDay: 8, scale: 1, frozenDay: null },
-    { habitId: 'water', startDay: 15, scale: 1, frozenDay: null }
+    { habitId: 'stretch', startDay: 15, scale: 1, frozenDay: null }
   ]
 };
 let retiredCrash = null;
@@ -1335,7 +1359,7 @@ ok('and repair is what removes it, when the user asks for that',
 section('recording a run day as it is lived');
 
 S.resetAll();
-S.startRun(['walk', 'water', 'read'], 90);
+S.startRun(['walk', 'stretch', 'language'], 90);
 const firstId = S.run().habits[0].habitId;
 const askedToday = S.run().log[1] ? S.run().log[1][firstId].asked : null;
 
@@ -1399,7 +1423,7 @@ S.goalsForDay(dayA).forEach((e) => {
 const beforeRun = S.dayStatus(dayA);
 ok('a day is complete before any run exists', beforeRun.status === 'complete', beforeRun);
 
-S.startRun(['walk', 'water', 'read'], 90);
+S.startRun(['walk', 'stretch', 'language'], 90);
 S.run().startDate = streakStart;
 S.commit({ type: 'fixture' });
 
@@ -1450,7 +1474,7 @@ ok('and turning it on puts it back', S.dayStatus(dayA).total === totalThen, S.da
 
 /* A streak is the point of all this. */
 S.resetAll();
-S.startRun(['walk', 'water', 'read'], 90);
+S.startRun(['walk', 'stretch', 'language'], 90);
 S.run().startDate = A.addDays(S.today(), -5);
 S.commit({ type: 'fixture' });
 for (let back = 5; back >= 1; back--) {
@@ -1470,7 +1494,7 @@ ok('days kept on goals and the run together build a streak', S.currentStreak() >
 /* Opening the run must never be worse than ignoring it: the check-in opens
    today's record, so a day is judged the same either way. */
 S.resetAll();
-S.startRun(['walk', 'water', 'read'], 90);
+S.startRun(['walk', 'stretch', 'language'], 90);
 S.runCheckIn();
 const openedToday = S.run().log[S.runToday()];
 ok('the daily check-in opens today record, so tapping the run is not a penalty',
@@ -1487,7 +1511,7 @@ section('a habit whose dose is a checklist');
   ok('and skincare is an ordered routine',
      (R.habit('skincare').items || []).indexOf('SPF 50+') > 0, R.habit('skincare').items);
 
-  const run = R.buildRun(runStart, 90, ['vitamins', 'skincare', 'water']);
+  const run = R.buildRun(runStart, 90, ['vitamins', 'skincare', 'walk']);
   ok('a run of checklist habits validates', R.validate(run).length === 0,
      R.validate(run).map((v) => v.kind));
 
@@ -1524,7 +1548,7 @@ section('the checklist belongs to the run, the catalog stays closed');
 
 {
   S.resetAll();
-  S.startRun(['vitamins', 'skincare', 'water'], 90);
+  S.startRun(['vitamins', 'skincare', 'walk'], 90);
   S.toggleRunItem('vitamins', 'Vitamin D3');
   const beforeAsked = S.run().log[1].vitamins.asked;
   const beforeNames = Object.keys(S.run().log[1].vitamins.items).join('/');
@@ -1555,7 +1579,7 @@ section('the checklist belongs to the run, the catalog stays closed');
   /* A checklist run counts toward the streak the same way anything else does,
      because `asked`, `did` and `done` are the same three fields throughout. */
   S.resetAll();
-  S.startRun(['vitamins', 'skincare', 'water'], 90);
+  S.startRun(['vitamins', 'skincare', 'walk'], 90);
   const today = S.runToday();
   R.itemsFor(S.run().habits.find((p) => p.habitId === 'vitamins'))
     .forEach((name) => S.toggleRunItem('vitamins', name));

@@ -76,24 +76,24 @@
 
   // unit: 'reps' (sets x reps), 'time' (minutes), 'distance' (km)
   const SEED_EXERCISES = [
-    { name: 'Push-ups', category: 'Strength', unit: 'reps', sets: 3, reps: 15, icon: '💪', muscles: ['chest','arms','core'] },
-    { name: 'Pull-ups', category: 'Strength', unit: 'reps', sets: 3, reps: 8, icon: '🧗', muscles: ['back','arms'] },
-    { name: 'Squats', category: 'Strength', unit: 'reps', sets: 4, reps: 20, icon: '🦵', muscles: ['legs','glutes'] },
-    { name: 'Lunges', category: 'Strength', unit: 'reps', sets: 3, reps: 12, icon: '🚶', muscles: ['legs','glutes'] },
-    { name: 'Deadlift', category: 'Strength', unit: 'reps', sets: 4, reps: 6, icon: '🏋️', muscles: ['back','legs','glutes'] },
-    { name: 'Bench Press', category: 'Strength', unit: 'reps', sets: 4, reps: 8, icon: '🏋️', muscles: ['chest','arms','shoulders'] },
-    { name: 'Shoulder Press', category: 'Strength', unit: 'reps', sets: 3, reps: 10, icon: '🏋️', muscles: ['shoulders','arms'] },
-    { name: 'Bicep Curls', category: 'Strength', unit: 'reps', sets: 3, reps: 12, icon: '💪', muscles: ['arms'] },
-    { name: 'Plank', category: 'Core', unit: 'time', minutes: 2, icon: '🧘', muscles: ['core','shoulders'] },
-    { name: 'Crunches', category: 'Core', unit: 'reps', sets: 3, reps: 25, icon: '🔥', muscles: ['core'] },
-    { name: 'Leg Raises', category: 'Core', unit: 'reps', sets: 3, reps: 15, icon: '🔥', muscles: ['core'] },
-    { name: 'Russian Twists', category: 'Core', unit: 'reps', sets: 3, reps: 30, icon: '🌀', muscles: ['core'] },
-    { name: 'Running', category: 'Cardio', unit: 'distance', km: 3, icon: '🏃', muscles: ['legs','cardio'] },
-    { name: 'Cycling', category: 'Cardio', unit: 'distance', km: 10, icon: '🚴', muscles: ['legs','cardio'] },
-    { name: 'Jump Rope', category: 'Cardio', unit: 'time', minutes: 10, icon: '🪢', muscles: ['legs','cardio'] },
+    { name: 'Push-ups', category: 'Strength', unit: 'reps', sets: 3, reps: 15, icon: '💪', muscles: ['chest','front_delts','triceps','abs'] },
+    { name: 'Pull-ups', category: 'Strength', unit: 'reps', sets: 3, reps: 8, icon: '🧗', muscles: ['lats','biceps','forearms'] },
+    { name: 'Squats', category: 'Strength', unit: 'reps', sets: 4, reps: 20, icon: '🦵', muscles: ['quads','glutes'] },
+    { name: 'Lunges', category: 'Strength', unit: 'reps', sets: 3, reps: 12, icon: '🚶', muscles: ['quads','glutes','hamstrings'] },
+    { name: 'Deadlift', category: 'Strength', unit: 'reps', sets: 4, reps: 6, icon: '🏋️', muscles: ['lower_back','hamstrings','glutes','traps','forearms'] },
+    { name: 'Bench Press', category: 'Strength', unit: 'reps', sets: 4, reps: 8, icon: '🏋️', muscles: ['chest','front_delts','triceps'] },
+    { name: 'Shoulder Press', category: 'Strength', unit: 'reps', sets: 3, reps: 10, icon: '🏋️', muscles: ['front_delts','side_delts','triceps'] },
+    { name: 'Bicep Curls', category: 'Strength', unit: 'reps', sets: 3, reps: 12, icon: '💪', muscles: ['biceps','forearms'] },
+    { name: 'Plank', category: 'Core', unit: 'time', minutes: 2, icon: '🧘', muscles: ['abs','front_delts'] },
+    { name: 'Crunches', category: 'Core', unit: 'reps', sets: 3, reps: 25, icon: '🔥', muscles: ['abs'] },
+    { name: 'Leg Raises', category: 'Core', unit: 'reps', sets: 3, reps: 15, icon: '🔥', muscles: ['abs'] },
+    { name: 'Russian Twists', category: 'Core', unit: 'reps', sets: 3, reps: 30, icon: '🌀', muscles: ['obliques','abs'] },
+    { name: 'Running', category: 'Cardio', unit: 'distance', km: 3, icon: '🏃', muscles: ['quads','calves','cardio'] },
+    { name: 'Cycling', category: 'Cardio', unit: 'distance', km: 10, icon: '🚴', muscles: ['quads','calves','cardio'] },
+    { name: 'Jump Rope', category: 'Cardio', unit: 'time', minutes: 10, icon: '🪢', muscles: ['calves','cardio'] },
     { name: 'Burpees', category: 'Cardio', unit: 'reps', sets: 3, reps: 12, icon: '⚡', muscles: ['full','cardio'] },
-    { name: 'Swimming', category: 'Cardio', unit: 'time', minutes: 30, icon: '🏊', muscles: ['back','shoulders','cardio'] },
-    { name: 'Walking', category: 'Cardio', unit: 'time', minutes: 30, icon: '🚶', muscles: ['legs','cardio'] },
+    { name: 'Swimming', category: 'Cardio', unit: 'time', minutes: 30, icon: '🏊', muscles: ['lats','rear_delts','cardio'] },
+    { name: 'Walking', category: 'Cardio', unit: 'time', minutes: 30, icon: '🚶', muscles: ['calves','cardio'] },
     { name: 'Yoga Flow', category: 'Mobility', unit: 'time', minutes: 20, icon: '🧘', muscles: ['full'] },
     { name: 'Stretching', category: 'Mobility', unit: 'time', minutes: 10, icon: '🤸', muscles: ['full'] },
     { name: 'Foam Rolling', category: 'Mobility', unit: 'time', minutes: 10, icon: '🎯', muscles: ['full'] }
@@ -111,16 +111,45 @@
      breakdown in Stats, which bars against the busiest group rather than
      against a sum that would be meaningless. */
   const MUSCLES = [
-    { id: 'chest', name: 'Chest' },
-    { id: 'back', name: 'Back' },
-    { id: 'shoulders', name: 'Shoulders' },
-    { id: 'arms', name: 'Arms' },
-    { id: 'legs', name: 'Legs' },
-    { id: 'glutes', name: 'Glutes' },
-    { id: 'core', name: 'Core' },
-    { id: 'full', name: 'Full body' },
-    { id: 'cardio', name: 'Cardio' }
+    { id: 'upper_chest', name: 'Upper chest', group: 'Chest' },
+    { id: 'chest', name: 'Chest', group: 'Chest' },
+    { id: 'lats', name: 'Lats', group: 'Back' },
+    { id: 'traps', name: 'Traps', group: 'Back' },
+    { id: 'lower_back', name: 'Lower back', group: 'Back' },
+    { id: 'front_delts', name: 'Front delts', group: 'Shoulders' },
+    { id: 'side_delts', name: 'Side delts', group: 'Shoulders' },
+    { id: 'rear_delts', name: 'Rear delts', group: 'Shoulders' },
+    { id: 'biceps', name: 'Biceps', group: 'Arms' },
+    { id: 'triceps', name: 'Triceps', group: 'Arms' },
+    { id: 'forearms', name: 'Forearms', group: 'Arms' },
+    { id: 'quads', name: 'Quads', group: 'Legs' },
+    { id: 'hamstrings', name: 'Hamstrings', group: 'Legs' },
+    { id: 'glutes', name: 'Glutes', group: 'Legs' },
+    { id: 'calves', name: 'Calves', group: 'Legs' },
+    { id: 'abs', name: 'Abs', group: 'Core' },
+    { id: 'obliques', name: 'Obliques', group: 'Core' },
+    { id: 'full', name: 'Full body', group: 'Other' },
+    { id: 'cardio', name: 'Cardio', group: 'Other' }
   ];
+
+  /* v5 shipped nine coarse groups for a few hours before this replaced them.
+     Anything stored against the old ids is widened to the new ones rather than
+     dropped — `back` becomes lats, `arms` becomes biceps AND triceps — which
+     over-credits slightly but never loses a tag. An exercise whose name is still
+     in the catalog is re-derived from it instead, because the catalog's list is
+     the more precise answer and nobody had time to disagree with it. */
+  const MUSCLE_UPGRADE = {
+    chest: ['chest'],
+    back: ['lats', 'traps'],
+    shoulders: ['front_delts', 'side_delts'],
+    arms: ['biceps', 'triceps'],
+    legs: ['quads', 'hamstrings'],
+    glutes: ['glutes'],
+    core: ['abs'],
+    full: ['full'],
+    cardio: ['cardio']
+  };
+
   const MUSCLE_NAME = {};
   MUSCLES.forEach((m) => { MUSCLE_NAME[m.id] = m.name; });
 
@@ -319,7 +348,7 @@
   }
 
   Object.assign(Arise, {
-    DAY_MS, DAY_NAMES, DAY_SHORT, CATEGORIES, MUSCLES, MUSCLE_NAME, cleanMuscles,
+    DAY_MS, DAY_NAMES, DAY_SHORT, CATEGORIES, MUSCLES, MUSCLE_NAME, MUSCLE_UPGRADE, cleanMuscles,
     SEED_EXERCISES, SEED_HABITS, SEED_GOALS, MILESTONES, RANKS, XP,
     SECTIONS, sectionById, MODES, MODE_IDS, UNITS, formatValue, READING_PROMPTS, promptForDay,
     key, fromKey, addDays, weekday, daysBetween, prettyDate, weekStart, uid,

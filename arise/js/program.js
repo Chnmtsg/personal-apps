@@ -23,7 +23,7 @@
   const WARMUPS = [
     {
       name: 'Warm-up — Push Day',
-      muscles: ['chest','shoulders','arms'],
+      muscles: ['chest','front_delts','side_delts'],
       category: 'Warm-up', unit: 'time', minutes: 9, icon: '🔥',
       how: [
         'Run straight through, no rest. 8–10 minutes total.',
@@ -39,7 +39,7 @@
     },
     {
       name: 'Warm-up — Pull Day',
-      muscles: ['back','arms'],
+      muscles: ['lats','rear_delts','biceps'],
       category: 'Warm-up', unit: 'time', minutes: 9, icon: '🔥',
       how: [
         'Run straight through, no rest. 8–10 minutes total.',
@@ -54,7 +54,7 @@
     },
     {
       name: 'Warm-up — Leg Day',
-      muscles: ['legs','glutes'],
+      muscles: ['quads','glutes','hamstrings'],
       category: 'Warm-up', unit: 'time', minutes: 9, icon: '🔥',
       how: [
         'Run straight through, no rest. 8–10 minutes total.',
@@ -74,7 +74,7 @@
   const PUSH = [
     {
       name: 'Dumbbell Floor Press',
-      muscles: ['chest','arms'],
+      muscles: ['chest','front_delts','triceps'],
       category: 'Strength', unit: 'reps', sets: 4, reps: 8, repsMax: 12, icon: '🏋️',
       how: [
         'Lie on the floor, knees bent, a dumbbell in each hand at chest level.',
@@ -86,7 +86,7 @@
     },
     {
       name: 'Dumbbell Squeeze Press',
-      muscles: ['chest','arms'],
+      muscles: ['chest','front_delts','triceps'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '🏋️',
       how: [
         'Same position as the floor press, but press the two dumbbells hard together.',
@@ -98,7 +98,7 @@
     },
     {
       name: 'Dumbbell Shoulder Press',
-      muscles: ['shoulders','arms'],
+      muscles: ['front_delts','side_delts','triceps'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 8, repsMax: 12, icon: '🏋️',
       how: [
         'Sit or stand tall, dumbbells at shoulder height, palms facing forward.',
@@ -110,7 +110,7 @@
     },
     {
       name: 'Dumbbell Lateral Raise',
-      muscles: ['shoulders'],
+      muscles: ['side_delts'],
       category: 'Strength', unit: 'reps', sets: 4, reps: 12, repsMax: 15, icon: '🏋️',
       how: [
         'Stand with light dumbbells at your sides, a slight bend in the elbows.',
@@ -122,7 +122,7 @@
     },
     {
       name: 'Dumbbell Fly',
-      muscles: ['chest'],
+      muscles: ['chest','front_delts'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 15, icon: '🏋️',
       how: [
         'Lie on the floor or a bench, dumbbells above the chest, palms facing each other.',
@@ -134,7 +134,7 @@
     },
     {
       name: 'Arnold Press',
-      muscles: ['shoulders','arms'],
+      muscles: ['front_delts','side_delts','triceps'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 8, repsMax: 12, icon: '🏋️',
       how: [
         'Start with dumbbells at chest height, palms facing you.',
@@ -146,7 +146,7 @@
     },
     {
       name: 'Overhead Dumbbell Triceps Extension',
-      muscles: ['arms'],
+      muscles: ['triceps'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '💪',
       how: [
         'Hold one dumbbell with both hands, arms straight overhead.',
@@ -158,7 +158,7 @@
     },
     {
       name: 'Single-Arm Overhead Triceps Extension',
-      muscles: ['arms'],
+      muscles: ['triceps'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '💪',
       how: [
         'One dumbbell, one arm straight overhead.',
@@ -170,7 +170,7 @@
     },
     {
       name: 'Dumbbell Skull Crusher',
-      muscles: ['arms'],
+      muscles: ['triceps'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '💪',
       how: [
         'Lie on the floor, dumbbells pressed straight above the chest, palms facing.',
@@ -182,7 +182,7 @@
     },
     {
       name: 'Dumbbell Kickback',
-      muscles: ['arms'],
+      muscles: ['triceps'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 12, repsMax: 15, icon: '💪',
       how: [
         'Hinge forward at the hips, back flat, upper arms tucked against your sides.',
@@ -199,7 +199,7 @@
   const PULL = [
     {
       name: 'One-Arm Dumbbell Row',
-      muscles: ['back','arms'],
+      muscles: ['lats','rear_delts','biceps'],
       category: 'Strength', unit: 'reps', sets: 4, reps: 8, repsMax: 12, icon: '🏋️',
       how: [
         'Brace one hand and knee on a bench or chair, back flat and parallel to the floor.',
@@ -211,7 +211,7 @@
     },
     {
       name: 'Dumbbell Bent-Over Row',
-      muscles: ['back','arms'],
+      muscles: ['lats','traps','rear_delts','biceps'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 8, repsMax: 12, icon: '🏋️',
       how: [
         'Hinge at the hips until the torso is about 45 degrees, knees soft, back flat.',
@@ -223,7 +223,7 @@
     },
     {
       name: 'Dumbbell Pullover',
-      muscles: ['back','chest'],
+      muscles: ['lats','chest'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '🏋️',
       how: [
         'Lie on the floor or across a bench, one dumbbell held over the chest with both hands.',
@@ -235,7 +235,7 @@
     },
     {
       name: 'Rear Delt Fly',
-      muscles: ['shoulders','back'],
+      muscles: ['rear_delts','traps'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 12, repsMax: 15, icon: '🏋️',
       how: [
         'Hinge forward, chest down, light dumbbells hanging beneath you.',
@@ -247,7 +247,7 @@
     },
     {
       name: 'Dumbbell Shrug',
-      muscles: ['back','shoulders'],
+      muscles: ['traps','forearms'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 15, icon: '🏋️',
       how: [
         'Stand tall, a dumbbell in each hand at your sides, arms straight.',
@@ -259,7 +259,7 @@
     },
     {
       name: 'Dumbbell Curl',
-      muscles: ['arms'],
+      muscles: ['biceps'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 8, repsMax: 12, icon: '💪',
       how: [
         'Stand tall, dumbbells at your sides, palms facing forward.',
@@ -271,7 +271,7 @@
     },
     {
       name: 'Alternating Dumbbell Curl',
-      muscles: ['arms'],
+      muscles: ['biceps'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 8, repsMax: 12, icon: '💪',
       how: [
         'Same as the dumbbell curl, but one arm at a time.',
@@ -283,7 +283,7 @@
     },
     {
       name: 'Hammer Curl',
-      muscles: ['arms'],
+      muscles: ['biceps','forearms'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '💪',
       how: [
         'Hold the dumbbells with palms facing each other, like holding two hammers.',
@@ -295,7 +295,7 @@
     },
     {
       name: 'Cross-Body Hammer Curl',
-      muscles: ['arms'],
+      muscles: ['biceps','forearms'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 15, icon: '💪',
       how: [
         'Neutral grip, as in a hammer curl.',
@@ -312,7 +312,7 @@
   const LEGS = [
     {
       name: 'Goblet Squat',
-      muscles: ['legs','glutes'],
+      muscles: ['quads','glutes'],
       category: 'Strength', unit: 'reps', sets: 4, reps: 8, repsMax: 12, icon: '🦵',
       how: [
         'Hold one dumbbell vertically against your chest with both hands.',
@@ -324,7 +324,7 @@
     },
     {
       name: 'Bulgarian Split Squat',
-      muscles: ['legs','glutes'],
+      muscles: ['quads','glutes','hamstrings'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 8, repsMax: 12, icon: '🦵',
       how: [
         'Stand a stride in front of a bench or chair; rest the top of the rear foot on it.',
@@ -336,7 +336,7 @@
     },
     {
       name: 'Dumbbell Romanian Deadlift',
-      muscles: ['legs','glutes','back'],
+      muscles: ['hamstrings','glutes','lower_back'],
       category: 'Strength', unit: 'reps', sets: 4, reps: 8, repsMax: 12, icon: '🏋️',
       how: [
         'Stand tall, dumbbells in front of the thighs, knees slightly bent.',
@@ -348,7 +348,7 @@
     },
     {
       name: 'Dumbbell Lunges',
-      muscles: ['legs','glutes'],
+      muscles: ['quads','glutes','hamstrings'],
       category: 'Strength', unit: 'reps', sets: 3, reps: 10, icon: '🚶',
       how: [
         'Dumbbells at your sides, stand tall.',
@@ -360,7 +360,7 @@
     },
     {
       name: 'Standing Calf Raise',
-      muscles: ['legs'],
+      muscles: ['calves'],
       category: 'Strength', unit: 'reps', sets: 4, reps: 12, repsMax: 20, icon: '🦵',
       how: [
         'Stand tall holding dumbbells, balls of the feet on a step if you have one.',
@@ -372,7 +372,7 @@
     },
     {
       name: 'Single-Leg Calf Raise',
-      muscles: ['legs'],
+      muscles: ['calves'],
       category: 'Strength', unit: 'reps', sets: 4, reps: 12, repsMax: 20, icon: '🦵',
       how: [
         'Stand on one foot, holding one dumbbell on that same side.',
@@ -389,7 +389,7 @@
   const CORE = [
     {
       name: 'Reverse Crunch',
-      muscles: ['core'],
+      muscles: ['abs'],
       category: 'Core', unit: 'reps', sets: 3, reps: 10, repsMax: 15, icon: '🔥',
       how: [
         'Lie on your back, hands by your sides or under the hips, knees bent.',
@@ -401,7 +401,7 @@
     },
     {
       name: 'Lying Leg Raise',
-      muscles: ['core'],
+      muscles: ['abs'],
       category: 'Core', unit: 'reps', sets: 3, reps: 10, repsMax: 15, icon: '🔥',
       how: [
         'Lie flat, legs straight, hands under the lower back or hips.',
@@ -413,7 +413,7 @@
     },
     {
       name: 'Dumbbell Russian Twist',
-      muscles: ['core'],
+      muscles: ['obliques','abs'],
       category: 'Core', unit: 'reps', sets: 3, reps: 12, repsMax: 20, icon: '🌀',
       how: [
         'Sit with the knees bent, heels down, leaning back to about 45 degrees.',
@@ -425,7 +425,7 @@
     },
     {
       name: 'Dumbbell Side Bend',
-      muscles: ['core'],
+      muscles: ['obliques'],
       category: 'Core', unit: 'reps', sets: 3, reps: 12, repsMax: 15, icon: '🌀',
       how: [
         'Stand tall with one dumbbell in one hand, the other hand behind your head.',
@@ -442,7 +442,7 @@
   const STRETCH = [
     {
       name: 'Stretch — Push Day',
-      muscles: ['chest','shoulders','arms'],
+      muscles: ['chest','front_delts','triceps'],
       category: 'Stretch', unit: 'time', minutes: 6, icon: '🧘',
       how: [
         'Hold each, breathe, never bounce. 5–8 minutes total.',
@@ -455,7 +455,7 @@
     },
     {
       name: 'Stretch — Pull Day',
-      muscles: ['back','arms'],
+      muscles: ['lats','biceps'],
       category: 'Stretch', unit: 'time', minutes: 6, icon: '🧘',
       how: [
         'Hold each, breathe, never bounce. 5–8 minutes total.',
@@ -468,7 +468,7 @@
     },
     {
       name: 'Stretch — Leg Day',
-      muscles: ['legs','glutes'],
+      muscles: ['quads','hamstrings','glutes'],
       category: 'Stretch', unit: 'time', minutes: 6, icon: '🧘',
       how: [
         'Hold each, breathe, never bounce. 5–8 minutes total.',
@@ -493,7 +493,7 @@
     },
     {
       name: 'Recovery Walk',
-      muscles: ['legs','cardio'],
+      muscles: ['calves','cardio'],
       category: 'Cardio', unit: 'time', minutes: 30, icon: '🚶',
       how: [
         'Easy pace, 20–40 minutes. You should be able to hold a conversation.',

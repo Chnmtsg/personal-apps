@@ -462,53 +462,6 @@
       case 'clock-ack':
         S.acknowledgeClock();
         break;
-      case 'onboard':
-        UI.openOnboarding();
-        break;
-      case 'onboard-save': {
-        const wake = S.activeGoals().find((g) => g.section === 'sleep' && g.direction === 'down' && g.unit === 'time');
-        const bed = S.activeGoals().find((g) => g.section === 'sleep' && g !== wake);
-        const t = (sel) => {
-          const el = $(sel);
-          return el ? A.hhmmToMin(el.value) : null;
-        };
-        /* Stating where you actually are today is a re-baseline, so it goes
-           through `updateGoal`'s baseline path, which opens a dated era. It used
-           to pass `startDate: S.today()` as well; on an account that had already
-           been running, that dropped every day lived so far out of the goal.
-           `updateGoal` now refuses that field outright — this drops it too, so
-           the call says what it means. */
-        if (wake) {
-          const b = t('#ob_wake_now');
-          const g2 = t('#ob_wake_goal');
-          if (b != null && g2 != null && b !== g2) S.updateGoal(wake.id, { baseline: b, target: g2 });
-        }
-        if (bed) {
-          const b = t('#ob_bed_now');
-          const g2 = t('#ob_bed_goal');
-          if (b != null && g2 != null && b !== g2) S.updateGoal(bed.id, { baseline: b, target: g2 });
-        }
-        const picked = document.querySelector('input[name="ob_mode"]:checked');
-        S.completeOnboarding({
-          name: ($('#ob_name') && $('#ob_name').value.trim()) || 'Hunter',
-          mode: picked ? picked.value : S.settings().mode,
-          dayBoundaryHour: Number(($('#ob_boundary') && $('#ob_boundary').value) || 4)
-        });
-        UI.closeSheet();
-        UI.toast('🚀 <span>You are set. One day at a time.</span>', 'gold');
-        break;
-      }
-
-      /* --- today --- */
-      case 'toggle-ex':
-        act(() => S.toggleExercise(date, id));
-        break;
-      case 'toggle-hb':
-        act(() => S.toggleHabit(date, id));
-        break;
-      case 'complete-all':
-        act(() => S.completeAll(date));
-        break;
       case 'clear-day':
         UI.openConfirm({
           title: 'Clear this day?',
@@ -1370,10 +1323,6 @@
     const view = $('#view');
     if (view && !view.innerHTML) view.innerHTML = UI.recoveryPanel((ev && ev.error) || (ev && ev.message));
   });
-  // Never invite someone to re-onboard on top of data we could not read — the
-  // sheet would bury the one banner offering their history back.
-  if (!S.get().meta.onboarded && !S.get().meta.storageError) setTimeout(() => UI.openOnboarding(), 400);
-
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     window.addEventListener('load', () => {
       navigator.serviceWorker

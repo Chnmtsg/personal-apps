@@ -382,7 +382,6 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
   order: 1; flex: none; margin-left: auto; padding-left: var(--sp-sm);
   font-size: var(--fs-sm); font-weight: 700; color: var(--muted); white-space: nowrap;
 }
-.item.tight.done .dose { color: var(--faint); }
 /* order:2 puts the tick after the body without reordering the markup, so the
    accessible name still reads name-then-state. */
 .item .tick {
@@ -404,7 +403,23 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 .item .sub { font-size: var(--fs-sm); color: var(--muted); }
 .item.done { background: color-mix(in srgb, var(--good) 10%, transparent); border-color: color-mix(in srgb, var(--good) 30%, transparent); }
 .item.done .tick { background: var(--cream); border-color: var(--cream); color: var(--on-cream); }
-.item.done .name { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--good) 70%, transparent); opacity: 0.75; }
+/* A finished exercise still has to be readable. This carried `opacity: 0.75`
+   AND a strikethrough on top of a green tint, which stacked three ways of
+   saying "done" and took the name below AA on the surface it sits on — a leg
+   day of eight ticked rows was a wall of washed-out text. The filled tick is
+   the signal; the name keeps full contrast and the strikethrough is left as the
+   quiet second cue the guidelines ask for, so nothing is carried by colour
+   alone. */
+.item.done .name {
+  color: var(--text); opacity: 1;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--good) 55%, transparent);
+}
+.item.done .sub { color: var(--muted); }
+.item.tight.done .dose { color: var(--muted); }
+/* And a quieter tint underneath it: eight ticked rows should read as a day
+   going well, not as eight green blocks competing with what is left. */
+.item.done { background: color-mix(in srgb, var(--good) 7%, transparent); }
 /* A future day must LOOK read-only without becoming unreadable — the guidelines
    protect its reference material, and that is exactly when you read the cues.
    Dimming the whole row put .sub at 2.7:1, well under AA, so only the
@@ -1425,4 +1440,12 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   border-radius: 0 0 var(--r) var(--r);
   background: var(--surface-2); color: var(--accent-2);
   font-size: var(--fs-xs); font-weight: 700; text-align: left;
+}
+
+/* Muscle chips, grouped by region. Nineteen of them in one wrap is a wall. */
+.chip-group { margin-bottom: var(--sp-sm); }
+.chip-group > i {
+  display: block; font-style: normal; margin-bottom: 5px;
+  font-size: var(--fs-xs); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--faint); font-weight: 700;
 }

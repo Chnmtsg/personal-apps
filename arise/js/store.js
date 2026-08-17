@@ -9,7 +9,7 @@
   // lifeboat, not state: nothing in the normal read path ever touches it. It
   // exists so the single-key rule can never cost a user their history.
   const QUARANTINE_KEY = 'arise.state.v1.unreadable';
-  const STATE_VERSION = 5;
+  const STATE_VERSION = 6;
 
   /* ---------- defaults ---------- */
 
@@ -97,6 +97,9 @@
       // state existed but could not be parsed.
       meta: {
         maxSeen: start, lastTick: Date.now(), clockWarning: false,
+        /* `onboarded` is inert since the starting-point sheet was removed. It
+           stays in the shape so a backup written before that still migrates
+           without losing a key. */
         onboarded: false, programInstalled: true, storageError: null
       },
       settings: {
@@ -287,22 +290,30 @@
       }
     });
 
-    /* v4 → v5: what an exercise works.
-       Additive twice over. A stored exercise with no `muscles` gets the seed's
-       list *only* if its name still matches a seed entry, so a library the user
-       has renamed or built themselves is left alone rather than guessed at —
-       and an empty list is a real answer meaning "not tagged yet", which is why
-       the test is `!Array.isArray` and not `!length`. An existing list is never
-       touched: it is the user's, even when it disagrees with the seed. */
-    /* Both catalogues, because most of a real library came from the training
+    /* v4 → v6: what an exercise works.
+       Both catalogues, because most of a real library came from the training
        programme rather than the seed — and `installProgram` runs exactly once,
-       so an account that already has it would never be filled in from there. */
+       so an account that already has it would never be filled in from there.
+
+       v5 tagged nine coarse groups; v6 replaced them with nineteen that split by
+       head, which is how a push-pull-legs split is actually written. Two paths:
+       an exercise whose name is still in a catalogue takes that catalogue's
+       list, because it is strictly more precise than anything v5 could have
+       stored; anything else — an exercise the user created or renamed — has its
+       old ids WIDENED (`arms` becomes biceps and triceps) rather than dropped.
+       Widening over-credits a little. Dropping would lose the tag, and one of
+       those is recoverable by editing and the other is not. */
     const seedMuscles = {};
     A.SEED_EXERCISES.forEach((e) => { seedMuscles[e.name] = e.muscles || []; });
     (A.PROGRAM_EXERCISES || []).forEach((e) => { seedMuscles[e.name] = e.muscles || []; });
     (s.exercises || []).forEach((e) => {
-      if (Array.isArray(e.muscles)) { e.muscles = A.cleanMuscles(e.muscles); return; }
-      e.muscles = A.cleanMuscles(seedMuscles[e.name] || []);
+      if (seedMuscles[e.name]) { e.muscles = A.cleanMuscles(seedMuscles[e.name]); return; }
+      if (!Array.isArray(e.muscles)) { e.muscles = []; return; }
+      const widened = [];
+      e.muscles.forEach((id) => {
+        (A.MUSCLE_UPGRADE[id] || [id]).forEach((n) => { if (widened.indexOf(n) < 0) widened.push(n); });
+      });
+      e.muscles = A.cleanMuscles(widened);
     });
 
     // Old journals lived on the day log; lift them into the journal proper.
@@ -1643,10 +1654,23 @@
       sessions: sessions,
       untagged: untagged,
       most: rows.length ? rows[0].count : 0,
-      /* Named so the screen can say what was *missed*, which is the half of a
-         training week that actually changes what you do tomorrow. */
-      missing: A.MUSCLES.filter((m) => !counts[m.id] && m.id !== 'full' && m.id !== 'cardio')
-        .map((m) => m.name)
+      /* What was *missed*, which is the half of a training week that actually
+         changes what you do tomorrow — reported by REGION rather than by head.
+         Naming every untrained head reads "nothing for upper chest, lats,
+         traps, lower back, front delts, side delts, rear delts…", which is a
+         paragraph nobody finishes. "Nothing for back, shoulders" is the same
+         fact and is actionable. A region counts as trained the moment any head
+         in it is. */
+      missing: (function () {
+        const trained = {};
+        A.MUSCLES.forEach((m) => { if (counts[m.id]) trained[m.group] = true; });
+        const out = [];
+        A.MUSCLES.forEach((m) => {
+          if (m.group === 'Other' || trained[m.group] || out.indexOf(m.group) >= 0) return;
+          out.push(m.group);
+        });
+        return out;
+      })()
     };
   }
 
@@ -1671,12 +1695,6 @@
     if (!l) return;
     l.extra = (l.extra || []).filter((x) => x.id !== id);
     commit({ type: 'removeExtra', dateKey });
-  }
-
-  function completeOnboarding(patch) {
-    Object.assign(state.settings, patch || {});
-    state.meta.onboarded = true;
-    commit({ type: 'onboarded' });
   }
 
   /* ---------- mutations: plan ---------- */
@@ -1873,7 +1891,7 @@
   }
 
   root.Store = {
-    load, get, settings, save, flush, commit, today, acknowledgeClock, completeOnboarding,
+    load, get, settings, save, flush, commit, today, acknowledgeClock,
     subscribe: (fn) => (listeners.add(fn), () => listeners.delete(fn)),
     exerciseById, habitById, dayPlan, dayHabits, log, ensureLog, isFuture, historyStart, activeDays,
     dayStatus, currentStreak, history, lifeTotals, totalXp, progress,

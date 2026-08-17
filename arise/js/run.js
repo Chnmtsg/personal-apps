@@ -33,7 +33,18 @@
 
   /* Nothing outside this list may be a habit. A model — or a future import —
      naming something else gets it dropped, not invented, which is why an
-     unknown id can never become a runtime error on day 41.
+     unknown id can never become a runtime error on day 41. That machinery is
+     what made it safe to *shrink* this list: a stored run naming a habit this
+     build no longer has keeps it in storage, hides it from the day, and says so
+     on the run screen.
+
+     It holds what nothing else in the app tracks. Ten habits were removed in
+     2026-08 because they duplicated something the user already had — `read`,
+     `meditate` and `deep_work` are seed goals, `water` and `sleep_window` are
+     daily habits or sleep goals, and `pushups`, `squats`, `plank`, `run` and
+     `strength` are all in the weekly training plan. Today was showing the same
+     commitment three times in three sections with three separate ticks. A run
+     habit has to earn its place by being the only place a thing is tracked.
 
      `min` is a scheduling weight, not a duration: it is what the habit costs
      the daily budget, and it is deliberately not what the user is shown. A day
@@ -41,17 +52,9 @@
   const HABITS = [
     // --- fitness ---
     { id: 'walk', name: 'Walk', domain: 'fitness', unit: 'min', start: 10, target: 45, step: 5, min: 1.0, friction: 1 },
-    { id: 'pushups', name: 'Push-ups', domain: 'fitness', unit: 'reps', start: 5, target: 40, step: 5, min: 0.12, friction: 2 },
-    { id: 'squats', name: 'Body-weight squats', domain: 'fitness', unit: 'reps', start: 10, target: 60, step: 5, min: 0.10, friction: 2 },
-    { id: 'plank', name: 'Plank', domain: 'fitness', unit: 'sec', start: 20, target: 120, step: 10, min: 0.02, friction: 2 },
-    { id: 'run', name: 'Easy run', domain: 'fitness', unit: 'min', start: 10, target: 40, step: 5, min: 1.0, friction: 4 },
     { id: 'mobility', name: 'Mobility flow', domain: 'fitness', unit: 'min', start: 5, target: 20, step: 2.5, min: 1.0, friction: 2 },
-    { id: 'strength', name: 'Strength session', domain: 'fitness', unit: 'min', start: 15, target: 45, step: 5, min: 1.0, friction: 5 },
     // --- self-care ---
-    { id: 'water', name: 'Drink water', domain: 'self_care', unit: 'glasses', start: 2, target: 8, step: 1, min: 0.5, friction: 1 },
-    { id: 'sleep_window', name: 'Fixed lights-out', domain: 'self_care', unit: 'min', start: 15, target: 45, step: 5, min: 0.2, friction: 3 },
     { id: 'stretch', name: 'Evening stretch', domain: 'self_care', unit: 'min', start: 5, target: 20, step: 2.5, min: 1.0, friction: 1 },
-    { id: 'meditate', name: 'Meditate', domain: 'self_care', unit: 'min', start: 3, target: 20, step: 2, min: 1.0, friction: 3 },
     { id: 'sunlight', name: 'Morning daylight', domain: 'self_care', unit: 'min', start: 5, target: 20, step: 2.5, min: 1.0, friction: 2 },
     { id: 'cold_shower', name: 'Cold finish', domain: 'self_care', unit: 'sec', start: 15, target: 120, step: 15, min: 0.02, friction: 4 },
     { id: 'no_screens', name: 'Screens off before bed', domain: 'self_care', unit: 'min', start: 15, target: 60, step: 5, min: 0.1, friction: 4 },
@@ -77,8 +80,6 @@
     { id: 'floss', name: 'Floss', domain: 'self_care', unit: 'times', start: 1, target: 1, step: 1, min: 1.0, friction: 2 },
     { id: 'brush_teeth', name: 'Brush teeth', domain: 'self_care', unit: 'times', start: 1, target: 2, step: 1, min: 2.0, friction: 1 },
     // --- development ---
-    { id: 'read', name: 'Read', domain: 'development', unit: 'min', start: 10, target: 45, step: 5, min: 1.0, friction: 2 },
-    { id: 'deep_work', name: 'Deep work block', domain: 'development', unit: 'min', start: 25, target: 90, step: 10, min: 1.0, friction: 5 },
     { id: 'journal', name: 'Journal', domain: 'development', unit: 'min', start: 5, target: 15, step: 2.5, min: 1.0, friction: 1 },
     { id: 'language', name: 'Language practice', domain: 'development', unit: 'min', start: 10, target: 30, step: 5, min: 1.0, friction: 3 },
     { id: 'course', name: 'Course / study', domain: 'development', unit: 'min', start: 15, target: 60, step: 5, min: 1.0, friction: 4 },
@@ -601,7 +602,11 @@
    * reliable. A working programme beats a spinner, and this is the only option
    * an offline app has.
    */
-  const DEFAULT_PICKS = ['walk', 'water', 'read', 'stretch', 'journal', 'pushups'];
+  /* All still in the catalog, all low friction, and spread across the three
+     domains. Rebuilt when the ten duplicating habits went: three of the old six
+     were `water`, `read` and `pushups`, which is what happens to a default list
+     nobody re-derives after the thing it indexes into changes. */
+  const DEFAULT_PICKS = ['walk', 'stretch', 'journal', 'brush_teeth', 'vitamins', 'floss'];
 
   function buildRun(startDate, minutesBudget, picks, together) {
     const budget = minutesBudget || 45;
