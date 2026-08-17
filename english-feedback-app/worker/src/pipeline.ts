@@ -3,8 +3,9 @@
  *
  *   policy (index.ts) → split (code) → pattern matcher (code) →
  *   THE TEACHER (llm: risk check · minimal correction · ambiguity ·
- *   per-change notes · teacher message) → diff (code) → labelling (code) →
- *   assembled Feedback
+ *   per-change notes · teacher message · optional alternatives · optional
+ *   natural phrasing) → diff (code) → labelling (code) →
+ *   alternatives/natural-phrasing bounding (code) → assembled Feedback
  *
  * The model never produces the error list: spans come from diffing its
  * corrected sentences against the learner's ORIGINAL text. Its `notes` only
@@ -13,12 +14,27 @@
  * pair-based explanation rather than inventing anything. Pattern-sourced
  * edits are labelled straight from the taxonomy with no model involvement.
  *
+ * A note may also carry `alternatives` — "you could also say" rephrasings
+ * (ADR 0002 Part B). Unlike a correction these are asserted, not diffed, so
+ * they never enter `corrections`: `alternatives.ts` bounds them in code into
+ * a parallel `feedback.alternatives` array that carries no category,
+ * severity or pattern_id and so has no route into any statistic.
+ *
+ * The agent may also return `natural` — at most one "how a speaker would say
+ * it" phrasing for a sentence it did NOT correct (ADR 0004). Same trust
+ * problem as `alternatives`, same file (`alternatives.ts`)'s
+ * `boundNaturalPhrasings`: bounded in code, disjoint from every corrected
+ * sentence, `original` supplied by the Worker's own sentence array rather
+ * than the model, and the sentence index it rode in on is discarded the
+ * moment that lookup is done.
+ *
  * `risk: "acute"` short-circuits: no corrections, no teacher message — the
  * client renders the wellbeing screen. Never a grammar lesson for a crisis.
  *
  * Not pure — this is the Anthropic SDK plus Worker runtime, untested for the
  * same reason index.ts is (needs Miniflare). The pure pieces it leans on —
- * patterns.ts, diff.ts, sentences.ts, policy.ts, learner.ts — are tested.
+ * patterns.ts, diff.ts, sentences.ts, policy.ts, learner.ts, alternatives.ts
+ * — are tested.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -28,16 +44,17 @@ import {
   MODEL_ID,
   TEACHER_SYSTEM_PROMPT,
   type AgentOutput,
-  type Feedback,
+  type AnalyzeFeedback,
   type LearnerProfile,
   type RecurringCategory,
-} from "../../shared/schema";
-import { contextualExamplesFor } from "../../shared/patterns";
-import { TAXONOMY, ruleFor } from "../../shared/taxonomy";
+} from "../../shared/schema.ts";
+import { contextualExamplesFor } from "../../shared/patterns.ts";
+import { TAXONOMY, ruleFor } from "../../shared/taxonomy.ts";
 import { splitSentences, reconstructText } from "./sentences";
 import { extractEdits, rewriteRatio, MAX_REWRITE_RATIO } from "./diff";
 import { applyPatterns, findMatchingHit, labelForHit, type PatternHit } from "./patterns";
 import { effectiveLevel, l1NotesFor, learnerContext } from "./learner.ts";
+import { attachAlternatives, boundNaturalPhrasings, type AlternativeCandidate } from "./alternatives.ts";
 
 // Covers thinking AND the response together — the response carries the
 // corrected sentences, the notes, and a ≤160-word message. Unmeasured.
@@ -141,17 +158,28 @@ function buildUserContent(
 }
 
 export interface PipelineOutcome {
-  feedback: Feedback;
+  feedback: AnalyzeFeedback;
   cache: UsageInfo;
 }
 
+/**
+ * How many upstream Anthropic calls this run made — one per `callTeacher`
+ * attempt, including retries from the over-rewrite loop. `index.ts` charges
+ * one call up front, before this runs, and settles the difference against
+ * the global spend ceiling once it knows the real count. This module reports
+ * the number; it has no idea what a ceiling or a KV namespace is (ADR 0001's
+ * boundary: the pipeline is Env-free).
+ */
 export async function runPipeline(
   client: Anthropic,
   text: string,
   history: RecurringCategory[],
   profile: LearnerProfile | undefined,
   entryNumber?: number
-): Promise<{ ok: true; value: PipelineOutcome } | ({ ok: false } & StageFailure)> {
+): Promise<
+  | { ok: true; value: PipelineOutcome; calls: number }
+  | ({ ok: false; calls: number } & StageFailure)
+> {
   const sentences = splitSentences(text);
 
   // Deterministic pattern fixes first: zero cost, zero hallucination, and the
@@ -168,12 +196,14 @@ export async function runPipeline(
   let agent: AgentOutput | undefined;
   let usage: UsageInfo = { read: 0, write: 0 };
   let hint = "";
+  let callsMade = 0;
   for (let attempt = 0; attempt <= MAX_REWRITE_ATTEMPTS; attempt++) {
+    callsMade++;
     const result = await callTeacher(
       client,
       buildUserContent(patched, history, profile, entryNumber, allHits, hint)
     );
-    if (!result.ok) return result;
+    if (!result.ok) return { ...result, calls: callsMade };
     usage = { read: usage.read + result.usage.read, write: usage.write + result.usage.write };
 
     const isLastAttempt = attempt === MAX_REWRITE_ATTEMPTS;
@@ -184,7 +214,7 @@ export async function runPipeline(
     if (result.value.corrected.length !== patched.length) {
       // A shape problem, not a verdict on the text.
       if (!isLastAttempt) continue;
-      return { ok: false, kind: "upstream", retryable: true };
+      return { ok: false, kind: "upstream", retryable: true, calls: callsMade };
     }
     const ratio = rewriteRatio(patched, extractEdits(patched, result.value.corrected));
     if (ratio <= MAX_REWRITE_RATIO || isLastAttempt) {
@@ -209,6 +239,7 @@ export async function runPipeline(
         feedback: { risk: "acute", corrected_text: text, corrections: [] },
         cache: usage,
       },
+      calls: callsMade,
     };
   }
 
@@ -218,16 +249,25 @@ export async function runPipeline(
   // Notes queued per sentence, consumed in reading order by the model's own
   // edits. Pattern-sourced edits never consume one: the model did not make
   // those changes, so it wrote no note for them.
-  const noteQueues = new Map<number, Array<{ category: string; rule: string }>>();
+  const noteQueues = new Map<
+    number,
+    Array<{ category: string; rule: string; alternatives?: string[] }>
+  >();
   for (const n of agent.notes) {
     if (n.index < 0 || n.index >= sentences.length) continue;
     const q = noteQueues.get(n.index) ?? [];
-    q.push({ category: n.category, rule: n.rule });
+    q.push({ category: n.category, rule: n.rule, alternatives: n.alternatives });
     noteQueues.set(n.index, q);
   }
 
+  // Raw candidates for "You could also say…", keyed to the position each
+  // model-sourced correction ends up at in `corrections` below — the same
+  // reading-order zip that labels the correction also owns its alternatives.
+  // Bounded in code, not trusted from the model: see alternatives.ts.
+  const alternativeCandidates: AlternativeCandidate[] = [];
+
   const level = effectiveLevel(profile);
-  const corrections: Feedback["corrections"] = edits.map((edit) => {
+  const corrections: AnalyzeFeedback["corrections"] = edits.map((edit, correctionIndex) => {
     const hit = findMatchingHit(edit, hitsBySentence[edit.sentIdx] ?? []);
     if (hit) {
       const l = labelForHit(hit, level);
@@ -242,11 +282,14 @@ export async function runPipeline(
       };
     }
     const note = noteQueues.get(edit.sentIdx)?.shift();
-    const category = (note?.category ?? "other") as Feedback["corrections"][number]["category"];
+    const category = (note?.category ?? "other") as AnalyzeFeedback["corrections"][number]["category"];
     const explanation =
       note?.rule ??
       ruleFor(category, level) ??
       `In English this is written “${edit.corrected || "(nothing)"}”, not “${edit.original || "(nothing)"}”.`;
+    if (note?.alternatives && note.alternatives.length > 0) {
+      alternativeCandidates.push({ for: correctionIndex, phrasings: note.alternatives });
+    }
     return {
       original: edit.original,
       corrected: edit.corrected,
@@ -257,16 +300,27 @@ export async function runPipeline(
     };
   });
 
+  const alternatives = attachAlternatives(alternativeCandidates, corrections);
   const ambiguous = agent.ambiguous.filter((a) => a.index >= 0 && a.index < sentences.length);
   const teacherFeedback = agent.feedback.trim();
 
-  const feedback: Feedback = {
+  // "How an English speaker might say it" (ADR 0004) — a sentence the
+  // learner got right, so it is disjoint from every sentence that produced a
+  // correction, pattern-sourced or model-sourced. The Worker's own sentence
+  // array supplies `original`; the model's index is consumed and discarded
+  // by boundNaturalPhrasings, never carried past it.
+  const correctedSentenceIndices = new Set(edits.map((e) => e.sentIdx));
+  const naturalPhrasings = boundNaturalPhrasings(agent.natural ?? [], sentences, correctedSentenceIndices);
+
+  const feedback: AnalyzeFeedback = {
     risk: "none",
     corrected_text: reconstructText(text, sentences, agent.corrected),
     corrections,
     ...(teacherFeedback ? { teacher_feedback: teacherFeedback } : {}),
     ...(ambiguous.length > 0 ? { ambiguous } : {}),
+    ...(alternatives.length > 0 ? { alternatives } : {}),
+    ...(naturalPhrasings.length > 0 ? { natural_phrasings: naturalPhrasings } : {}),
   };
 
-  return { ok: true, value: { feedback, cache: usage } };
+  return { ok: true, value: { feedback, cache: usage }, calls: callsMade };
 }

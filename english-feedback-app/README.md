@@ -75,12 +75,14 @@ curl http://127.0.0.1:8787/health
 ```
 
 ```powershell
-curl -X POST http://127.0.0.1:8787/analyze -H "Content-Type: application/json" -d '{\"text\": \"Yesterday I go to mine site. I geologist, I take three sample from drill core, it was very interesting day for me and my colleague he help me a lot.\"}'
+curl -X POST http://127.0.0.1:8787/analyze -H "Content-Type: application/json" -H "Origin: http://localhost:5173" -d '{\"text\": \"Yesterday I go to mine site. I geologist, I take three sample from drill core, it was very interesting day for me and my colleague he help me a lot.\"}'
 ```
 
-`curl` sends no `Origin` header, so this works while `ALLOWED_ORIGIN` is `"*"`.
-Once you lock the allowlist down it will correctly return `403 origin_not_allowed` —
-that is the control working, not a bug.
+The `Origin` header has to match `worker/.dev.vars`'s `ALLOWED_ORIGIN`
+(`http://localhost:5173` in the example file) — `curl` sends no `Origin`
+header by default, and an unrecognised origin is refused by design, so
+without it this correctly returns `403 origin_not_allowed` rather than a
+result. That is the control working, not a bug.
 
 ## 2. Verify
 
@@ -117,12 +119,16 @@ cd worker
 npx wrangler login
 ```
 
-Create the rate-limit namespace, then paste the id it prints into
-`wrangler.toml` and uncomment the `[[kv_namespaces]]` block:
+`wrangler.toml`'s `[[kv_namespaces]]` block already carries a namespace id —
+if you are deploying your own copy of this Worker rather than continuing this
+one, create your own namespace and replace it:
 
 ```powershell
 npx wrangler kv namespace create RATE_LIMIT_KV
 ```
+
+Paste the id it prints into `wrangler.toml`'s existing `[[kv_namespaces]]`
+block.
 
 Store the API key as a secret — it prompts you to paste it:
 
@@ -157,6 +163,12 @@ Without the KV namespace the worker still rate-limits, but only per-isolate
 (best-effort). With KV, the 20 requests/hour/IP limit survives across isolates.
 It is read-then-write, so two simultaneous requests can overshoot by one; it
 caps sustained spend rather than acting as a hard security boundary.
+
+`GLOBAL_HOURLY_CEILING` in `wrangler.toml`'s `[vars]` (default 100 if unset)
+caps total upstream Anthropic calls per hour across every caller — the number
+a per-IP limit behind a forgeable `Origin` header cannot provide. It is a
+plain var, not a secret, so it can be raised or lowered by editing
+`wrangler.toml` and redeploying, once real usage is measured.
 
 ## 4. Deploy the app
 
@@ -198,9 +210,10 @@ Open the deployed URL on the phone → browser menu → **Add to Home Screen** t
   secret (`grep -ri "sk-ant" app/src` returns nothing).
 - **Access control** — origin allowlist enforced server-side (the matched origin is echoed, never
   `*`), plus an optional `X-App-Key` shared secret compared in constant time.
-- **Rate limiting** — 20 req/hour/IP (KV-backed), charged only immediately before the upstream
-  call, so malformed or rejected requests never consume the budget. 10 KB max body, measured in
-  bytes rather than UTF-16 units. JSON-only, empty bodies rejected.
+- **Rate limiting** — 20 req/hour/IP (KV-backed) plus a `GLOBAL_HOURLY_CEILING` across every
+  caller (default 100/hour), charged only immediately before the upstream call, so malformed or
+  rejected requests never consume the budget. 12 KB max body, measured in bytes rather than UTF-16
+  units. JSON-only, empty bodies rejected.
 - **Offline-first** — drafts autosave to IndexedDB ~500 ms after each keystroke; entries created
   offline are queued and analysed automatically on reconnect; the service worker precaches the
   app shell so it opens in airplane mode.
@@ -211,7 +224,8 @@ Open the deployed URL on the phone → browser menu → **Add to Home Screen** t
 - **Structured output** — each pipeline call uses `client.messages.parse` + `zodOutputFormat(...)`;
   the app re-validates the final result with the shared schema before storing, so no free-text
   categories can reach storage.
-- **Fixed taxonomy** — the 20-category enum lives in `shared/schema.ts`; treat it as versioned data.
+- **Fixed taxonomy** — 25 v2 category ids live in `shared/taxonomy.ts` (entries from before v2 carry
+  a legacy 20-name taxonomy, mapped at read time); treat it as versioned data.
 - **Any learner** — first language, work or study, level and goal are set in Settings, all
   optional, stored on the device, and sent as context with each analysis. They never touch a
   system prompt: that would give every user their own cache entry. Where a curated contrastive
@@ -219,7 +233,8 @@ Open the deployed URL on the phone → browser menu → **Add to Home Screen** t
   with no language given it does not guess.
 - **Privacy** — entries live only in IndexedDB; only the analysed text and this profile ever leave the device; the
   Worker logs error counts and refusal categories, never entry text; Settings has a plain-language
-  statement, export, and delete-all.
+  statement, export, import (additive — never overwrites an id already on the device), and
+  delete-all.
 - **Prompt caching** — the teacher prompt is one byte-identical cached block for every user; the
   response includes `cache.read`/`cache.write` so you can verify reads climb from the second
   request onward.
@@ -229,7 +244,8 @@ Open the deployed URL on the phone → browser menu → **Add to Home Screen** t
   retried at most 5 times before the entry is marked failed with its text intact. Rate limiting
   does not consume that budget.
 - **Trend metric** — errors per **100 words**, not raw counts.
-- **Versioned feedback** — each entry stores `modelId` and `promptVersion` alongside the feedback.
+- **Versioned feedback** — each entry stores `modelId`, `promptVersion`, and the `taxonomyVersion`
+  (`shared/taxonomy.ts`) it was analysed under, alongside the feedback.
 
 ## Cost
 
@@ -247,8 +263,9 @@ truncates the call. To switch models, change `MODEL_ID` in `shared/schema.ts`.
 - The worker's request handler has no integration test; only the pure pieces it calls
   (`worker/src/policy.ts`, `worker/src/patterns.ts`, `worker/src/diff.ts`,
   `worker/src/sentences.ts`, `worker/src/learner.ts`) are covered. Testing the full `fetch`
-  handler, or `worker/src/pipeline.ts`'s orchestration of the nine agents, needs Miniflare.
-- The app bundle is ~635 KB (188 KB gzipped), dominated by Recharts. Fine over a warm service
+  handler, or `worker/src/pipeline.ts`'s orchestration of the one runtime agent (ADR 0001), needs
+  Miniflare.
+- The app bundle is ~690 KB (203 KB gzipped), dominated by Recharts. Fine over a warm service
   worker, worth code-splitting if first load matters.
 - Rate limiting is per-IP and read-then-write; a determined abuser with many IPs is not stopped
   by it.

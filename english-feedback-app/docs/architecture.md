@@ -13,12 +13,22 @@ client ── POST /analyze ──▶ policy (code)          validate before spe
                             THE TEACHER (llm)      the one runtime agent:
                                                    risk check · minimal correction
                                                    · ambiguity · per-change notes
-                                                   · teacher message
+                                                   · teacher message · optional
+                                                   alternative phrasings ·
+                                                   optional natural phrasing
                             diff (code)            edits vs the ORIGINAL text —
                                                    the model never produces the
                                                    error list
                             label (code)           pattern edits from taxonomy;
                                                    model edits from the notes zip
+                            bound (code)           alternatives.ts: "you could
+                                                   also say" phrasings AND the
+                                                   natural-phrasing bound (ADR
+                                                   0004) — both parallel to
+                                                   Feedback, never inside a
+                                                   Correction, both unverified
+                                                   model text with no second
+                                                   call checking it
                             assemble ──▶ Feedback (client validates, stores)
 ```
 
@@ -50,6 +60,12 @@ pattern.
 
 ## Client (app/)
 
-React PWA. Write → claim → analyse → Feedback card stack; Error Log derives
-everything (counts, trend, clean streaks, the Top-100 progress map) from
-stored entries on read. Offline queue with bounded, classified retries.
+React PWA. Write → claim → analyse → Feedback: one scrolling page
+(ADR 0003) — the teacher's message, every change as one list in diff order
+(`ambiguous` trailing), the corrected text, then closing, with a legacy
+section before closing on entries that predate ADR 0001.
+`app/src/lib/feedbackSections.ts` holds the two pure decisions that survive:
+which rows print their rule, and whether an entry has legacy content.
+Patterns derives everything (counts, trend, clean streaks, the pattern map
+scoped to the 49 deterministically-detectable patterns) from stored entries
+on read. Offline queue with bounded, classified retries.

@@ -24,7 +24,11 @@ export const MODEL_ID = "claude-opus-5";
 // 6: the 9-agent pipeline; taxonomy v2.
 // 7: collapsed to the single teacher agent (ADR 0001) — inline risk check,
 //    minimal correction, per-change notes, teacher message in one call.
-export const PROMPT_VERSION = 7;
+// 8: a note may carry optional `alternatives` — at most 2 other correct ways
+//    to write that sentence, on at most the 3 changes taught (ADR 0002 B).
+// 9: an optional `natural` phrasing — at most 1 per entry, for a sentence
+//    the learner got right. Never a correction (ADR 0004).
+export const PROMPT_VERSION = 9;
 
 // Mirrors the client-side minimum in Write.tsx, enforced again server-side as
 // defense-in-depth against a bypassed or future client — validate before
@@ -83,6 +87,41 @@ const AmbiguitySchema = z.object({
   question: z.string(),
 });
 
+/**
+ * "You could also say…" — at most 2 complete, model-written rephrasings of
+ * a taught correction's sentence. NOT diff-verified: unlike `Correction`,
+ * this is asserted free text, so it lives in its own array, never inside
+ * `CorrectionSchema` (ADR 0002 Part B). `for` is an index into `corrections`,
+ * assigned by the same reading-order notes→edits zip that labels corrections
+ * themselves; `worker/src/alternatives.ts` bounds this in code before it
+ * reaches `FeedbackSchema` — dropping an out-of-range `for` or an over-long
+ * phrasing rather than truncating it, since a phrasing cut mid-word is
+ * broken English shown to a learner as a model of good English.
+ */
+const AlternativeSchema = z.object({
+  for: z.number().int().min(0),
+  phrasings: z.array(z.string().max(120)).min(1).max(2),
+});
+
+/**
+ * "How an English speaker might say it" — ONE more idiomatic way to write a
+ * sentence the learner already got right (ADR 0004). Model-asserted free
+ * text, NOT diff-verified, exactly like `AlternativeSchema` — which is why it
+ * lives here, sibling to `alternatives`, and never inside `CorrectionSchema`.
+ * `original` is the learner's own sentence, copied by the Worker from its own
+ * sentence split (`worker/src/sentences.ts`); it is never read from the
+ * model. `worker/src/alternatives.ts`'s `boundNaturalPhrasings` bounds this
+ * in code before it reaches `FeedbackSchema` — dropping (never truncating) an
+ * out-of-range index, a sentence that produced any correction, an empty or
+ * over-long phrasing, and a phrasing that is not actually different from the
+ * learner's own sentence.
+ */
+const NaturalPhrasingSchema = z.object({
+  original: z.string(),
+  phrasing: z.string().max(120),
+  note: z.string().max(100).optional(),
+});
+
 const FluencyNoteSchema = z.object({
   before: z.string(),
   after: z.string(),
@@ -106,6 +145,18 @@ export const FeedbackSchema = z.object({
   /** 9-agent era: indices the teacher voice chose. No longer written. */
   highlighted: z.array(z.number().int().min(0)).optional(),
   ambiguous: z.array(AmbiguitySchema).optional(),
+  /** Parallel to `corrections`, never inside it — see `AlternativeSchema`.
+   * Bounded to at most 3 by `worker/src/alternatives.ts` before this is
+   * ever populated; absent on every entry stored before PROMPT_VERSION 8. */
+  alternatives: z.array(AlternativeSchema).max(3).optional(),
+  /** "How an English speaker might say it" (ADR 0004) — sibling of
+   * `alternatives`, never a union on it: it is keyed to nothing (no
+   * correction index, no sentence index), it is not itself a correction, and
+   * a sentence that produced a correction is never eligible for one. Bounded
+   * to at most 1 by `worker/src/alternatives.ts`'s `boundNaturalPhrasings`
+   * before this is ever populated; absent on every entry stored before
+   * PROMPT_VERSION 9. */
+  natural_phrasings: z.array(NaturalPhrasingSchema).max(1).optional(),
   /** 9-agent era fields — still valid stored data, no longer written. */
   fluency_notes: z.array(FluencyNoteSchema).optional(),
   drills: z.array(DrillSchema).optional(),
@@ -128,9 +179,32 @@ export interface LegacyFeedbackFields {
   pattern_watch?: { category: string; entries_clean: number; note: string; practice: string };
 }
 
-/** A stored correction may be legacy: `rule` instead of `explanation`, no
- * `source`, legacy category/severity names. */
-export type StoredCorrection = z.infer<typeof CorrectionSchema> & { rule?: string };
+/**
+ * The shape a correction actually has once it is read back OUT of
+ * IndexedDB, as opposed to `CorrectionSchema`'s inferred type, which is only
+ * ever true of a fresh /analyze response crossing the network boundary.
+ *
+ * `category` and `severity` are deliberately `string`, not the v2 enums: a
+ * correction stored before taxonomy v2 carries a legacy name the current
+ * enum does not have, so a caller MUST route it through `normalizeCategory`
+ * / `normalizeSeverity` (shared/taxonomy.ts) rather than trust the type.
+ * `explanation` and `source` are optional for the same reason — pre-v2
+ * entries have `rule` instead of `explanation`, and no `source` at all.
+ */
+export type StoredCorrection = {
+  original: string;
+  corrected: string;
+  category: string;
+  severity: string;
+  /** v2: the one-sentence rule. Absent on pre-v2 entries — see `rule`. */
+  explanation?: string;
+  /** Pre-v2 name for the same field. */
+  rule?: string;
+  /** Absent on every entry stored before PROMPT_VERSION 7. */
+  source?: "pattern" | "model";
+  /** Checklist number when `source` is "pattern". */
+  pattern_id?: number;
+};
 
 /** Stored feedback: v2 fields, `risk` absent on pre-v2 entries, corrections
  * possibly legacy-shaped. The network schema above stays strict; this type is
@@ -141,6 +215,17 @@ export type Feedback = Omit<z.infer<typeof FeedbackSchema>, "corrections" | "ris
 } & LegacyFeedbackFields;
 
 export type Drill = z.infer<typeof DrillSchema>;
+
+/**
+ * The exact, strict shape the Worker computes for one /analyze response's
+ * `feedback` field — `FeedbackSchema`'s inferred type, used only at that
+ * network boundary (worker/src/pipeline.ts). Every field the schema
+ * requires is required here too, unlike `Feedback` above, which is what a
+ * screen reads back OUT of IndexedDB and must tolerate being legacy or
+ * partial. Not named `AnalyzeResult` — `app/src/lib/api.ts` already uses
+ * that name for `analyzeText`'s own success/failure union.
+ */
+export type AnalyzeFeedback = z.infer<typeof FeedbackSchema>;
 
 /** A learner's recurring-category counts, computed client-side from their own
  * entries and sent as request context (never stored server-side). */
@@ -169,8 +254,29 @@ export const AgentOutputSchema = z.object({
       index: z.number().int().min(0),
       category: CategoryEnum,
       rule: z.string(),
+      /** Optional and loose on purpose: a bad value must degrade, not fail
+       * the parse and cost a retry. `worker/src/alternatives.ts` applies the
+       * strict bounds (length cap, range check, the 3-entry ceiling) after
+       * this has already parsed successfully. */
+      alternatives: z.array(z.string()).max(2).optional(),
     })
   ),
+  /** Optional and loose on purpose, same reasoning as a note's `alternatives`
+   * above: a bad value must degrade, not fail the parse and cost a retry.
+   * `worker/src/alternatives.ts`'s `boundNaturalPhrasings` applies the strict
+   * bounds (range check, disjointness against corrected sentences, length
+   * cap, the "is it actually different" check, the 1-entry ceiling) after
+   * this has already parsed successfully (ADR 0004). */
+  natural: z
+    .array(
+      z.object({
+        index: z.number().int().min(0),
+        phrasing: z.string(),
+        note: z.string().optional(),
+      })
+    )
+    .max(1)
+    .optional(),
   feedback: z.string(),
 });
 export type AgentOutput = z.infer<typeof AgentOutputSchema>;
@@ -202,7 +308,10 @@ export type LearnerProfile = z.infer<typeof LearnerProfileSchema>;
 // below are generated from the taxonomy — static for every request.
 // ---------------------------------------------------------------------------
 
-const RULE_CARDS = (Object.keys(TAXONOMY) as CategoryId[])
+// Exported so tests/schema.test.ts can rebuild the exact mirrored prompt from
+// prompts/teacher.md and its placeholders, rather than re-deriving rule cards
+// with a second, potentially drifting implementation.
+export const RULE_CARDS = (Object.keys(TAXONOMY) as CategoryId[])
   .filter((id) => TAXONOMY[id].ruleA2 ?? TAXONOMY[id].ruleB1)
   .map((id) => {
     const t = TAXONOMY[id];
@@ -240,7 +349,27 @@ ${CATEGORY_IDS.join(", ")}
 <rules>
 ${RULE_CARDS}
 </rules>
+
+"alternatives" is OPTIONAL, and belongs only on the at most 3 changes you actually teach in "feedback" — never on the others, and never more than 2 on one note. It is the one place you show the writer another way to say what they already wrote.
+
+Each alternative is a COMPLETE sentence, correct on its own, that the writer could have written instead of your corrected sentence — not a fragment, not a phrase, not a rule. It means exactly the same thing: correction rule 2 still holds, so it adds no information, opinion or detail, and drops nothing. It stays in the writer's own words and register at their level, as in correction rule 3 — a word they do not have yet teaches nothing and reads as a rebuke. It must differ from your correction in a real way — a different word order, a different everyday word, a different structure — never only in punctuation or capitalisation. Never a translation, and never a "better" version of a sentence that was already fine. Keep each one short, under 120 characters, so it can be read at a glance. If you teach two changes in the same sentence, put alternatives on one of them only; the writer does not need the same sentence rephrased twice.
+
+Most sentences have one natural phrasing, and then you leave "alternatives" out. That is the normal answer, not a gap — none at all is better than one invented to fill the field. Two is a ceiling, never a target. When "risk" is "acute" there are no notes and no feedback, so there are no alternatives either.
 </notes>
+
+<natural_phrasing>
+"natural" is OPTIONAL and is at most ONE for the whole entry. It answers a different question from your corrections: not "is this correct?" but "is this what a speaker would actually say?" It belongs only to a sentence you did NOT change — never to one you corrected, which already carries "alternatives", and never to one you flagged as ambiguous, since you cannot keep a meaning you are unsure of.
+
+Offer one only where a fluent speaker would genuinely say the same thing another way. In order of preference: the politeness and modal channel ("I want to" → "I'd like to", "Can you" → "Could you"), then a fixed everyday expression or the normal pairing of words, then a structure a speaker would reliably reach for instead. A sentence that is merely short, simple, plain or repetitive is NOT a candidate — plain correct English is not a fault.
+
+The phrasing is a COMPLETE sentence the writer could have written instead, meaning exactly the same thing: correction rule 2 still holds, so it adds nothing and drops nothing. It must differ in a real way — a comma, a capital letter or one swapped synonym is not a different phrasing. Keep it under 120 characters and inside the words the writer already has at their level. This is a personal daily journal, so aim at everyday English between people who know each other, never a more formal or more written version of what they wrote.
+
+This is never a correction. The sentence still comes back byte-identical in "corrected"; it gets no note and no category, it is not one of the at most 3 corrections you teach, and you do not mention it in "feedback" — the app shows it on its own, telling the writer that both are correct. A journal sentence is addressed to nobody, so it cannot be blunt: "I want to visit my sister" in a diary is NOT a "register" error and must never be corrected as one. Register is a correction only when the sentence, in the form the writer is plainly using it — a request, an instruction, a message to a person — would land badly on the reader.
+
+Return {"index": <sentence index>, "phrasing": "...", "note": "..."}. Give only the index; the app quotes the writer's own sentence from its own copy, so never write their sentence back to it. "note" is optional: one line under 100 characters saying WHY people say it that way — "English softens 'want' into 'would like'" — a rule they can reuse, never a comment on their day.
+
+Most entries warrant nothing here, and then you leave "natural" out entirely. That is the normal, expected answer — none is better than one invented to fill the field. One is a ceiling, never a target. When "risk" is "acute" there are no natural phrasings either.
+</natural_phrasing>
 
 <feedback>
 "feedback" is the message the learner actually reads. Structure:
@@ -252,10 +381,10 @@ Tone: warm and direct — a good teacher, not a cheerleader and not a red pen. N
 </feedback>
 
 Return JSON only:
-{"risk": "none", "corrected": ["...", "..."], "ambiguous": [], "notes": [{"index": 0, "category": "...", "rule": "..."}], "feedback": "..."}
+{"risk": "none", "corrected": ["...", "..."], "ambiguous": [], "notes": [{"index": 0, "category": "...", "rule": "...", "alternatives": ["..."]}], "natural": [{"index": 0, "phrasing": "...", "note": "..."}], "feedback": "..."}
 
-Example — note the second sentence comes back untouched, not "improved":
-Input: {"sentences": ["Yesterday I go to shop with my sister.", "The weather was very cold and windy."]}
-Output: {"risk": "none", "corrected": ["Yesterday I went to the shop with my sister.", "The weather was very cold and windy."], "ambiguous": [], "notes": [{"index": 0, "category": "verb_tense", "rule": "For finished past actions, use the past form: go becomes went."}, {"index": 0, "category": "article", "rule": "English needs 'the' before a place you and the reader both know."}], "feedback": "Good clear entry — your weather sentence is exactly right. One thing: for yesterday's actions, use the past form: go becomes went. And English needs 'the' before a known place: to the shop. What did you buy?"}
+Example — note that the second sentence comes back untouched, not "improved", and gets no natural phrasing at all; that only one note carries "alternatives"; and that the one natural phrasing rides a third sentence you did not correct:
+Input: {"sentences": ["Yesterday I go to shop with my sister.", "The weather was very cold and windy.", "I want to go there again."]}
+Output: {"risk": "none", "corrected": ["Yesterday I went to the shop with my sister.", "The weather was very cold and windy.", "I want to go there again."], "ambiguous": [], "notes": [{"index": 0, "category": "verb_tense", "rule": "For finished past actions, use the past form: go becomes went.", "alternatives": ["I went to the shop with my sister yesterday.", "Yesterday I went to the store with my sister."]}, {"index": 0, "category": "article", "rule": "English needs 'the' before a place you and the reader both know."}], "natural": [{"index": 2, "phrasing": "I'd like to go there again.", "note": "English softens 'want' into 'would like', and speakers say it far more often."}], "feedback": "Good clear entry — your weather sentence is exactly right. One thing: for yesterday's actions, use the past form: go becomes went. And English needs 'the' before a known place: to the shop. What did you buy?"}
 
 The user message may also contain a KNOWN ERROR PATTERNS section: examples of mistakes this learner's history makes likely. They are reference material — the sentences to correct are only the ones in the "sentences" array.`;

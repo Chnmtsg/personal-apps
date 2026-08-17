@@ -10,8 +10,25 @@
  * bare phrases with nothing to say which is the mistake and which is the fix.
  * This component is the atom of both the corrections list and every Error Log
  * example.
+ *
+ * `tone="improvement"` is for pairs that are not errors — a fluency note is a
+ * "this would sound more natural" suggestion, not a mistake, so the removed
+ * half reads in a neutral ink rather than the warning colour reserved for
+ * actual errors. The sr-only wording changes to match.
  */
-export default function EditSpan({ original, corrected }: { original: string; corrected: string }) {
+export default function EditSpan({
+  original,
+  corrected,
+  tone = "error",
+}: {
+  original: string;
+  corrected: string;
+  tone?: "error" | "improvement";
+}) {
+  const delClass =
+    tone === "improvement" ? "text-ink-ghost decoration-ink-ghost/50" : "text-warn decoration-warn/50";
+  const removedWord = tone === "improvement" ? "before: " : "removed: ";
+  const changedWord = tone === "improvement" ? "more natural: " : "changed to: ";
   if (!original) {
     return (
       <ins className="font-medium text-accent no-underline">
@@ -21,17 +38,17 @@ export default function EditSpan({ original, corrected }: { original: string; co
   }
   if (!corrected) {
     return (
-      <del className="text-warn decoration-warn/50">
-        <span className="sr-only">removed: </span>
+      <del className={delClass}>
+        <span className="sr-only">{removedWord}</span>
         {original}
       </del>
     );
   }
   return (
     <>
-      <del className="text-warn decoration-warn/50">{original}</del>{" "}
+      <del className={delClass}>{original}</del>{" "}
       <ins className="font-medium text-accent no-underline">
-        <span className="sr-only">changed to: </span>→ {corrected}
+        <span className="sr-only">{changedWord}</span>→ {corrected}
       </ins>
     </>
   );

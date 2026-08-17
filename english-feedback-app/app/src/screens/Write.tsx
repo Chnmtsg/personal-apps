@@ -6,6 +6,7 @@ import {
   clearDraft,
   finishAnalysis,
   getAnalysedCount,
+  getAnalysingEntries,
   getDraft,
   getEntries,
   getProfile,
@@ -17,7 +18,16 @@ import {
 import { countWords, FAIL_REASON_MESSAGES } from "../lib/categories";
 import { activeClaim, STALE_CLAIM_MS } from "../lib/claim";
 import { applyFailure, type FailureOutcome } from "../lib/retry";
-import { MIN_WORDS } from "../../../shared/schema";
+import { MIN_WORDS } from "../../../shared/schema.ts";
+
+/**
+ * A soft heads-up only — nothing blocks a learner from writing past this.
+ * `MAX_BODY_BYTES` (worker/src/index.ts) rejects a request outright around
+ * 12KB, roughly 1,800–1,900 English words; this sits comfortably below that
+ * so the caution has time to be read before a long entry risks the harder
+ * "too long to check" failure.
+ */
+const LONG_ENTRY_CAUTION_WORDS = 1200;
 
 interface Props {
   navigate: (s: Screen) => void;
@@ -44,10 +54,12 @@ function failureMessage(failure: AnalyzeFailure, outcome: FailureOutcome): strin
    a 32px line box. Both numbers have to move together or the text drifts off
    the lines as it wraps. */
 const LINE = 32;
+// Driven from var(--color-paper) rather than a literal hex, so the writing
+// surface can never drift from the page it sits on if the token changes.
 const RULED: React.CSSProperties = {
   lineHeight: `${LINE}px`,
   backgroundImage:
-    "repeating-linear-gradient(#faf8f3 0px, #faf8f3 " +
+    "repeating-linear-gradient(var(--color-paper) 0px, var(--color-paper) " +
     (LINE - 1) +
     "px, rgba(28,26,23,0.09) " +
     (LINE - 1) +
@@ -99,7 +111,7 @@ export default function WriteScreen({ navigate, showToast }: Props) {
     let alive = true;
     const refresh = () => {
       if (document.visibilityState !== "visible") return;
-      void getEntries()
+      void getAnalysingEntries()
         .then((entries) => {
           if (alive) setChecking(activeClaim(entries, Date.now(), STALE_CLAIM_MS) !== null);
         })
@@ -159,13 +171,21 @@ export default function WriteScreen({ navigate, showToast }: Props) {
     try {
       // Save first — the entry exists locally before any network call.
       await saveEntry(entry);
-      await clearDraft();
     } catch (err) {
       // The text is still in the textarea, so the safe move is to keep the
       // user where they are rather than navigate away from unsaved writing.
       console.error("Couldn't save the entry:", err);
       showToast("We could not save this on your device. Your writing is still here.");
       return;
+    }
+    // The entry is safely stored at this point — a failure here is only a
+    // stale draft left behind, never a lost or duplicated entry. Reporting it
+    // as a save failure would send the learner back to a textarea that then
+    // resubmits an entry already on disk, paying for a second analysis.
+    try {
+      await clearDraft();
+    } catch (err) {
+      console.error("Couldn't clear the saved draft:", err);
     }
     setText("");
 
@@ -318,7 +338,7 @@ export default function WriteScreen({ navigate, showToast }: Props) {
         disabled={!loaded}
         style={RULED}
         placeholder="Yesterday I…"
-        className="mt-4 min-h-[55dvh] w-full flex-1 resize-none rounded-2xl border border-rule px-4 py-2 font-serif text-[16.5px] text-ink outline-none placeholder:text-ink-ghost focus:border-accent/50"
+        className="mt-4 min-h-[55dvh] w-full flex-1 resize-none rounded-2xl border border-rule px-4 py-2 font-serif text-[16.5px] text-ink outline-none placeholder:text-ink-ghost focus:border-accent focus:ring-2 focus:ring-accent/25"
       />
 
       <div className="mt-4 flex items-center justify-between">
@@ -328,11 +348,14 @@ export default function WriteScreen({ navigate, showToast }: Props) {
           </span>
           {/* Shown from zero words too: at zero the Analyse button is disabled
               with nothing on screen saying why, on the first screen the
-              learner ever sees. */}
+              learner ever sees. A caution past LONG_ENTRY_CAUTION_WORDS never
+              disables anything — it only says splitting is an option. */}
           <span className="text-[11.5px] text-ink-faint">
             {wordCount < MIN_WORDS
               ? `write ${MIN_WORDS - wordCount} more to analyse`
-              : "Saved on this device"}
+              : wordCount >= LONG_ENTRY_CAUTION_WORDS
+                ? "Long entry — you can still send it, or split it into two"
+                : "Saved on this device"}
           </span>
         </span>
         <button

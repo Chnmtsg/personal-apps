@@ -49,16 +49,3 @@ export const FAIL_REASON_MESSAGES: Record<FailReason, string> = {
   gave_up: "We tried five times and could not reach the server.",
   server: "We could not check this writing.",
 };
-
-/** Keyed by v2 severity; route stored values through normalizeSeverity. */
-export const SEVERITY_STYLES: Record<string, string> = {
-  minor: "bg-slate-100 text-slate-600",
-  noticeable: "bg-amber-100 text-amber-700",
-  blocking: "bg-red-100 text-red-700",
-};
-
-export const SEVERITY_LABELS: Record<string, string> = {
-  minor: "small",
-  noticeable: "clear error",
-  blocking: "hard to understand",
-};

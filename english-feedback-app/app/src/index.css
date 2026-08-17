@@ -12,8 +12,8 @@
   --color-ink: #1c1a17;
   --color-ink-muted: #3a352e;
   --color-ink-soft: #5c564c;
-  --color-ink-faint: #8b8578;
-  --color-ink-ghost: #a09a8c;
+  --color-ink-faint: #6b6559;
+  --color-ink-ghost: #767061;
   --color-rule: rgba(28, 26, 23, 0.12);
   --color-rule-strong: rgba(28, 26, 23, 0.22);
   --color-accent: #33418f;
@@ -47,7 +47,7 @@ mark {
 
 /* A label in the small mono caps used for every metadata line in the app. */
 .eyebrow {
-  @apply font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-ink-faint;
+  @apply font-mono text-[11px] font-medium tracking-[0.16em] uppercase text-ink-faint;
 }
 
 /* Tabular figures everywhere a number is meant to be compared down a column. */

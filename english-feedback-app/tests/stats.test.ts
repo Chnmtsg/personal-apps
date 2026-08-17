@@ -1,13 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  categoryOccurrencesBefore,
   formatErrorLog,
   getAnalysedCount,
+  getCategoryHistory,
   getErrorCounts,
   getExamples,
   getPatternMap,
+  getPreviousExample,
+  getQuietCategories,
   getRecurringCategories,
   getTrend,
+  ordinal,
+  per100,
+  previousRate,
+  topCategories,
 } from "../app/src/lib/stats.ts";
 import { countWords } from "../app/src/lib/categories.ts";
 import type { Entry } from "../app/src/lib/db.ts";
@@ -50,6 +58,7 @@ function entry(over: {
   status?: Entry["status"];
   corrections?: Correction[];
   patterns?: Feedback["patterns"];
+  risk?: "none" | "acute";
 }): Entry {
   const status = over.status ?? "analysed";
   return {
@@ -68,10 +77,17 @@ function entry(over: {
             scores: { grammar: 50, vocabulary: 50, naturalness: 50 },
             one_thing_to_fix: "articles",
             what_went_well: "clear structure",
+            ...(over.risk ? { risk: over.risk } : {}),
           }
         : null,
   };
 }
+
+/** An acute entry as the Worker actually stores it: "analysed", empty
+ * corrections, risk "acute" — never a grammar lesson, but still a real,
+ * readable entry in the learner's own record. */
+const acuteEntry = (over: { id?: string; createdAt: number; wordCount?: number }): Entry =>
+  entry({ ...over, corrections: [], risk: "acute" });
 
 test("legacy category names are counted under their v2 ids", () => {
   const counts = getErrorCounts([
@@ -153,8 +169,17 @@ test("the pattern map reflects stored pattern ids and stays honest about the res
   assert.equal(cell53.hits, 1);
   // A model-sourced correction has no pattern id, so it marks nothing.
   assert.ok(cells.every((c) => c.id === 53 || c.status === "unseen"));
-  // The professional tier is not on the learner's map at all.
-  assert.ok(cells.every((c) => c.id < 97));
+});
+
+// WORK-11 / ruling C2: the map is contracted to DETERMINISTIC_PATTERNS (49),
+// not the full JOURNAL_PATTERNS (96) — `pattern_id` is only ever written by
+// the deterministic matcher, so the other ~50 checklist entries could never
+// leave "unseen". Mapping the full 96 would show a denominator ("N of 96")
+// the code can never reach.
+test("the pattern map has exactly one cell per deterministic pattern, not the full checklist", () => {
+  const cells = getPatternMap([]);
+  assert.equal(cells.length, 49);
+  assert.ok(cells.every((c) => c.status === "unseen"));
 });
 
 test("getRecurringCategories sorts by count, most frequent first", () => {
@@ -343,4 +368,263 @@ test("counts words the way the Analyse gate does", () => {
   assert.equal(countWords("   \n\t "), 0);
   assert.equal(countWords("one"), 1);
   assert.equal(countWords("  spaced   out  words \n here "), 4);
+});
+
+// per100 used to be defined byte-for-byte twice, in Feedback.tsx and
+// History.tsx — moved here (WORK-13) so the History row and the Feedback
+// card can never drift apart on what the number means.
+test("per100 counts corrections per 100 words, not the raw count", () => {
+  const rate = per100(
+    entry({ createdAt: day(2026, 1, 1), wordCount: 50, corrections: [correction("articles"), correction("copula")] })
+  );
+  assert.equal(rate, 4);
+});
+
+test("per100 is null with no feedback or with zero words", () => {
+  assert.equal(per100(entry({ createdAt: day(2026, 1, 1), status: "queued" })), null);
+  assert.equal(per100(entry({ createdAt: day(2026, 1, 1), wordCount: 0 })), null);
+});
+
+test("topCategories names the two heaviest categories for one entry, capped at two", () => {
+  const summary = topCategories(
+    entry({
+      createdAt: day(2026, 1, 1),
+      corrections: [
+        correction("articles"),
+        correction("articles"),
+        correction("copula"),
+        correction("spelling"),
+      ],
+    })
+  );
+  assert.equal(summary, "Articles ×2 · Missing 'to be' ×1");
+});
+
+test("topCategories is empty for an entry with no feedback", () => {
+  assert.equal(topCategories(entry({ createdAt: day(2026, 1, 1), status: "queued" })), "");
+});
+
+test("previousRate finds the nearest earlier analysed entry's rate, skipping queued and failed ones between", () => {
+  // Newest first, as getEntries() returns them.
+  const entries = [
+    entry({ id: "c", createdAt: day(2026, 1, 4), wordCount: 100, corrections: [correction("articles")] }),
+    entry({ id: "b-queued", createdAt: day(2026, 1, 3), status: "queued" }),
+    entry({ id: "b-failed", createdAt: day(2026, 1, 3), status: "failed" }),
+    entry({ id: "a", createdAt: day(2026, 1, 1), wordCount: 200, corrections: [correction("articles"), correction("copula")] }),
+  ];
+  assert.equal(previousRate(entries, "c"), 1);
+});
+
+test("previousRate is null for the oldest analysed entry, and for an id not in the list", () => {
+  const entries = [
+    entry({ id: "b", createdAt: day(2026, 1, 2), wordCount: 100, corrections: [correction("articles")] }),
+    entry({ id: "a", createdAt: day(2026, 1, 1), wordCount: 100, corrections: [correction("articles")] }),
+  ];
+  assert.equal(previousRate(entries, "a"), null);
+  assert.equal(previousRate(entries, "missing"), null);
+});
+
+// An acute entry is stored "analysed" with corrections: [] — the Worker
+// deliberately never grades a crisis. Left uncounted for what it is, it
+// would read back as a flawless entry: 0.0 per 100 words, a clean-streak
+// increment, and "your last entry was 0.0" rendered right after a crisis.
+// These pin the fix at every point that reads risk.
+
+test("per100 is null for an acute entry, not a flattering zero", () => {
+  const rate = per100(acuteEntry({ createdAt: day(2026, 1, 1), wordCount: 80 }));
+  assert.equal(rate, null);
+});
+
+test("previousRate skips an acute entry to the last entry that was actually graded", () => {
+  // Newest first, as getEntries() returns them: a real entry, then the
+  // crisis entry, then an earlier real entry. The closing card for "c" must
+  // never compare against the acute entry's ungraded 0.0.
+  const entries = [
+    entry({ id: "c", createdAt: day(2026, 1, 4), wordCount: 100, corrections: [correction("articles")] }),
+    acuteEntry({ id: "acute", createdAt: day(2026, 1, 3), wordCount: 60 }),
+    entry({ id: "a", createdAt: day(2026, 1, 1), wordCount: 200, corrections: [correction("articles"), correction("copula")] }),
+  ];
+  assert.equal(previousRate(entries, "c"), 1);
+});
+
+test("previousRate is null when the only earlier entry is acute", () => {
+  const entries = [
+    entry({ id: "b", createdAt: day(2026, 1, 2), wordCount: 100, corrections: [correction("articles")] }),
+    acuteEntry({ id: "a", createdAt: day(2026, 1, 1), wordCount: 60 }),
+  ];
+  assert.equal(previousRate(entries, "b"), null);
+});
+
+test("an acute entry does not count toward getAnalysedCount", () => {
+  assert.equal(
+    getAnalysedCount([
+      acuteEntry({ id: "acute", createdAt: day(2026, 1, 2) }),
+      entry({ id: "a", createdAt: day(2026, 1, 1), corrections: [correction("articles")] }),
+    ]),
+    1
+  );
+});
+
+test("an acute entry does not extend a clean streak", () => {
+  // Without the fix, the acute entry (status "analysed", no corrections)
+  // reads as a clean lesson and the streak the model is told becomes 2
+  // instead of 1 — a fabricated claim about the learner's history.
+  const [recurring] = getRecurringCategories([
+    acuteEntry({ id: "acute", createdAt: day(2026, 1, 3) }),
+    entry({ id: "b", createdAt: day(2026, 1, 2), corrections: [correction("spelling")] }),
+    entry({ id: "a", createdAt: day(2026, 1, 1), corrections: [correction("articles")] }),
+  ]).filter((r) => r.category === "article");
+  assert.equal(recurring.cleanStreak, 1);
+});
+
+test("an acute entry is excluded from the trend and pattern map, but still exists as an entry the learner can revisit", () => {
+  const entries = [acuteEntry({ id: "acute", createdAt: day(2026, 1, 1), wordCount: 60 })];
+  assert.deepEqual(getTrend(entries), []);
+  assert.ok(getPatternMap(entries).every((c) => c.status === "unseen"));
+  // stats.ts only derives numbers — it never removes the entry itself. The
+  // caller (getEntries()) still returns it; History and Feedback still find
+  // it by id. That guarantee is exercised by db.ts/claim.ts, not here.
+  assert.equal(entries.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Per-correction history: categoryOccurrencesBefore, getPreviousExample,
+// getCategoryHistory, getQuietCategories, ordinal.
+// ---------------------------------------------------------------------------
+
+// The core guarantee: history is relative to the entry being VIEWED, not to
+// the device's current state. Reopening the same list at an earlier entry
+// must report a smaller count — the same list, two different truthful
+// answers, because the question ("how many times before THIS one") differs.
+test("occurrence history is computed relative to the entry being viewed, not all-time", () => {
+  const entries = [
+    entry({ id: "c", createdAt: day(2026, 1, 3), corrections: [correction("articles")] }),
+    entry({ id: "b", createdAt: day(2026, 1, 2), corrections: [correction("articles")] }),
+    entry({ id: "a", createdAt: day(2026, 1, 1), corrections: [correction("articles")] }),
+  ];
+  assert.equal(categoryOccurrencesBefore(entries, "a", "article"), 0);
+  assert.equal(categoryOccurrencesBefore(entries, "b", "article"), 1);
+  assert.equal(categoryOccurrencesBefore(entries, "c", "article"), 2);
+  // Reopening "b" today must show exactly what was true when "b" was
+  // written — 1 prior occurrence — never the all-time total of 2.
+  assert.equal(getCategoryHistory(entries, "b", "article").occurrenceNumber, 2);
+});
+
+test("a legacy category name in a past entry is still counted under its v2 id", () => {
+  const entries = [
+    entry({ id: "new", createdAt: day(2026, 1, 2), corrections: [correction("comma_splice")] }),
+    entry({ id: "old", createdAt: day(2026, 1, 1), corrections: [correction("comma_splice")] }),
+  ];
+  assert.equal(categoryOccurrencesBefore(entries, "new", "run_on"), 1);
+  assert.equal(getPreviousExample(entries, "new", "run_on")?.entryId, "old");
+});
+
+test("an acute entry between two real ones does not count toward occurrence history, even if it carried a stray correction", () => {
+  const entries = [
+    entry({ id: "c", createdAt: day(2026, 1, 3), corrections: [correction("articles")] }),
+    // Not how the Worker actually stores an acute entry (it always writes
+    // corrections: []) — constructed this way on purpose, so the test
+    // proves the function checks risk === "acute" itself rather than
+    // happening to pass because acute entries are always empty.
+    entry({ id: "acute", createdAt: day(2026, 1, 2), corrections: [correction("articles")], risk: "acute" }),
+    entry({ id: "a", createdAt: day(2026, 1, 1), corrections: [correction("articles")] }),
+  ];
+  assert.equal(categoryOccurrencesBefore(entries, "c", "article"), 1);
+  assert.equal(getPreviousExample(entries, "c", "article")?.entryId, "a");
+});
+
+test("the first-ever occurrence of a category has no previous example and occurrence number 1", () => {
+  const entries = [entry({ id: "a", createdAt: day(2026, 1, 1), corrections: [correction("articles")] })];
+  const history = getCategoryHistory(entries, "a", "article");
+  assert.equal(history.occurrenceNumber, 1);
+  assert.equal(history.previousExample, null);
+});
+
+test("getPreviousExample carries the learner's own words verbatim", () => {
+  const entries = [
+    entry({ id: "b", createdAt: day(2026, 1, 2), corrections: [correction("articles")] }),
+    entry({
+      id: "a",
+      createdAt: day(2026, 1, 1),
+      corrections: [correction("articles", "I am geologist", "I am a geologist")],
+    }),
+  ];
+  const example = getPreviousExample(entries, "b", "article");
+  assert.equal(example?.original, "I am geologist");
+  assert.equal(example?.corrected, "I am a geologist");
+  assert.equal(example?.entryId, "a");
+});
+
+test("categoryOccurrencesBefore and getPreviousExample are 0/null for an id not in the list", () => {
+  const entries = [entry({ id: "a", createdAt: day(2026, 1, 1), corrections: [correction("articles")] })];
+  assert.equal(categoryOccurrencesBefore(entries, "missing", "article"), 0);
+  assert.equal(getPreviousExample(entries, "missing", "article"), null);
+});
+
+/** Builds `n` clean filler entries (newest-first-compatible order), with one
+ * entry at `hitAt` carrying a correction in `category`. Mirrors the fixture
+ * shape getPatternMap's own test already relies on. */
+function fillerEntries(n: number, hitAt: number, category: string): Entry[] {
+  return Array.from({ length: n }, (_, i) =>
+    entry({
+      id: `f${i}`,
+      createdAt: day(2026, 2, 1) - i,
+      corrections: i === hitAt ? [v2correction(category as Correction["category"])] : [correction("spelling")],
+    })
+  );
+}
+
+test("gone-quiet uses the same PATTERN_ACTIVE_WINDOW boundary as the pattern map", () => {
+  // "verb_tense" last appeared 13 entries back — still inside the window, so
+  // it is active, not quiet. "collocation" last appeared 14 entries back —
+  // exactly the boundary — so it is quiet.
+  const viewed = entry({ id: "viewed", createdAt: day(2026, 3, 1), corrections: [] });
+  const filler = fillerEntries(20, 13, "verb_tense");
+  filler[14] = entry({
+    id: filler[14].id,
+    createdAt: filler[14].createdAt,
+    corrections: [v2correction("collocation")],
+  });
+  const entries = [viewed, ...filler];
+
+  const quiet = getQuietCategories(entries, "viewed");
+  assert.ok(!quiet.some((q) => q.category === "verb_tense"));
+  const collocation = quiet.find((q) => q.category === "collocation");
+  assert.equal(collocation?.entriesSince, 14);
+});
+
+test("a category still being corrected in the entry on screen is never reported as gone quiet", () => {
+  const filler = fillerEntries(20, 15, "pronoun");
+  const viewed = entry({ id: "viewed", createdAt: day(2026, 3, 1), corrections: [correction("pronoun")] });
+  const entries = [viewed, ...filler];
+  const quiet = getQuietCategories(entries, "viewed");
+  assert.ok(!quiet.some((q) => q.category === "pronoun"));
+});
+
+test("gone-quiet is empty for an id not in the list, and for an acute or unanalysed viewed entry", () => {
+  const filler = fillerEntries(20, 15, "pronoun");
+  assert.deepEqual(getQuietCategories(filler, "missing"), []);
+  assert.deepEqual(
+    getQuietCategories([acuteEntry({ id: "acute", createdAt: day(2026, 3, 1) }), ...filler], "acute"),
+    []
+  );
+  assert.deepEqual(
+    getQuietCategories([entry({ id: "q", createdAt: day(2026, 3, 1), status: "queued" }), ...filler], "q"),
+    []
+  );
+});
+
+test("ordinal formats 1st/2nd/3rd/4th and the 11th-13th irregular teens", () => {
+  assert.equal(ordinal(1), "1st");
+  assert.equal(ordinal(2), "2nd");
+  assert.equal(ordinal(3), "3rd");
+  assert.equal(ordinal(4), "4th");
+  assert.equal(ordinal(11), "11th");
+  assert.equal(ordinal(12), "12th");
+  assert.equal(ordinal(13), "13th");
+  assert.equal(ordinal(21), "21st");
+  assert.equal(ordinal(22), "22nd");
+  assert.equal(ordinal(23), "23rd");
+  assert.equal(ordinal(101), "101st");
+  assert.equal(ordinal(111), "111th");
 });

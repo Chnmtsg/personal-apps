@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CEFR_LEVELS,
   MODEL_ID,
   PROMPT_VERSION,
   type LearnerProfile,
 } from "../../../shared/schema";
-import { deleteAllData, exportAllJson, getProfile, saveProfile } from "../lib/db";
+import { deleteAllData, exportAllJson, getProfile, importEntries, saveProfile } from "../lib/db";
 
 interface Props {
   showToast: (msg: string) => void;
@@ -95,6 +95,39 @@ export default function SettingsScreen({ showToast }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportFile = async (file: File) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch (err) {
+      console.error("Import file could not be read as JSON:", err);
+      showToast("That file is not a backup this app made.");
+      return;
+    }
+    const rawEntries = (parsed as { entries?: unknown })?.entries;
+    if (!Array.isArray(rawEntries)) {
+      showToast("That file is not a backup this app made.");
+      return;
+    }
+    try {
+      const outcome = await importEntries(rawEntries);
+      if (outcome.imported === 0 && outcome.invalid === 0) {
+        showToast(`Nothing new — all ${outcome.skippedExisting} entries were already here.`);
+      } else if (outcome.invalid > 0) {
+        showToast(
+          `Restored ${outcome.imported} ${outcome.imported === 1 ? "entry" : "entries"}. ${outcome.invalid} could not be read.`
+        );
+      } else {
+        showToast(`Restored ${outcome.imported} ${outcome.imported === 1 ? "entry" : "entries"}.`);
+      }
+    } catch (err) {
+      console.error("Import failed:", err);
+      showToast("We could not save that on your device.");
+    }
+  };
+
   const handleDelete = async () => {
     const sure = window.confirm(
       "Delete all your writing and feedback from this device? You cannot get it back. Export a copy first if you want to keep it."
@@ -107,6 +140,10 @@ export default function SettingsScreen({ showToast }: Props) {
       showToast("We could not delete your data.");
       return;
     }
+    // deleteAllData clears the profile along with every entry — without this
+    // the form keeps asserting a saved profile that no longer exists on disk.
+    setProfile({});
+    setSaved({});
     showToast("We deleted everything.");
   };
 
@@ -153,6 +190,7 @@ export default function SettingsScreen({ showToast }: Props) {
               id="level"
               value={profile.level ?? ""}
               disabled={!profileLoaded}
+              aria-describedby="level-help"
               onChange={(e) =>
                 setProfile((p) => ({
                   ...p,
@@ -168,7 +206,7 @@ export default function SettingsScreen({ showToast }: Props) {
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-sm text-ink-soft">
+            <p id="level-help" className="mt-1 text-sm text-ink-soft">
               We write your feedback at this level, so you can read it.
             </p>
           </div>
@@ -188,7 +226,7 @@ export default function SettingsScreen({ showToast }: Props) {
               type="button"
               onClick={() => void handleSaveProfile()}
               disabled={!profileLoaded || !dirty}
-              className="min-h-11 rounded-full bg-accent px-6 text-sm font-semibold text-paper disabled:bg-rule-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              className="min-h-11 rounded-full bg-accent px-6 text-sm font-semibold text-paper disabled:bg-rule-strong disabled:text-ink-faint focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               Save
             </button>
@@ -235,6 +273,30 @@ export default function SettingsScreen({ showToast }: Props) {
           >
             Export all data (JSON)
           </button>
+          <button
+            type="button"
+            onClick={() => importInputRef.current?.click()}
+            className="min-h-11 rounded-full border border-rule-strong px-5 text-sm font-semibold text-ink-muted"
+          >
+            Import a backup (JSON)
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json"
+            className="sr-only"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              // Reset immediately so choosing the same file twice fires onChange
+              // again — otherwise a second attempt at the same file is silent.
+              e.target.value = "";
+              if (file) void handleImportFile(file);
+            }}
+          />
+          <p className="text-sm text-ink-soft">
+            Restores entries from an export made on this or another device. Never overwrites
+            what's already here.
+          </p>
           <button
             type="button"
             onClick={() => void handleDelete()}

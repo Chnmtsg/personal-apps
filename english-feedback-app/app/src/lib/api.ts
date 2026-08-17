@@ -3,7 +3,7 @@ import {
   type Feedback,
   type LearnerProfile,
   type RecurringCategory,
-} from "../../../shared/schema";
+} from "../../../shared/schema.ts";
 import type { AnalyzeFailure } from "./failure";
 
 // Trailing slashes are stripped so a URL ending in "/" can't produce "//analyze".
@@ -13,13 +13,13 @@ const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) ?? "").rep
 // public bundle, so it deters casual abuse rather than authenticating anyone.
 const APP_KEY = import.meta.env.VITE_APP_KEY as string | undefined;
 
-// The worker allows itself 120s per Anthropic call, and the pipeline can now
-// make up to four sequentially in the worst case (up to 3 corrector attempts
-// on an over-rewrite, then synthesize — coach runs in parallel and never
-// extends this). Give it a little more than that worst case so a slow-but-
-// succeeding analysis is not cut short by the client, but a hung socket
-// still ends. This worst case is theoretical, not measured — see the
-// multi-call latency note in Known Gaps.
+// The worker allows itself 120s per Anthropic call, and the pipeline is one
+// teacher call, retried sequentially up to twice more if the correction is an
+// over-rewrite (ADR 0001 — there is no separate corrector/synthesize/coach
+// stage any more). Give it a little more than that worst case (up to three
+// calls) so a slow-but-succeeding analysis is not cut short by the client,
+// but a hung socket still ends. This worst case is theoretical, not
+// measured — see the multi-call latency note in Known Gaps.
 const REQUEST_TIMEOUT_MS = 540_000;
 
 export type { AnalyzeFailure, AnalyzeFailureKind } from "./failure";
@@ -71,7 +71,13 @@ export async function analyzeText(
     return { ok: false, kind: "server", retryable, code };
   }
 
-  let data: { status?: string; feedback?: unknown; model?: string; promptVersion?: number };
+  let data: {
+    status?: string;
+    feedback?: unknown;
+    model?: string;
+    promptVersion?: number;
+    cache?: unknown;
+  };
   try {
     data = await res.json();
   } catch {
@@ -95,6 +101,13 @@ export async function analyzeText(
     if (!text.includes(c.original)) {
       console.warn("correction.original is not a substring of the entry text:", c.original);
     }
+  }
+
+  // Instrumentation only, ahead of measuring real entries (Known Gaps): no
+  // storage, no UI, nothing sent anywhere — just what the browser console
+  // already sees for any other request.
+  if (data.cache) {
+    console.log("prompt cache usage:", data.cache);
   }
 
   return {

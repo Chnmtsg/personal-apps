@@ -22,6 +22,15 @@ import "./index.css";
 
 registerSW({ immediate: true });
 
+// Dev-only sample data, so the Feedback screen can be looked at without a live
+// model call against a deployed Worker. `import.meta.env.DEV` is replaced with
+// `false` at build time, so Rollup drops this branch and never emits the chunk.
+// This is the ONLY reference to src/dev/ — keep it that way, and never put a
+// seed file in app/public/, because everything there ships.
+if (import.meta.env.DEV) {
+  void import("./dev/seedDemo.ts").then((m) => m.installDemoSeed());
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>

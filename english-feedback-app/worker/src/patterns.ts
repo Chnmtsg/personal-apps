@@ -133,6 +133,10 @@ export function labelForHit(hit: PatternHit, level: string | undefined): Pattern
  * ("of" -> "on"). Containment is the bridge. A heuristic, not a proof: a
  * coincidental model edit inside a matched phrase can inherit the pattern's
  * label, which mislabels its source but never its text.
+ *
+ * Splices the matched hit out of `hits` (mirroring `noteQueues.shift()` in
+ * pipeline.ts) so two edits in one sentence can never both claim the same
+ * hit — without this, one pattern fix could be counted twice in the map.
  */
 export function findMatchingHit(
   edit: { original: string; corrected: string },
@@ -141,9 +145,11 @@ export function findMatchingHit(
   if (edit.original === "" && edit.corrected === "") return undefined;
   const o = edit.original.toLowerCase();
   const c = edit.corrected.toLowerCase();
-  return hits.find(
+  const index = hits.findIndex(
     (h) =>
       (o === "" || h.original.toLowerCase().includes(o)) &&
       (c === "" || h.corrected.toLowerCase().includes(c))
   );
+  if (index === -1) return undefined;
+  return hits.splice(index, 1)[0];
 }

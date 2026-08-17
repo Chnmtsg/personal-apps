@@ -124,10 +124,25 @@ test("a category with no rule wording explains with the pair itself", () => {
 
 test("a word-diff edit finds the hit that caused it by containment", () => {
   const { hits } = applyPatterns("It depends of the grade.");
+  const hit = hits[0];
   // The word diff against the original reports only the changed word.
-  assert.equal(findMatchingHit({ original: "of", corrected: "on" }, hits), hits[0]);
+  assert.equal(findMatchingHit({ original: "of", corrected: "on" }, hits), hit);
   assert.equal(findMatchingHit({ original: "grade", corrected: "quality" }, hits), undefined);
   assert.equal(findMatchingHit({ original: "", corrected: "" }, hits), undefined);
+});
+
+// WORK-30: findMatchingHit used to return the same hit for every matching
+// edit, so two edits in one sentence could both claim it and double-count
+// the pattern in the map. It must splice the hit out once claimed.
+test("a hit is claimed by only the first matching edit, never twice", () => {
+  const { hits } = applyPatterns("It depends of the grade.");
+  assert.equal(hits.length, 1);
+  const edit = { original: "of", corrected: "on" };
+  const first = findMatchingHit(edit, hits);
+  assert.ok(first);
+  assert.equal(hits.length, 0, "the matched hit must be removed from the array");
+  const second = findMatchingHit(edit, hits);
+  assert.equal(second, undefined, "a second edit must not re-claim the same hit");
 });
 
 // ---------------------------------------------------------------------------

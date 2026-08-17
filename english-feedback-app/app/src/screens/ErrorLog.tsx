@@ -11,6 +11,7 @@ import type { ErrorCategory } from "../../../shared/schema";
 import ErrorNote from "../components/ErrorNote";
 import EditSpan from "../components/EditSpan";
 import {
+  getAnalysedCount,
   getEntries,
   getErrorCounts,
   getExamples,
@@ -22,9 +23,22 @@ import {
 import { CATEGORY_LABELS } from "../lib/categories";
 import { useLoad } from "../lib/useLoad";
 
+// No virtualisation library (chief-architect: off limits for a list-length
+// problem a slice solves) — a plain cap with an appending "show more" keeps
+// the DOM small for a category with a long history without a dependency.
+const PAGE_SIZE = 50;
+
 export default function ErrorLogScreen({ showToast }: { showToast: (msg: string) => void }) {
   const state = useLoad(() => getEntries(), []);
   const [selected, setSelected] = useState<ErrorCategory | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // Reset the page size whenever a different category is opened, so a long
+  // list left expanded for one category doesn't carry over to the next.
+  const selectCategory = (cat: ErrorCategory | null) => {
+    setSelected(cat);
+    setVisibleCount(PAGE_SIZE);
+  };
 
   const entries = state.status === "ready" ? state.data : [];
 
@@ -57,13 +71,34 @@ export default function ErrorLogScreen({ showToast }: { showToast: (msg: string)
   );
 
   const total = useMemo(() => counts.reduce((sum, [, n]) => sum + n, 0), [counts]);
-  const analysed = useMemo(() => entries.filter((e) => e.feedback).length, [entries]);
+  // getAnalysedCount is the one definition of "analysed" every statistic on
+  // this screen already counts by (status === "analysed" && feedback); the
+  // former entries.filter((e) => e.feedback).length here checked feedback
+  // alone and could disagree with the counts and trend beside it.
+  const analysed = useMemo(() => getAnalysedCount(entries), [entries]);
   const seenPatterns = useMemo(
     () => patternMap.filter((p) => p.status !== "unseen"),
     [patternMap]
   );
+  const activeCount = useMemo(
+    () => patternMap.filter((p) => p.status === "active").length,
+    [patternMap]
+  );
+  const fadingCount = useMemo(
+    () => patternMap.filter((p) => p.status === "fading").length,
+    [patternMap]
+  );
 
-  if (state.status === "loading") return null;
+  if (state.status === "loading") {
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="font-serif text-3xl">Patterns</h1>
+        <p role="status" className="text-sm text-ink-soft">
+          Loading your patterns…
+        </p>
+      </div>
+    );
+  }
   if (state.status === "error") {
     return (
       <div className="flex flex-col gap-4">
@@ -82,7 +117,7 @@ export default function ErrorLogScreen({ showToast }: { showToast: (msg: string)
       <div className="flex flex-col">
         <button
           type="button"
-          onClick={() => setSelected(null)}
+          onClick={() => selectCategory(null)}
           className="min-h-11 self-start text-sm text-ink-soft"
         >
           ‹ Patterns
@@ -101,7 +136,10 @@ export default function ErrorLogScreen({ showToast }: { showToast: (msg: string)
           </div>
         </dl>
         <ul className="flex flex-col">
-          {examples.map((ex, i) => (
+          {/* getExamples already sorts newest-first, so a slice is the right
+              examples (WORK-14) — no virtualisation library for a list-length
+              problem a slice solves. */}
+          {examples.slice(0, visibleCount).map((ex, i) => (
             <li key={i} className="border-b border-rule py-4">
               <p className="font-serif text-[17px] leading-[1.5]">
                 <EditSpan original={ex.original} corrected={ex.corrected} />
@@ -116,6 +154,15 @@ export default function ErrorLogScreen({ showToast }: { showToast: (msg: string)
             </li>
           ))}
         </ul>
+        {examples.length > visibleCount && (
+          <button
+            type="button"
+            onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+            className="mt-2 min-h-11 w-full rounded-full border border-rule-strong text-sm font-medium text-ink-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            Show {Math.min(PAGE_SIZE, examples.length - visibleCount)} more
+          </button>
+        )}
       </div>
     );
   }
@@ -139,9 +186,13 @@ export default function ErrorLogScreen({ showToast }: { showToast: (msg: string)
           {/* The one sentence this whole app exists to deliver, so it is the
               biggest thing on the screen and carries the app's only filled
               block of colour. */}
-          <section className="mt-5 rounded-[18px] bg-accent p-5 text-[#eceaf6]">
+          <section className="mt-5 rounded-[18px] bg-accent p-5 text-white">
             <h2>
-              <span className="eyebrow block text-[#eceaf6]/75">Your number one pattern</span>
+              {/* `!` forces this above .eyebrow's own text-ink-faint: both
+                  land in the same Tailwind layer, so without it the later
+                  .eyebrow rule would win and this would render unreadably
+                  dark on the accent background. */}
+              <span className="eyebrow block text-white/75!">Your number one pattern, all time</span>
               <span className="mt-2 block font-serif text-[27px] leading-[1.15] text-white">
                 {CATEGORY_LABELS[counts[0][0]]}
               </span>
@@ -151,7 +202,7 @@ export default function ErrorLogScreen({ showToast }: { showToast: (msg: string)
                 {counts[0][1]}
               </span>
               <span className="text-[13px] opacity-80">
-                {counts[0][1] === 1 ? "error" : "errors"} so far
+                {counts[0][1] === 1 ? "error" : "errors"} since you started
                 {total > 0 && ` · ${Math.round((counts[0][1] / total) * 100)}% of everything`}
               </span>
             </p>
@@ -160,18 +211,30 @@ export default function ErrorLogScreen({ showToast }: { showToast: (msg: string)
             )}
           </section>
 
-          {/* The top-100 checklist as a map: finite, visible, with an end the
-              learner can see. A streak measures attendance; this measures
-              which known traps still catch them. */}
+          {/* The traps the app can catch automatically, as a map: finite,
+              visible, with an end the learner can see. A streak measures
+              attendance; this measures which known traps still catch them.
+              Deliberately NOT the full Top-100 checklist (WORK-11 / ruling
+              C2): `pattern_id` is only ever written by the deterministic
+              matcher, so a 96- or 100-cell grid would show a denominator
+              the code can never fill in — 47+ cells permanently grey under
+              a header that calls them "not seen yet" when they are in fact
+              unreachable. The three states are told apart by shape, not
+              only colour, and the sentence below carries the grid's full
+              information content in words for anyone who cannot see it. */}
           {seenPatterns.length > 0 && (
             <section className="mt-4 rounded-2xl border border-rule bg-card p-4">
               <div className="flex items-baseline justify-between">
-                <h2 className="eyebrow">Your top-100 map</h2>
+                <h2 className="eyebrow">Traps we catch automatically</h2>
                 <span className="tnum font-mono text-[13px] font-medium text-ink">
-                  {seenPatterns.length} seen
+                  {seenPatterns.length} of {patternMap.length}
                 </span>
               </div>
-              <div className="mt-3 grid grid-cols-12 gap-1" aria-hidden>
+              <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-soft">
+                {seenPatterns.length} of {patternMap.length} traps seen; {activeCount}{" "}
+                still happening, {fadingCount} going quiet.
+              </p>
+              <div className="mt-3 grid grid-cols-12 gap-1">
                 {patternMap.map((p) => (
                   <span
                     key={p.id}
@@ -180,8 +243,8 @@ export default function ErrorLogScreen({ showToast }: { showToast: (msg: string)
                       p.status === "active"
                         ? "bg-warn/70"
                         : p.status === "fading"
-                          ? "bg-accent/40"
-                          : "bg-ink/[0.07]"
+                          ? "border-2 border-accent/60 bg-accent/10"
+                          : "border border-dashed border-rule bg-transparent"
                     }`}
                   />
                 ))}
@@ -191,10 +254,18 @@ export default function ErrorLogScreen({ showToast }: { showToast: (msg: string)
                   <span aria-hidden className="size-2 rounded-[2px] bg-warn/70" /> still happening
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span aria-hidden className="size-2 rounded-[2px] bg-accent/40" /> going quiet
+                  <span
+                    aria-hidden
+                    className="size-2 rounded-[2px] border-2 border-accent/60 bg-accent/10"
+                  />{" "}
+                  going quiet
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span aria-hidden className="size-2 rounded-[2px] bg-ink/[0.07]" /> not seen yet
+                  <span
+                    aria-hidden
+                    className="size-2 rounded-[2px] border border-dashed border-rule bg-transparent"
+                  />{" "}
+                  not seen yet
                 </span>
               </p>
             </section>
@@ -210,16 +281,21 @@ export default function ErrorLogScreen({ showToast }: { showToast: (msg: string)
                 </span>
               </div>
               <div className="mt-3 h-40">
+                {/* Recharts styles its own SVG children with inline props, not
+                    Tailwind classes, so these literal hexes cannot be token
+                    utilities — they are hand-mirrored from ink-ghost, rule,
+                    accent and card in app/src/index.css. Keep them in sync by
+                    hand if those values ever move. */}
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
                     <XAxis
                       dataKey="date"
-                      tick={{ fontSize: 10, fill: "#a09a8c", fontFamily: "IBM Plex Mono" }}
+                      tick={{ fontSize: 10, fill: "#767061", fontFamily: "IBM Plex Mono" }}
                       stroke="rgba(28,26,23,0.15)"
                       tickFormatter={(d: string) => d.slice(5)}
                     />
                     <YAxis
-                      tick={{ fontSize: 10, fill: "#a09a8c", fontFamily: "IBM Plex Mono" }}
+                      tick={{ fontSize: 10, fill: "#767061", fontFamily: "IBM Plex Mono" }}
                       stroke="rgba(28,26,23,0.15)"
                     />
                     <Tooltip
@@ -252,14 +328,14 @@ export default function ErrorLogScreen({ showToast }: { showToast: (msg: string)
           <section className="mt-6">
             <div className="flex items-baseline justify-between border-b border-rule pb-2.5">
               <h2 className="eyebrow">Every error so far</h2>
-              <span className="eyebrow">N · share</span>
+              <span className="eyebrow">Count · % of all</span>
             </div>
             <ol>
               {counts.map(([cat, count], n) => (
                 <li key={cat}>
                   <button
                     type="button"
-                    onClick={() => setSelected(cat)}
+                    onClick={() => selectCategory(cat)}
                     className={`flex min-h-14 w-full items-center gap-3 border-b border-rule px-1 text-left ${
                       n === 0 ? "bg-accent-soft/60" : ""
                     }`}

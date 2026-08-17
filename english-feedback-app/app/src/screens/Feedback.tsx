@@ -1,13 +1,26 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Screen } from "../App";
 import ErrorNote from "../components/ErrorNote";
 import EditSpan from "../components/EditSpan";
-import { getEntry, requeueFailedEntry, type Entry } from "../lib/db";
+import {
+  getCategoryHistory,
+  getEntries,
+  getEntry,
+  getQuietCategories,
+  ordinal,
+  per100,
+  previousRate,
+  requeueFailedEntry,
+  type CategoryHistoryForEntry,
+  type Entry,
+} from "../lib/db";
 import { processQueue } from "../lib/queue";
 import { canRequeue } from "../lib/claim";
-import { FAIL_REASON_MESSAGES, labelFor } from "../lib/categories";
+import { FAIL_REASON_MESSAGES, labelFor, normalizeCategory } from "../lib/categories";
 import { buildSegments } from "../lib/highlight";
+import { explanationRows, hasLegacyAppendix } from "../lib/feedbackSections";
 import { useLoad } from "../lib/useLoad";
+import type { ErrorCategory } from "../../../shared/schema";
 
 interface Props {
   entryId: string;
@@ -26,52 +39,15 @@ function pendingMessage(entry: Entry): string {
   return `${FAIL_REASON_MESSAGES[entry.failReason ?? "server"]} Your writing is safe below.`;
 }
 
-type Feedback = NonNullable<Entry["feedback"]>;
-type Card =
-  | { kind: "summary" }
-  | { kind: "watch" }
-  | { kind: "ambiguous" }
-  | { kind: "correction"; index: number }
-  | { kind: "fluency" }
-  | { kind: "vocabulary" }
-  | { kind: "drill"; index: number }
-  | { kind: "corrected" }
-  | { kind: "closing" };
-
-/**
- * The card order is the teaching order: the teacher's message first, then
- * each correction on its own, then practice, then the coach. Empty sections
- * drop out rather than appearing as a card with a heading and nothing under
- * it. Legacy-only sections (vocabulary, pattern watch, scores) appear only on
- * entries that stored them.
- */
-function buildCards(fb: Feedback): Card[] {
-  const cards: Card[] = [{ kind: "summary" }];
-  if (fb.pattern_watch) cards.push({ kind: "watch" });
-  if (fb.ambiguous && fb.ambiguous.length > 0) cards.push({ kind: "ambiguous" });
-  fb.corrections.forEach((_, index) => cards.push({ kind: "correction", index }));
-  if (fb.fluency_notes && fb.fluency_notes.length > 0) cards.push({ kind: "fluency" });
-  if (fb.vocabulary && fb.vocabulary.length > 0) cards.push({ kind: "vocabulary" });
-  (fb.drills ?? []).forEach((_, index) => cards.push({ kind: "drill", index }));
-  // Last before the closing card: by this point the learner has met every
-  // correction on its own, so the clean copy reads as the result.
-  if (fb.corrected_text) cards.push({ kind: "corrected" });
-  cards.push({ kind: "closing" });
-  return cards;
-}
-
-/** Errors per 100 words for one entry — the only number the app asks the learner to watch. */
-function per100(entry: Entry): number | null {
-  if (!entry.feedback || entry.wordCount === 0) return null;
-  return (entry.feedback.corrections.length / entry.wordCount) * 100;
-}
-
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return <span className="eyebrow block">{children}</span>;
 }
 
 export default function FeedbackScreen({ entryId, navigate, showToast }: Props) {
   const state = useLoad(() => getEntry(entryId), [entryId]);
+  // Only for the closing card's "your last entry was…" sentence — best-effort,
+  // so a failure here degrades to no comparison rather than a broken screen.
+  const historyState = useLoad(() => getEntries(), []);
 
   const tryAgain = async (id: string) => {
     try {
@@ -87,18 +63,48 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
 
   const entry = state.status === "ready" ? state.data : null;
   const fb = entry?.feedback ?? null;
-  const cards = useMemo(() => (fb && fb.risk !== "acute" ? buildCards(fb) : []), [fb]);
-
-  const [i, setI] = useState(0);
-  const [dx, setDx] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const startX = useRef(0);
-
-  const go = (d: number) => {
-    setDx(0);
-    setDragging(false);
-    setI((prev) => Math.min(cards.length - 1, Math.max(0, prev + d)));
-  };
+  const priorRate = useMemo(
+    () => (entry && historyState.status === "ready" ? previousRate(historyState.data, entry.id) : null),
+    [entry, historyState]
+  );
+  // "You could also say…" phrasings, keyed by the index into fb.corrections
+  // they belong to (ADR 0002 Part B). Lives outside `Correction` on purpose —
+  // see shared/schema.ts's AlternativeSchema — so this lookup is the only
+  // place the two are joined back together, for rendering only.
+  // A rule prints on its first appearance only — see explanationRows.
+  const showRule = useMemo(() => explanationRows(fb?.corrections ?? []), [fb]);
+  const altsByIndex = useMemo(() => {
+    const map = new Map<number, string[]>();
+    for (const a of fb?.alternatives ?? []) map.set(a.for, a.phrasings);
+    return map;
+  }, [fb]);
+  // Per-correction history (this task): how many times a category has come
+  // up, and what the learner wrote last time — computed relative to the
+  // entry being viewed, never all-time (see stats.ts). Keyed by the index of
+  // that category's FIRST row, same reasoning as showRule: three article
+  // corrections should carry the history line once, not three times.
+  const categoryHistories = useMemo(() => {
+    const map = new Map<number, CategoryHistoryForEntry>();
+    if (!entry || !fb || historyState.status !== "ready") return map;
+    const seen = new Set<ErrorCategory>();
+    fb.corrections.forEach((c, index) => {
+      const cat = normalizeCategory(c.category);
+      if (seen.has(cat)) return;
+      seen.add(cat);
+      map.set(index, getCategoryHistory(historyState.data, entry.id, cat));
+    });
+    return map;
+  }, [entry, fb, historyState]);
+  // Categories that used to appear and have gone quiet — the honest form of
+  // "now it's fixed" (see getQuietCategories). Capped and sorted so the
+  // longest-quiet category leads; this is a closing note, not a second list
+  // to read in full.
+  const quietCategories = useMemo(() => {
+    if (!entry || !fb || historyState.status !== "ready") return [];
+    return [...getQuietCategories(historyState.data, entry.id)]
+      .sort((a, b) => b.entriesSince - a.entriesSince)
+      .slice(0, 3);
+  }, [entry, fb, historyState]);
 
   const back = (
     <button
@@ -110,7 +116,16 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
     </button>
   );
 
-  if (state.status === "loading") return null;
+  if (state.status === "loading") {
+    return (
+      <div className="flex flex-col gap-4">
+        <header>{back}</header>
+        <p role="status" className="text-sm text-ink-soft">
+          Loading this entry…
+        </p>
+      </div>
+    );
+  }
   if (state.status === "error") {
     return (
       <div className="flex flex-col gap-4">
@@ -238,264 +253,284 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
     );
   }
 
-  const card = cards[i];
   const rate = per100(entry);
-  const highlightedSet = new Set(fb.highlighted ?? []);
 
+  /* -----------------------------------------------------------------------
+     One vertical scrolling page (ADR 0003), in the order the teaching is
+     meant to happen: message → every change → corrected text → legacy
+     appendix (only on entries that carry it) → closing. The document
+     scrolls; no section here carries h-full/min-h-0/flex-1/overflow-y-auto.
+  ----------------------------------------------------------------------- */
   return (
-    <div
-      className="flex h-full flex-col"
-      onPointerDown={(e) => {
-        if ((e.target as HTMLElement).closest("button")) return;
-        startX.current = e.clientX;
-        setDragging(true);
-        setDx(0);
-      }}
-      onPointerMove={(e) => dragging && setDx(e.clientX - startX.current)}
-      onPointerUp={() => {
-        if (!dragging) return;
-        if (dx < -60) go(1);
-        else if (dx > 60) go(-1);
-        else {
-          setDx(0);
-          setDragging(false);
-        }
-      }}
-      onPointerCancel={() => {
-        setDx(0);
-        setDragging(false);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "ArrowRight") go(1);
-        if (e.key === "ArrowLeft") go(-1);
-      }}
-      style={{ touchAction: "pan-y" }}
-    >
-      <div className="flex items-center justify-between">
-        <button type="button" onClick={() => navigate({ name: "history" })} className="min-h-11 text-xs text-ink-soft">
-          Close
-        </button>
-        <span className="eyebrow tnum">
-          Card {String(i + 1).padStart(2, "0")} / {String(cards.length).padStart(2, "0")}
-        </span>
-      </div>
+    <div className="flex flex-col gap-4">
+      <header>{back}</header>
 
-      <ol className="mt-3 flex gap-1.5" aria-hidden>
-        {cards.map((_, n) => (
-          <li key={n} className="h-[3px] flex-1 rounded-sm bg-rule">
-            <span className={`block h-[3px] rounded-sm bg-accent ${n <= i ? "w-full" : "w-0"}`} />
-          </li>
-        ))}
-      </ol>
-
-      <div className="relative mt-5 min-h-0 flex-1">
-        {i < cards.length - 1 && (
-          <div aria-hidden className="absolute inset-x-3.5 -bottom-0 top-2.5 rounded-[20px] border border-rule bg-sunk" />
+      <section className="rounded-2xl border border-rule bg-card p-5">
+        <h1 className="eyebrow block">
+          {new Date(entry.createdAt).toLocaleDateString(undefined, {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+          })}{" "}
+          · {entry.wordCount} words · {fb.corrections.length}{" "}
+          {fb.corrections.length === 1 ? "correction" : "corrections"}
+        </h1>
+        {/* The teacher's message is prose, not a heading — a 160-word
+            headline was never a heading (ADR 0003). */}
+        {fb.teacher_feedback ? (
+          <p className="mt-3 whitespace-pre-wrap font-serif text-2xl leading-snug text-pretty">
+            {fb.teacher_feedback}
+          </p>
+        ) : (
+          <p className="mt-3 font-serif text-[27px] leading-[1.14] text-pretty">
+            {fb.corrections.length === 0
+              ? "Nothing to correct this time."
+              : `${fb.corrections.length} ${fb.corrections.length === 1 ? "correction" : "corrections"} to read.`}
+          </p>
         )}
-        {i < cards.length - 2 && (
-          <div aria-hidden className="absolute inset-x-1.5 -bottom-0 top-1 rounded-[20px] border border-rule bg-[#f6f3ec]" />
+        {/* Legacy-only fallback: entries with no teacher_feedback (pre
+            PROMPT_VERSION 7) carry these fields instead. */}
+        {!fb.teacher_feedback && fb.one_thing_to_fix && (
+          <div className="mt-5 border-l-2 border-accent pl-3.5">
+            <Eyebrow>One thing to fix</Eyebrow>
+            <p className="mt-2 font-serif text-[17px] leading-[1.5]">
+              {fb.one_thing_to_fix}
+            </p>
+          </div>
         )}
+        {!fb.teacher_feedback && fb.what_went_well && (
+          <div className="mt-5">
+            <Eyebrow>What went well</Eyebrow>
+            <p className="mt-2 text-[14.5px] leading-relaxed text-ink-muted">
+              {fb.what_went_well}
+            </p>
+          </div>
+        )}
+      </section>
 
-        <article
-          className="relative box-border h-full overflow-y-auto rounded-[20px] border border-rule bg-card p-6 shadow-[0_6px_18px_rgba(30,26,20,0.07)]"
-          style={{
-            transform: `translateX(${dx}px) rotate(${dx * 0.012}deg)`,
-            transition: dragging ? "none" : "transform .28s cubic-bezier(.32,.72,0,1)",
-            opacity: dragging ? Math.max(0.55, 1 - Math.abs(dx) / 420) : 1,
-          }}
-        >
-          {card.kind === "summary" && (
-            <>
-              <Eyebrow>
-                {new Date(entry.createdAt).toLocaleDateString(undefined, {
-                  weekday: "short",
-                  day: "numeric",
-                  month: "short",
-                })}{" "}
-                · {entry.wordCount} words
-              </Eyebrow>
-              <h1 className="mt-3 font-serif text-[27px] leading-[1.14] text-pretty">
-                {fb.corrections.length}{" "}
-                {fb.corrections.length === 1 ? "correction" : "corrections"} to read.
-              </h1>
-              <dl className="mt-6 flex border-y border-rule">
-                <div className="flex-1 py-4">
-                  <dd className="tnum font-mono text-[30px] leading-none">
-                    {rate === null ? "—" : rate.toFixed(1)}
-                  </dd>
-                  <dt className="eyebrow mt-1.5">Per 100 words</dt>
-                </div>
-                {fb.cefr_estimate && (
-                  <div className="flex-1 border-l border-rule py-4 pl-4">
-                    <dd className="tnum font-mono text-[30px] leading-none">{fb.cefr_estimate}</dd>
-                    <dt className="eyebrow mt-1.5">This entry</dt>
+      {/* Every change, in diff order — the reading order of the learner's
+          own text, never re-sorted by severity, so this list reads line for
+          line with the corrected text below it. `ambiguous` folds in as a
+          trailing block under this same section rather than earning a
+          section of its own (ADR 0002 Part A intent, carried into 0003). */}
+      <section className="rounded-2xl border border-rule bg-card p-5">
+        <Eyebrow>
+          {fb.corrections.length} {fb.corrections.length === 1 ? "change" : "changes"}
+        </Eyebrow>
+        <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">
+          Every change, one by one.
+        </h2>
+        {fb.corrections.length > 0 && (
+          <ul className="mt-5 flex flex-col divide-y divide-rule">
+            {fb.corrections.map((c, index) => {
+              const legacyPattern = fb.patterns?.find((p) => p.category === c.category);
+              return (
+                <li key={index} className="py-5 first:pt-0 last:pb-0">
+                  <div className="flex items-baseline justify-between gap-3">
+                    {/* `!` forces this above .eyebrow's own text-ink-faint: both
+                        land in the same Tailwind layer, and .eyebrow is emitted
+                        later in the compiled CSS, so without it .eyebrow's
+                        color would silently win (same bug as ErrorLog.tsx's
+                        accent heading — WORK-04/WORK-21 follow-up). */}
+                    <span className="eyebrow text-accent!">{labelFor(c.category)}</span>
                   </div>
-                )}
-              </dl>
-              {/* The teacher's message is the feedback the learner actually
-                  experiences; the cards after it are the reference copy. */}
-              {fb.teacher_feedback ? (
-                <div className="mt-5 border-l-2 border-accent pl-3.5">
-                  <Eyebrow>From your teacher</Eyebrow>
-                  <p className="mt-2 whitespace-pre-wrap font-serif text-[16px] leading-[1.65]">
-                    {fb.teacher_feedback}
+                  {/* No chips here. "Your teacher picked this one" and
+                      "#N on your checklist" were two pills on top of a
+                      category label, a quoted edit and a rule — four
+                      weights of type per row, twelve rows deep. The
+                      checklist number still does its work on the
+                      Patterns screen, where the map it refers to lives;
+                      `fb.highlighted` and `pattern_id` both stay stored
+                      and are untouched. */}
+                  <div className="mt-3 border-l-2 border-accent pl-3.5">
+                    <p className="font-serif text-lg leading-[30px]">
+                      <EditSpan original={c.original} corrected={c.corrected} />
+                    </p>
+                  </div>
+                  {/* One quiet line, not a labelled panel: the rule is at
+                      most 20 words and it sits under twelve of these.
+                      Suppressed on an exact repeat — the same sentence
+                      printed five times is what made this section long. */}
+                  {showRule[index] && (
+                    <p className="mt-2.5 text-[14.5px] leading-[1.55] text-ink-muted">
+                      {c.explanation ?? c.rule}
+                    </p>
+                  )}
+                  {/* History for this category, on its first row only (same
+                      reasoning as showRule). "Nth time" is computed relative
+                      to the entry being viewed, never all-time (stats.ts) —
+                      reopening an old entry must keep reporting what was true
+                      then. Never "fixed" or "mastered": a correction on this
+                      very screen is by definition happening now. */}
+                  {categoryHistories.has(index) &&
+                    categoryHistories.get(index)!.occurrenceNumber > 1 &&
+                    (() => {
+                      const h = categoryHistories.get(index)!;
+                      // Deliberately "this", not the category name. The name is
+                      // already the row's own label directly above, so naming it
+                      // again was redundant — and it forced a verb agreement the
+                      // label cannot satisfy: plural labels ("Articles (a / an /
+                      // the)") produced "articles has come up", a grammar mistake
+                      // printed by a grammar teacher.
+                      return (
+                        <p className="mt-1.5 text-[12.5px] leading-[1.5] text-ink-faint">
+                          This is the {ordinal(h.occurrenceNumber)} time this has come up.
+                          {h.previousExample && (
+                            <>
+                              {" "}
+                              Last time: “{h.previousExample.original}” → “
+                              {h.previousExample.corrected}”.
+                            </>
+                          )}
+                        </p>
+                      );
+                    })()}
+                  {/* "You could also say" — passive reading only, never
+                      a choice (ADR 0002 Part B). Deliberately no
+                      EditSpan, no accent rule bar, no tick: this is not
+                      a correction and must never look like one.
+                      Pattern-sourced rows never reach here — they
+                      consumed no note, so they have no entry in
+                      altsByIndex. */}
+                  {altsByIndex.has(index) && (
+                    <div className="mt-3">
+                      <Eyebrow>You could also say</Eyebrow>
+                      <ul className="mt-2 flex flex-col gap-1">
+                        {altsByIndex.get(index)!.map((phrasing, k) => (
+                          <li
+                            key={k}
+                            className="font-serif text-[14.5px] italic leading-[1.6] text-ink-soft"
+                          >
+                            {phrasing}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {legacyPattern && legacyPattern.explanation && (
+                    <div className="mt-3">
+                      <Eyebrow>Why it keeps happening</Eyebrow>
+                      <p className="mt-2 font-serif text-[15px] leading-[1.6] text-ink-soft">
+                        {legacyPattern.explanation}
+                      </p>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {fb.corrections.length === 0 && !(fb.ambiguous && fb.ambiguous.length > 0) && (
+          <p className="mt-5 text-[14.5px] leading-relaxed text-ink-muted">
+            Nothing to correct this time.
+          </p>
+        )}
+        {fb.ambiguous && fb.ambiguous.length > 0 && (
+          <div className={fb.corrections.length > 0 ? "mt-5 border-t border-rule pt-5" : "mt-5"}>
+            <Eyebrow>We did not guess</Eyebrow>
+            <h3 className="mt-2 font-serif text-[19px] leading-[1.25] text-pretty">
+              {fb.ambiguous.length === 1
+                ? "One sentence could mean two things"
+                : "Some sentences could mean two things"}
+            </h3>
+            <p className="mt-2 text-[13.5px] leading-relaxed text-ink-muted">
+              We left these unchanged instead of choosing for you. Next entry, you could say
+              it the way you meant it.
+            </p>
+            <ul className="mt-3 flex flex-col divide-y divide-rule">
+              {fb.ambiguous.map((a, k) => (
+                <li key={k} className="py-3 first:pt-0 last:pb-0">
+                  <p className="font-serif text-[15px] leading-[1.55] text-ink">
+                    {a.question}
                   </p>
-                </div>
-              ) : (
-                <>
-                  {fb.one_thing_to_fix && (
-                    <div className="mt-5 border-l-2 border-accent pl-3.5">
-                      <Eyebrow>One thing to fix</Eyebrow>
-                      <p className="mt-2 font-serif text-[17px] leading-[1.5]">
-                        {fb.one_thing_to_fix}
-                      </p>
-                    </div>
-                  )}
-                  {fb.what_went_well && (
-                    <div className="mt-5">
-                      <Eyebrow>What went well</Eyebrow>
-                      <p className="mt-2 text-[14.5px] leading-relaxed text-ink-muted">
-                        {fb.what_went_well}
-                      </p>
-                    </div>
-                  )}
-                </>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {/* Gone quiet — the honest form of "now it's fixed": an observation
+            about absence (getQuietCategories), never a claim of mastery. A
+            correction on this screen is happening now, so its category can
+            never appear here too (see getQuietCategories). */}
+        {quietCategories.length > 0 && (
+          <div
+            className={
+              fb.corrections.length > 0 || (fb.ambiguous && fb.ambiguous.length > 0)
+                ? "mt-5 border-t border-rule pt-5"
+                : "mt-5"
+            }
+          >
+            <ul className="flex flex-col gap-1">
+              {quietCategories.map((q) => (
+                <li key={q.category} className="text-[12.5px] leading-[1.5] text-ink-faint">
+                  {labelFor(q.category).split(" (")[0]} has not come up in your last {q.entriesSince}{" "}
+                  entries.
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+
+      {/* Only when the entry stored corrected text — always true for a
+          current entry; a stored shape could in principle carry an empty
+          string, in which case this section is skipped (ADR 0003). */}
+      {fb.corrected_text && (
+        <section className="rounded-2xl border border-rule bg-card p-5">
+          <Eyebrow>Your writing, put right</Eyebrow>
+          <h2 className="mt-3 font-serif text-[22px] leading-[1.2] text-pretty">
+            Every change, in one piece.
+          </h2>
+          <p className="mt-4 whitespace-pre-wrap font-serif text-[16.5px] leading-[1.75] text-ink">
+            {buildSegments(
+              fb.corrected_text,
+              fb.corrections.map((c) => c.corrected)
+            ).map((seg, k) =>
+              seg.highlighted ? <mark key={k}>{seg.text}</mark> : <span key={k}>{seg.text}</span>
+            )}
+          </p>
+        </section>
+      )}
+
+      {/* "How an English speaker might say it" (ADR 0004) — a sentence the
+          learner got right, so this is never a correction. Its own section,
+          structurally invisible when there is nothing to show: rendered only
+          when natural_phrasings is non-empty, never folded into "Every
+          change" (that heading carries the correction count) and never given
+          an empty state. No EditSpan, no accent rule bar, no tick, nothing
+          interactive — passive reading only, exactly like "You could also
+          say" above. */}
+      {fb.natural_phrasings && fb.natural_phrasings.length > 0 && (
+        <section className="rounded-2xl border border-rule bg-card p-5">
+          <h2 className="font-serif text-[22px] leading-[1.2] text-pretty">
+            How an English speaker might say it
+          </h2>
+          <p className="mt-2 text-[13.5px] leading-relaxed text-ink-muted">
+            Both of these are correct — this is just what people say more often.
+          </p>
+          {fb.natural_phrasings.map((n, k) => (
+            <div key={k} className="mt-4 border-l-2 border-accent/40 pl-3.5">
+              <p className="text-[14.5px] leading-[1.6] text-ink-soft">You wrote: {n.original}</p>
+              <p className="mt-2 font-serif text-lg leading-[1.5] text-ink">{n.phrasing}</p>
+              {n.note && (
+                <p className="mt-2 text-[12.5px] leading-[1.5] text-ink-faint">{n.note}</p>
               )}
-            </>
-          )}
+            </div>
+          ))}
+        </section>
+      )}
 
-          {card.kind === "ambiguous" && (
-            <>
-              <Eyebrow>We did not guess</Eyebrow>
-              <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">
-                {fb.ambiguous!.length === 1
-                  ? "One sentence could mean two things"
-                  : "Some sentences could mean two things"}
-              </h2>
-              <p className="mt-3 text-[14.5px] leading-relaxed text-ink-muted">
-                We left these unchanged instead of choosing for you. Next entry, you could say it
-                the way you meant it.
-              </p>
-              <ul className="mt-5 flex flex-col divide-y divide-rule">
-                {fb.ambiguous!.map((a, k) => (
-                  <li key={k} className="py-4 first:pt-0 last:pb-0">
-                    <p className="font-serif text-[15.5px] leading-[1.6] text-ink">{a.question}</p>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          {card.kind === "correction" && (() => {
-            const c = fb.corrections[card.index];
-            const legacyPattern = fb.patterns?.find((p) => p.category === c.category);
-            return (
-              <>
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="eyebrow text-accent">{labelFor(c.category)}</span>
-                  <span className="eyebrow tnum shrink-0">
-                    {card.index + 1} of {fb.corrections.length}
-                  </span>
-                </div>
-                {(highlightedSet.has(card.index) || c.pattern_id !== undefined) && (
-                  <p className="mt-2 flex flex-wrap gap-1.5">
-                    {highlightedSet.has(card.index) && (
-                      <span className="rounded-full bg-accent px-2.5 py-1 text-[11px] font-medium text-paper">
-                        Your teacher picked this one
-                      </span>
-                    )}
-                    {c.pattern_id !== undefined && (
-                      <span className="tnum rounded-full bg-ink/5 px-2.5 py-1 text-[11px] text-ink-soft">
-                        #{c.pattern_id} on your checklist
-                      </span>
-                    )}
-                  </p>
-                )}
-                <div className="mt-5 border-l-2 border-accent pl-3.5">
-                  <p className="font-serif text-lg leading-[30px]">
-                    <EditSpan original={c.original} corrected={c.corrected} />
-                  </p>
-                </div>
-                <div className="mt-5 rounded-2xl bg-sunk p-4">
-                  <Eyebrow>The rule</Eyebrow>
-                  <p className="mt-2 text-[14.5px] leading-relaxed text-ink-muted">
-                    {c.explanation ?? c.rule}
-                  </p>
-                </div>
-                {legacyPattern && legacyPattern.explanation && (
-                  <div className="mt-5">
-                    <Eyebrow>Why it keeps happening</Eyebrow>
-                    <p className="mt-2 font-serif text-[15px] leading-[1.6] text-ink-soft">
-                      {legacyPattern.explanation}
-                    </p>
-                  </div>
-                )}
-              </>
-            );
-          })()}
-
-          {card.kind === "fluency" && (
-            <>
-              <Eyebrow>Nothing was wrong here</Eyebrow>
-              <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">
-                These would sound more natural
-              </h2>
-              <ul className="mt-5 flex flex-col divide-y divide-rule">
-                {(fb.fluency_notes ?? []).map((n, k) => (
-                  <li key={k} className="py-4 first:pt-0 last:pb-0">
-                    <p className="font-serif text-[17px] leading-[1.5]">
-                      <span className="text-ink-ghost line-through">{n.before}</span>{" "}
-                      <span className="text-accent">{n.after}</span>
-                    </p>
-                    <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-soft">{n.why}</p>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          {card.kind === "vocabulary" && (
-            <>
-              <Eyebrow>Words to learn</Eyebrow>
-              <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">
-                From what you were writing about
-              </h2>
-              <ul className="mt-5 flex flex-col divide-y divide-rule">
-                {(fb.vocabulary ?? []).map((v, k) => (
-                  <li key={k} className="py-4 first:pt-0 last:pb-0">
-                    <p className="font-serif text-[19px] leading-tight">{v.term}</p>
-                    <p className="mt-1 font-mono text-[12.5px] text-accent">
-                      <span className="sr-only">Say it as </span>
-                      {v.stress}
-                    </p>
-                    <p className="mt-2 text-[14px] leading-relaxed text-ink-muted">{v.meaning}</p>
-                    <p className="mt-1 font-serif text-[14px] italic leading-relaxed text-ink-soft">
-                      {v.example}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          {card.kind === "drill" && (() => {
-            const d = (fb.drills ?? [])[card.index];
-            return (
-              <Drill
-                prompt={d.prompt}
-                hint={d.hint}
-                answer={d.answer}
-                distractors={d.distractors ?? []}
-                n={card.index + 1}
-                of={(fb.drills ?? []).length}
-              />
-            );
-          })()}
-
-          {card.kind === "watch" && fb.pattern_watch && (
-            <div className="flex h-full flex-col">
+      {/* Legacy appendix: the 9-agent-era sections no current entry can
+          produce (ADR 0002 Part A intent, carried into 0003). Shown only
+          when the entry carries at least one — see hasLegacyAppendix. No
+          wrapper heading is invented; each block keeps its own existing
+          heading, and the markup below is unchanged. */}
+      {hasLegacyAppendix(fb) && (
+        <section className="rounded-2xl border border-rule bg-card p-5">
+          {fb.pattern_watch && (
+            <div className="border-t border-rule pt-6 first:border-t-0 first:pt-0">
               <Eyebrow>This one came back</Eyebrow>
-              <h2 className="mt-3 font-serif text-[26px] leading-[1.16] text-pretty">
+              <h2 className="mt-2 font-serif text-[22px] leading-[1.2] text-pretty">
                 {labelFor(fb.pattern_watch.category)}
               </h2>
               <p className="mt-2 text-[14.5px] text-ink-soft">
@@ -503,10 +538,10 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
                 {fb.pattern_watch.entries_clean === 1 ? "entry" : "entries"} without it before
                 this one.
               </p>
-              <p className="mt-4 text-[15px] leading-relaxed text-ink-muted">
+              <p className="mt-3 text-[15px] leading-relaxed text-ink-muted">
                 {fb.pattern_watch.note}
               </p>
-              <div className="mt-5 border-l-2 border-accent bg-accent-soft px-4 py-3.5">
+              <div className="mt-4 border-l-2 border-accent bg-accent-soft px-4 py-3.5">
                 <Eyebrow>Say this out loud</Eyebrow>
                 <p className="mt-2 text-[15px] leading-relaxed text-ink">
                   {fb.pattern_watch.practice}
@@ -514,106 +549,149 @@ export default function FeedbackScreen({ entryId, navigate, showToast }: Props) 
               </div>
             </div>
           )}
-
-          {card.kind === "corrected" && (
-            <div className="flex h-full flex-col">
-              <Eyebrow>Your writing, put right</Eyebrow>
-              <h2 className="mt-3 font-serif text-[22px] leading-[1.2] text-pretty">
-                Every change, in one piece.
+          {fb.fluency_notes && fb.fluency_notes.length > 0 && (
+            <div className="border-t border-rule pt-6 first:border-t-0 first:pt-0">
+              <Eyebrow>Nothing was wrong here</Eyebrow>
+              <h2 className="mt-2 font-serif text-[22px] leading-[1.2] text-pretty">
+                These would sound more natural
               </h2>
-              <p className="mt-4 overflow-y-auto whitespace-pre-wrap font-serif text-[16.5px] leading-[1.75] text-ink">
-                {buildSegments(
-                  fb.corrected_text,
-                  fb.corrections.map((c) => c.corrected)
-                ).map((seg, k) =>
-                  seg.highlighted ? <mark key={k}>{seg.text}</mark> : <span key={k}>{seg.text}</span>
-                )}
-              </p>
+              <ul className="mt-4 flex flex-col divide-y divide-rule">
+                {fb.fluency_notes.map((n, k) => (
+                  <li key={k} className="py-4 first:pt-0 last:pb-0">
+                    <p className="font-serif text-[17px] leading-[1.5]">
+                      <EditSpan original={n.before} corrected={n.after} tone="improvement" />
+                    </p>
+                    <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-soft">
+                      {n.why}
+                    </p>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
-
-          {card.kind === "closing" && (
-            <div className="flex h-full flex-col">
-              <Eyebrow>End of this entry</Eyebrow>
-              <h2 className="mt-3 font-serif text-[26px] leading-[1.16] text-pretty">
-                {rate === null
-                  ? "That is everything for this entry."
-                  : `${rate.toFixed(1)} errors per 100 words this time.`}
+          {fb.vocabulary && fb.vocabulary.length > 0 && (
+            <div className="border-t border-rule pt-6 first:border-t-0 first:pt-0">
+              <Eyebrow>Words to learn</Eyebrow>
+              <h2 className="mt-2 font-serif text-[22px] leading-[1.2] text-pretty">
+                From what you were writing about
               </h2>
-              {fb.scores && (
-                <dl className="mt-6 flex border-y border-rule">
-                  <div className="flex-1 py-4">
-                    <dd className="tnum font-mono text-[26px] leading-none">{fb.scores.grammar}</dd>
-                    <dt className="eyebrow mt-1.5">Grammar</dt>
-                  </div>
-                  <div className="flex-1 border-l border-rule py-4 pl-4">
-                    <dd className="tnum font-mono text-[26px] leading-none">
-                      {fb.scores.vocabulary}
-                    </dd>
-                    <dt className="eyebrow mt-1.5">Vocabulary</dt>
-                  </div>
-                  <div className="flex-1 border-l border-rule py-4 pl-4">
-                    <dd className="tnum font-mono text-[26px] leading-none">
-                      {fb.scores.naturalness}
-                    </dd>
-                    <dt className="eyebrow mt-1.5">Natural</dt>
-                  </div>
-                </dl>
-              )}
-              {fb.coach_reply && (
-                <div className="mt-5 rounded-2xl bg-accent-soft p-4">
-                  <p className="font-serif text-[15px] italic leading-[1.65] text-ink-muted">
-                    {fb.coach_reply}
-                  </p>
-                  <Eyebrow>Your coach</Eyebrow>
-                </div>
-              )}
-              <div className="mt-auto flex flex-col gap-2.5 pt-5">
-                <button
-                  type="button"
-                  onClick={() => navigate({ name: "write" })}
-                  className="min-h-11 rounded-full bg-accent font-semibold text-paper"
-                >
-                  Write the next entry
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate({ name: "log" })}
-                  className="min-h-11 rounded-full border border-rule-strong text-sm font-medium text-ink-muted"
-                >
-                  See all your patterns
-                </button>
-              </div>
+              <ul className="mt-4 flex flex-col divide-y divide-rule">
+                {fb.vocabulary.map((v, k) => (
+                  <li key={k} className="py-4 first:pt-0 last:pb-0">
+                    <p className="font-serif text-[19px] leading-tight">{v.term}</p>
+                    <p className="mt-1 font-mono text-[12.5px] text-accent">
+                      <span className="sr-only">Say it as </span>
+                      {v.stress}
+                    </p>
+                    <p className="mt-2 text-[14px] leading-relaxed text-ink-muted">
+                      {v.meaning}
+                    </p>
+                    <p className="mt-1 font-serif text-[14px] italic leading-relaxed text-ink-soft">
+                      {v.example}
+                    </p>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
-        </article>
-      </div>
+          {fb.drills && fb.drills.length > 0 && (
+            <div className="border-t border-rule pt-6 first:border-t-0 first:pt-0">
+              {/* Each Drill already carries its own "Practice · n of of"
+                  eyebrow and heading — no wrapper heading here, so the
+                  word "Practice" is not said twice in a row. */}
+              <ul className="flex flex-col divide-y divide-rule">
+                {fb.drills.map((d, k) => (
+                  <li key={k} className="py-5 first:pt-0 last:pb-0">
+                    <Drill
+                      prompt={d.prompt}
+                      hint={d.hint}
+                      answer={d.answer}
+                      distractors={d.distractors ?? []}
+                      n={k + 1}
+                      of={fb.drills!.length}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
 
-      <div className="flex items-center justify-between py-4">
-        <span className="text-[12.5px] text-ink-faint">
-          {i === cards.length - 1 ? "That is everything" : "Drag the card, or use ← →"}
-        </span>
-        <div className="flex gap-2.5">
+      {/* The arithmetic ends the page: the per-100 number, the prior-entry
+          comparison, legacy scores and cefr_estimate. After the teaching,
+          never before it, never in a header, never sticky (ADR 0003). */}
+      <section className="rounded-2xl border border-rule bg-card p-5">
+        <Eyebrow>End of this entry</Eyebrow>
+        <h2 className="mt-3 font-serif text-[26px] leading-[1.16] text-pretty">
+          {rate === null
+            ? "That is everything for this entry."
+            : `${rate.toFixed(1)} errors per 100 words this time.`}
+        </h2>
+        <p className="mt-2 text-[13.5px] leading-relaxed text-ink-soft">
+          {priorRate === null
+            ? "Lower is better — this counts mistakes fairly whether you write 50 words or 400."
+            : `Your last entry was ${priorRate.toFixed(1)}. Lower is better — this counts mistakes fairly whether you write 50 words or 400.`}
+        </p>
+        {/* The per-100 figure is NOT repeated as a stat here: the headline
+            above already states it as a sentence, and a sentence teaches
+            where a bare number only grades. Seen printing "14.6" twice in
+            one card when the screen was first driven in a browser. The list
+            survives only for cefr_estimate, which legacy entries carry and
+            nothing else states. */}
+        {fb.cefr_estimate && (
+          <dl className="mt-6 flex border-y border-rule">
+            <div className="flex-1 py-4">
+              <dd className="tnum font-mono text-[26px] leading-none">{fb.cefr_estimate}</dd>
+              <dt className="eyebrow mt-1.5">This entry</dt>
+            </div>
+          </dl>
+        )}
+        {fb.scores && (
+          <dl className="mt-6 flex border-y border-rule">
+            <div className="flex-1 py-4">
+              <dd className="tnum font-mono text-[26px] leading-none">{fb.scores.grammar}</dd>
+              <dt className="eyebrow mt-1.5">Grammar</dt>
+            </div>
+            <div className="flex-1 border-l border-rule py-4 pl-4">
+              <dd className="tnum font-mono text-[26px] leading-none">
+                {fb.scores.vocabulary}
+              </dd>
+              <dt className="eyebrow mt-1.5">Vocabulary</dt>
+            </div>
+            <div className="flex-1 border-l border-rule py-4 pl-4">
+              <dd className="tnum font-mono text-[26px] leading-none">
+                {fb.scores.naturalness}
+              </dd>
+              <dt className="eyebrow mt-1.5">Natural</dt>
+            </div>
+          </dl>
+        )}
+        {fb.coach_reply && (
+          <div className="mt-5 rounded-2xl bg-accent-soft p-4">
+            <p className="font-serif text-[15px] italic leading-[1.65] text-ink-muted">
+              {fb.coach_reply}
+            </p>
+            <Eyebrow>Your coach</Eyebrow>
+          </div>
+        )}
+        <div className="mt-5 flex flex-col gap-2.5">
           <button
             type="button"
-            onClick={() => go(-1)}
-            disabled={i === 0}
-            aria-label="Previous card"
-            className="flex size-11 items-center justify-center rounded-full border border-rule-strong text-ink-soft disabled:opacity-35"
+            onClick={() => navigate({ name: "write" })}
+            className="min-h-11 rounded-full bg-accent font-semibold text-paper"
           >
-            ‹
+            Write the next entry
           </button>
           <button
             type="button"
-            onClick={() => go(1)}
-            disabled={i === cards.length - 1}
-            aria-label="Next card"
-            className="flex size-11 items-center justify-center rounded-full bg-accent text-paper disabled:opacity-35"
+            onClick={() => navigate({ name: "log" })}
+            className="min-h-11 rounded-full border border-rule-strong text-sm font-medium text-ink-muted"
           >
-            ›
+            See all your patterns
           </button>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -648,7 +726,9 @@ function Drill({
   const solved = picked === answer || shown;
   return (
     <>
-      <span className="eyebrow block text-accent">
+      {/* `!` forces this above .eyebrow's own text-ink-faint — see the same
+          note on the correction card's category label above. */}
+      <span className="eyebrow block text-accent!">
         Practice · {n} of {of}
       </span>
       <h2 className="mt-3 font-serif text-[25px] leading-[1.18] text-pretty">Try this one</h2>
