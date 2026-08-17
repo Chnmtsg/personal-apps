@@ -1525,3 +1525,11 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   margin-top: 3px; font-size: var(--fs-sm); font-weight: 700;
   color: var(--muted); letter-spacing: 0.01em;
 }
+
+/* The run's habit lists sat as bare `.row`s inside a `.list`: a hairline under
+   each AND an 8px flex gap, edge-to-edge against the viewport, while every
+   other list in the app — the exercise library, the reading archive, the paused
+   goals — lives inside a `.card`. It read as unfinished next to its siblings.
+   Padding matches `.card`'s so the rows are not flush against the edge. */
+.card.flush.runlist-card { padding: 0 var(--sp-lg); }
+.card.flush.runlist-card > .row:last-child { border-bottom: 0; }

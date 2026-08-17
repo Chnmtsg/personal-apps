@@ -1135,9 +1135,9 @@
 
       <div class="section-head"><h2>Level</h2></div>
       <div class="card">
-        <div class="xpbar-top"><span>${prog.rank.icon} ${esc(prog.rank.name)} · Level ${prog.level}</span><span>${prog.into}/${prog.need} XP</span></div>
+        <div class="xpbar-top"><span>${prog.rank.icon} ${esc(prog.rank.name)} · Level ${prog.level}</span><span>${fmtXp(prog.into)}/${fmtXp(prog.need)} XP</span></div>
         ${bar(prog.pct)}
-        <div class="faint" style="font-size:var(--fs-sm);margin-top:8px">${prog.xp.toLocaleString()} XP earned all-time · ${(A.xpForLevel(prog.level + 1) - prog.xp).toLocaleString()} XP to level ${prog.level + 1}</div>
+        <div class="faint" style="font-size:var(--fs-sm);margin-top:8px">${fmtXp(prog.xp)} XP earned all-time · ${fmtXp(A.xpForLevel(prog.level + 1) - prog.xp)} XP to level ${prog.level + 1}</div>
       </div>
 
       <div class="section-head"><h2>Goal ladders</h2><span class="faint" style="font-size:var(--fs-sm)">baseline → target</span></div>
@@ -1285,7 +1285,7 @@
             <span class="medal">${next.icon}</span>
             <div><h3>Next: ${esc(next.name)}</h3><p>${esc(next.blurb)}</p></div>
           </div>
-          <div class="xpbar-top"><span>${best} / ${next.days} days</span><span>${next.days - best} to go · +${next.xp} XP</span></div>
+          <div class="xpbar-top"><span>${best} / ${next.days} days</span><span>${next.days - best} to go · +${fmtXp(next.xp)} XP</span></div>
           ${bar((best / next.days) * 100, 'gold')}
         </section>`
       : `<section class="next-reward"><div class="top"><span class="medal">🌟</span>
@@ -1300,8 +1300,8 @@
           ${
             r.unlocked
               ? r.claimed
-                ? `<div class="pill good" style="margin-top:10px">+${r.xp} XP</div>`
-                : `<button class="btn primary claim" data-act="claim" data-id="${r.id}">Claim +${r.xp} XP</button>`
+                ? `<div class="pill good" style="margin-top:10px">+${fmtXp(r.xp)} XP</div>`
+                : `<button class="btn primary claim" data-act="claim" data-id="${r.id}">Claim +${fmtXp(r.xp)} XP</button>`
               : `<div class="mini-bar">${bar(r.progress, 'gold')}</div>`
           }
         </div>`
@@ -1318,7 +1318,7 @@
       <div class="card">
         <div class="xpbar-top"><span>🎁 Weekly chest · ${wk.complete}/${wk.goal} days</span><span>${wk.claimed ? 'Claimed' : wk.hit ? 'Ready!' : `${wk.goal - wk.complete} to go`}</span></div>
         ${bar(wk.pct, 'gold')}
-        ${wk.hit && !wk.claimed ? `<button class="btn primary block" data-act="claim-weekly" style="margin-top:12px">Open chest · +${A.XP.weeklyGoal} XP</button>` : ''}
+        ${wk.hit && !wk.claimed ? `<button class="btn primary block" data-act="claim-weekly" style="margin-top:12px">Open chest · +${fmtXp(A.XP.weeklyGoal)} XP</button>` : ''}
       </div>
 
       <div class="section-head"><h2>Streak milestones</h2><span class="faint" style="font-size:var(--fs-sm)">🔥 ${streak} now · best ${best}</span></div>
@@ -2348,7 +2348,7 @@
         <button class="link" data-act="run-add-open">＋ Add a habit</button></div>
       ${
         ladder.length
-          ? `<div class="list">${ladder
+          ? `<div class="card flush runlist-card">${ladder
               .map((p) => {
                 const h = RUN().defOf(p);
                 const away = p.startDay - day;
@@ -2462,7 +2462,7 @@
       </button>
       ${
         rows.length
-          ? `<div class="list">${rows
+          ? `<div class="card flush runlist-card">${rows
               .map(
                 (r) => `<div class="row"><div class="body">
                   <div class="name">${esc(r.h.name)}</div>

@@ -810,15 +810,34 @@
       }
 
       /* --- exercise pictures --- */
-      case 'ex-photo-pick':
+      case 'ex-photo-pick': {
+        /* The only genuinely async action in the app: a 3-8MB camera file is
+           read, decoded, repainted to a canvas and re-encoded, which is one to
+           several seconds on a mid-range phone. Nothing on screen used to
+           change in that window — the card still looked untapped and stayed
+           tappable — so the natural response was to tap it again and queue a
+           second decode on top of the first. */
+        const busy = actEl;
+        const label = (busy && busy.querySelector && busy.querySelector('b')) || busy;
+        const wasText = label && label.textContent;
+        const setBusy = (on) => {
+          if (!busy) return;
+          busy.disabled = on;
+          if (busy.setAttribute) busy.setAttribute('aria-busy', on ? 'true' : 'false');
+          if (label) label.textContent = on ? 'Adding…' : wasText;
+        };
         pickImage((file) => {
           if (!file) return;
+          setBusy(true);
           A.Photos.shrink(file).then((dataUrl) => {
             if (!dataUrl) {
-              UI.toast('⚠️ <span>That file could not be read as a picture.</span>', 'bad');
+              setBusy(false);
+              UI.toast('⚠️ <span>That file could not be read as a picture — try a JPEG or PNG from your gallery.</span>', 'bad');
               return;
             }
             A.Photos.put(id, dataUrl).then((saved) => {
+              /* `refreshExerciseHow` rebuilds the sheet, so the busy state goes
+                 with the element that carried it — nothing to undo by hand. */
               UI.refreshExerciseHow();
               /* Said out loud on purpose. A picture that looks added and is gone
                  after a reload is worse than one that was refused, and a device
@@ -830,6 +849,7 @@
           });
         });
         break;
+      }
       case 'ex-photo-rm':
         UI.openConfirm({
           title: 'Remove this picture?',

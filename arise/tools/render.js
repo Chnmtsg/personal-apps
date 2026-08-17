@@ -1146,7 +1146,7 @@ behaves('every state class the run UI emits is actually styled', () => {
                   '.lat.kept', '.lat.part', '.lat.missed', '.lat.unopened', '.lat.today',
                   '.lat.ahead', '.latphase.is-now', '.row.ahead',
                   '.item.tight', '.item.tight .dose', '.section-fold.is-open',
-                  '.section-fold.is-done .fold-tick', '.fold-main', '.block-head', '.fold-bar', '.item.tight .exsub', '.item.tight .name', '.how-photo img', '.how-photo-add', '.chip-pick.on', '.segbar.tight'];
+                  '.section-fold.is-done .fold-tick', '.fold-main', '.block-head', '.fold-bar', '.item.tight .exsub', '.item.tight .name', '.card.flush.runlist-card', '.how-photo img', '.how-photo-add', '.chip-pick.on', '.segbar.tight'];
   const missing = needed.filter((sel) => css.indexOf(sel) < 0);
   if (missing.length) return 'no rule for: ' + missing.join(', ');
   return css.indexOf(':has(:checked)') < 0 ? '' : 'a dead :has(:checked) rule is still in the sheet';
@@ -1482,6 +1482,52 @@ behaves('and "Re-baseline" is not the word the user is given', () => {
   const html = sheetBody.innerHTML;
   if (/Re-baseline/.test(html)) return 'the goal detail still says Re-baseline';
   return html.indexOf('Move the starting point') > 0 ? '' : 'no plain-language control at all';
+});
+
+/* Every XP figure goes through one formatter, which exists because a card
+   showed "12,480" beside "1240 / 2200". It was being called in one place of
+   seven.
+
+   This checks the RENDERED page rather than the source. The first version of it
+   scanned ui.js for `${…} XP` without `fmtXp` and passed happily when a raw
+   figure was put back, because the expression it needed to catch —
+   `${prog.into}` — contains no "xp" for the pattern to find. A guard that
+   cannot fail is worse than none, so this looks at what the user actually sees:
+   any number printed next to "XP" that is four digits or more must carry a
+   thousands separator. */
+behaves('no XP figure is printed unformatted beside a formatted one', () => {
+  /* Build enough XP that four-digit figures actually render — the first version
+     of this passed because the state it happened to run against had under a
+     thousand, which is a guard proving nothing. */
+  S.resetAll();
+  for (let i = 1; i <= 60; i++) {
+    const k = A.addDays(S.today(), -i);
+    S.ensureLog(k);
+    S.completeAll(k);
+  }
+  S.commit({ type: 'fixture' });
+  if (S.progress().xp < 1000) return 'the fixture only reaches ' + S.progress().xp + ' XP, so this proves nothing';
+
+  const seen = [];
+  ['progress', 'rewards', 'today'].forEach((route) => {
+    const html = renderRoute(route);
+    (html.match(/([\d,]+)\s*XP/g) || []).forEach((m) => seen.push([route, m.trim()]));
+  });
+  if (!seen.length) return 'no XP figure rendered at all — the fixture proves nothing';
+  const bare = seen.filter(([, m]) => /^\d{4,}/.test(m));
+  return bare.length ? 'unformatted: ' + bare.map((x) => x.join(' → ')).join(', ') : '';
+});
+
+/* The run's habit lists were bare rows against the viewport while every other
+   list in the app lives in a card. */
+behaves('the run lists its habits in a card, like every other list', () => {
+  S.resetAll();
+  S.startRun(['walk', 'stretch', 'vitamins', 'floss'], 90, true);
+  const html = renderRoute('run');
+  if (html.indexOf('runlist-card') < 0) return 'the ladder is still a bare list';
+  sheetBody.innerHTML = '';
+  UI.openRunAdd();
+  return sheetBody.innerHTML.indexOf('runlist-card') > 0 ? '' : 'the add sheet is still a bare list';
 });
 
 /* Two features used to be called "the run": the fixed-length countdown and the
