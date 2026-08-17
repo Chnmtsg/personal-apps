@@ -43,12 +43,12 @@ only bridge is More → Export on the old origin, Import on the new one.
 
 ```bash
 cd arise
-npm test          # smoke 377, render 145, wire 15 — all green
+npm test          # smoke 390, render 167, wire 29 — all green
 npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
-- `sw.js` VERSION → **`discipline-v36`**
+- `sw.js` VERSION → **`discipline-v45`**
 - `js/` is **seven** files, loaded in this order:
   `data.js` → `program.js` → `goals.js` → `run.js` → `store.js` → `ui.js` → `app.js`
 - `tools/` is `smoke.js`, `render.js`, `wire.js`, `package.js`, `serve.py`,

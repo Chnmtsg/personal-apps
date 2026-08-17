@@ -70,7 +70,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-for (const f of ['data.js', 'program.js', 'goals.js', 'run.js', 'store.js', 'ui.js', 'app.js']) {
+for (const f of ['data.js', 'program.js', 'goals.js', 'run.js', 'photos.js', 'store.js', 'ui.js', 'app.js']) {
   vm.runInContext(fs.readFileSync(path.join(DIR, f), 'utf8'), sandbox, { filename: f });
 }
 
@@ -115,6 +115,82 @@ if (run) {
   ok('and it contains exactly what was ticked',
      got.join(',') === pickValuesNow.slice().sort().join(','), [got, pickValuesNow]);
   ok('the budget from the select was used', run.minutesBudget === 45, run.minutesBudget);
+}
+
+console.log('\nexpanding a long workout through app.js');
+{
+  const day = A.weekday(S.today());
+  S.get().plan[day] = [];
+  S.commit({ type: 'fixture' });
+  S.get().exercises.slice(0, 8).forEach((e) => S.addToPlan(day, e.id));
+  const was = UI.workoutOpen();
+  click({ act: 'workout-more' });
+  ok('the show-all tap reached the view state', UI.workoutOpen() !== was, UI.workoutOpen());
+  click({ act: 'workout-more' });
+  ok('and tapping it again folds the list back up', UI.workoutOpen() === was, UI.workoutOpen());
+
+  /* The tick on the folded heading. Folding the section used to take the only
+     way of finishing a workout with it, so this is the tap that got it back. */
+  const plan = S.dayPlan(S.today());
+  click({ act: 'workout-done' });
+  const log = S.log(S.today());
+  ok('ticking the heading logged the whole workout',
+     plan.every((i) => log.ex[i.id]), Object.keys(log.ex).length + ' of ' + plan.length);
+  const habitsAfter = Object.keys(log.hb || {}).length;
+  ok('and it left the daily habits alone', habitsAfter === 0, habitsAfter);
+  click({ act: 'workout-done' });
+  ok('tapping it again is the undo',
+     plan.every((i) => !S.log(S.today()).ex[i.id]), S.log(S.today()).ex);
+
+  // The exercise library on More folds the same way, through its own handler.
+  const lib = UI.libOpen();
+  click({ act: 'lib-open' });
+  ok('the library fold tap reached the view state', UI.libOpen() !== lib, UI.libOpen());
+  click({ act: 'lib-open' });
+  ok('and it folds back up', UI.libOpen() === lib, UI.libOpen());
+}
+
+console.log('\nmuscle statistics through app.js');
+{
+  click({ act: 'muscle-window', days: '30' });
+  ok('the window tap reached the view state', UI.muscleWindow() === 30, UI.muscleWindow());
+  click({ act: 'muscle-window', days: '999' });
+  ok('and a window the app does not offer is refused', UI.muscleWindow() === 30, UI.muscleWindow());
+  click({ act: 'muscle-window', days: '7' });
+  ok('a real one is accepted', UI.muscleWindow() === 7, UI.muscleWindow());
+
+  /* The chips are toggled in the DOM rather than through a re-render, because
+     the editor is a form the user is part-way through. The stub's classList is
+     a no-op, so this asserts the aria state, which is what the form reads. */
+  const chip = { act: 'ex-muscle', muscle: 'legs' };
+  const node = {
+    dataset: chip, _p: 'false',
+    getAttribute: () => node._p,
+    setAttribute: (k, v) => { node._p = v; },
+    classList: { toggle() {} },
+    closest: (sel) => (sel === '[data-act]' ? node : null)
+  };
+  listeners.click.forEach((fn) => fn({ target: node, stopPropagation() {}, preventDefault() {}, button: 0 }));
+  ok('tapping a muscle chip turns it on', node._p === 'true', node._p);
+  listeners.click.forEach((fn) => fn({ target: node, stopPropagation() {}, preventDefault() {}, button: 0 }));
+  ok('and tapping it again turns it off', node._p === 'false', node._p);
+}
+
+/* The picture handlers. The stub has no real file input, so a tap opens a
+   picker that never fires — which is the point: it must not throw on the way
+   there, and `app.js` is the only file these two live in. */
+console.log('\nexercise picture handlers through app.js');
+{
+  const ex = S.get().exercises[0];
+  let threw = '';
+  try {
+    click({ act: 'ex-photo-pick', id: ex.id });
+    click({ act: 'ex-photo-rm', id: ex.id });
+  } catch (err) {
+    threw = err.message;
+  }
+  ok('picking and removing a picture route without throwing', !threw, threw);
+  ok('and the picture store is reachable from the app', !!A.Photos, typeof A.Photos);
 }
 
 console.log('\nand again with a selection the budget cannot hold');

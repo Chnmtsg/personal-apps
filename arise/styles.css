@@ -147,7 +147,14 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+/* `min-height`, never `height`. With `height: 100%` and border-box sizing the
+   body is locked to the viewport, so the `padding-bottom` below sits *inside*
+   that height and reserves nothing at the end of the scroll — the last element
+   on any long screen runs under the fixed tab bar. It cost the run's Start
+   button: 34px of it were behind the bar and it could not be tapped.
+   Invisible on a desktop window tall enough not to scroll, which is why it
+   reached a phone. */
+html, body { min-height: 100%; }
 
 body {
   margin: 0;
@@ -361,6 +368,21 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
   transition: background 0.18s, border-color 0.18s, transform 0.12s;
 }
 .item:active { transform: scale(0.988); }
+
+/* Today's workout rows. A 68px three-line row times eight exercises put the
+   habits, the streak and the journal two screens below the fold on the tab you
+   open to do the day's work — so the name and the dose share a line, the
+   category moves to Plan where there is room for it, and a note keeps its own
+   line only when there is one. The row is still 52px, and the whole of
+   `.item-main` is the tap target, so nothing here is under 44px. */
+.item.tight { min-height: 52px; padding: var(--sp-sm) var(--sp-lg); }
+.item.tight .tick { width: 32px; height: 32px; font-size: var(--fs-lg); }
+.item.tight .sub { font-size: var(--fs-xs); margin-top: 1px; }
+.item.tight .dose {
+  order: 1; flex: none; margin-left: auto; padding-left: var(--sp-sm);
+  font-size: var(--fs-sm); font-weight: 700; color: var(--muted); white-space: nowrap;
+}
+.item.tight.done .dose { color: var(--faint); }
 /* order:2 puts the tick after the body without reordering the markup, so the
    accessible name still reads name-then-state. */
 .item .tick {
@@ -785,6 +807,20 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
    against the charcoal is unmistakable at arm's length. */
 .seg.on { background: var(--cream); border-color: var(--cream); color: var(--on-cream); }
 .seg-add { flex: none; }
+/* A segbar sitting inside a section heading rather than owning a row of its
+   own — narrower, and it does not stretch to fill the width. */
+.segbar.tight { margin-bottom: 0; gap: var(--sp-xs); }
+.segbar.tight .seg { flex: none; min-height: 32px; padding: 0 10px; font-size: var(--fs-sm); }
+
+/* Multi-select chips. Used for what an exercise works, where most answers are
+   more than one and a native multi-select is a scroll list nobody opens twice. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-pick {
+  min-height: 36px; padding: 0 12px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--stroke-strong);
+  color: var(--muted); font-size: var(--fs-sm); font-weight: 700;
+}
+.chip-pick.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 .gcard {
   /* Overridden per card by goalCard(); declared here so a card without an area
@@ -1008,7 +1044,8 @@ body { font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif; }
 .hero { background: var(--surface); }
 .next-reward { background: color-mix(in srgb, var(--accent) 9%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
 .reward.unlocked, .myreward.is-ready { background: color-mix(in srgb, var(--gold) 12%, var(--surface)); }
-.section-head h2 { font-size: var(--fs-xs); letter-spacing: 0.14em; font-weight: 700; }
+.section-head h2,
+.section-fold h2 { font-size: var(--fs-xs); letter-spacing: 0.14em; font-weight: 700; }
 
 /* Goal card: tinted panel out, hairline card with a monogram tile in. */
 .gcard {
@@ -1174,6 +1211,133 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .runrow.is-part .runrow-bar > i { background: var(--gold); }
 
 .runnote { margin: var(--sp-sm) 4px 0; font-size: var(--fs-xs); }
+
+/* The picture of a movement, in the how-to sheet. White underneath because
+   these are line drawings on white — a dark card behind a JPEG shows as a hard
+   edge, and the picture is the subject here, not the card. */
+.how-photo { margin: 0 0 var(--sp-md); }
+.how-photo img {
+  display: block; width: 100%; height: auto; border-radius: var(--r);
+  background: #ffffff; border: 1px solid var(--stroke);
+}
+.how-photo figcaption {
+  display: flex; justify-content: flex-end; gap: var(--sp-sm); margin-top: 2px;
+}
+.how-photo figcaption .link { min-height: 36px; font-size: var(--fs-sm); padding: var(--sp-xs); }
+.how-photo figcaption .link.danger { color: var(--bad); }
+
+.how-photo-add {
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-xs);
+  width: 100%; min-height: 96px; margin-bottom: var(--sp-md);
+  padding: var(--sp-lg); border-radius: var(--r); text-align: center;
+  background: var(--surface); border: 1px dashed var(--stroke-strong); color: var(--muted);
+}
+.how-photo-add .ico { width: 22px; height: 22px; opacity: 0.8; }
+.how-photo-add b { font-size: var(--fs-base); color: var(--text); font-weight: 700; }
+.how-photo-add small { font-size: var(--fs-xs); color: var(--faint); line-height: 1.45; }
+.how-photo-add:active { transform: scale(0.99); }
+
+/* A section heading that is also its own disclosure. Built to sit in the same
+   rhythm as `.section-head` — same margins, same uppercase label — so a folded
+   section reads as a heading rather than as a new kind of card.
+
+   A container, not a button: the tick has to sit beside the fold rather than
+   inside it, because a button nested in a button does not survive a browser. */
+.section-fold {
+  display: flex; align-items: center; gap: var(--sp-sm); width: 100%;
+  margin: var(--sp-xl) 0 var(--sp-sm);
+}
+.fold-main {
+  display: flex; align-items: center; gap: var(--sp-sm);
+  flex: 1; min-width: 0; min-height: 44px; padding: var(--sp-xs) 2px;
+  background: none; border: 0; color: inherit; text-align: left;
+}
+.section-fold h2 {
+  flex: none; font-size: var(--fs-lg); letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--muted);
+}
+.section-fold .fold-sum {
+  flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.section-fold .fold-chev {
+  flex: none; font-style: normal; font-size: var(--fs-xl); font-weight: 900;
+  color: var(--faint); transition: transform 0.2s; transform: rotate(90deg);
+}
+.section-fold.is-open .fold-chev { transform: rotate(-90deg); }
+.section-fold.is-open h2 { color: var(--text); }
+
+/* The same tick the app uses on a goal, a run row and an exercise — a section
+   is finished the way everything else in this app is finished. */
+.fold-tick {
+  position: relative; flex: none; width: 38px; height: 38px;
+  border-radius: var(--r-xs); border: 1px solid var(--stroke-strong);
+  display: grid; place-items: center; background: rgba(255, 255, 255, 0.04);
+  font-size: var(--fs-xl); font-weight: 900; color: rgba(255, 255, 255, 0.3);
+  transition: all 0.2s;
+}
+.fold-tick:active { transform: scale(0.94); }
+/* 38px of graphic, 44px of target: the guidelines' floor, met by growing the
+   hit area rather than the tick. */
+.fold-tick::after {
+  content: ''; position: absolute;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 44px; height: 44px;
+}
+.section-fold.is-done .fold-tick {
+  background: var(--good); border-color: var(--good); color: var(--on-good);
+}
+.section-fold.is-done .fold-sum { color: var(--good); }
+
+/* The run at a glance. One cell per day, seven to a row — a row is a week of
+   the run, which is the unit the run's own rules are written in.
+
+   The day number sits in the cell rather than being left to colour: six shades
+   of one palette is the kind of chart that stops meaning anything on a phone in
+   daylight, and `.runnote` beneath states the same counts in words. `unopened`
+   is dashed rather than tinted because it is not a result — nobody opened the
+   app, and a filled cell would be the run claiming to know something it does
+   not. */
+.lattice { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.lat {
+  aspect-ratio: 1; border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--stroke);
+  font-style: normal; font-size: var(--fs-xs); font-weight: 700; color: var(--faint);
+}
+.lat.kept {
+  background: color-mix(in srgb, var(--good) 20%, var(--surface));
+  border-color: color-mix(in srgb, var(--good) 45%, transparent); color: var(--good);
+}
+.lat.part {
+  background: color-mix(in srgb, var(--warn) 16%, var(--surface));
+  border-color: color-mix(in srgb, var(--warn) 38%, transparent); color: var(--warn);
+}
+.lat.missed {
+  background: color-mix(in srgb, var(--bad) 13%, var(--surface));
+  border-color: color-mix(in srgb, var(--bad) 32%, transparent); color: var(--bad);
+}
+.lat.unopened { border-style: dashed; border-color: var(--stroke-strong); }
+.lat.today {
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.lat.ahead { opacity: 0.5; }
+
+.latphases { display: flex; flex-direction: column; gap: var(--sp-xs); margin-top: var(--sp-md); }
+.latphase {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-sm);
+  padding: var(--sp-sm) var(--sp-md); border-radius: var(--r-sm);
+  background: var(--surface); border: 1px solid var(--stroke);
+}
+.latphase b { font-size: var(--fs-base); font-weight: 700; text-transform: capitalize; }
+.latphase span { font-size: var(--fs-sm); color: var(--faint); }
+.latphase.is-now { border-color: var(--accent); }
+.latphase.is-now b { color: var(--accent-2); }
+
+/* A habit that has not joined the run yet is quieter than one already running,
+   the same way a future day is. */
+.row.ahead .name { color: var(--muted); }
 
 /* A suggestion the run is making. It states its reasons, because a
    recommendation the user cannot check is one they have to take on faith. */

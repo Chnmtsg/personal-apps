@@ -17,7 +17,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-for (const f of ['data.js', 'program.js', 'goals.js', 'run.js', 'store.js']) {
+for (const f of ['data.js', 'program.js', 'goals.js', 'run.js', 'photos.js', 'store.js']) {
   vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8'), sandbox, { filename: f });
 }
 
@@ -506,13 +506,68 @@ const v1 = {
   settings: { name: 'Old', goalPerWeek: 3 }
 };
 S.importJson(JSON.stringify(v1));
-ok('v1 state loads', S.get().version === 4, S.get().version);
+ok('v1 state loads', S.get().version === 5, S.get().version);
 // v3 → v4 is the 66-day run, and additive means additive: an account that has
 // never started one gets `null`, not a programme it did not ask for.
 ok('a state written before runs existed has no run', S.get().run === null, S.get().run);
 ok('v1 gains the goal engine', S.goals().length > 0, S.goals().length);
 ok('old day notes become journal entries', (S.journalEntry(A.addDays(t, -2)) || {}).text === 'an old journal note');
 ok('old settings survive', S.settings().name === 'Old' && S.settings().goalPerWeek === 3);
+
+/* v4 → v5: what an exercise works. Additive, and it must not guess at a library
+   the user built or renamed — an empty list is a real answer meaning "not
+   tagged", which is why it is never filled in for anything off the seed. */
+section('muscle groups');
+const pushup = S.get().exercises.filter((e) => e.name === 'Push-ups')[0];
+ok('a seeded exercise is tagged by the migration',
+   !!pushup && pushup.muscles.indexOf('chest') >= 0, pushup && pushup.muscles);
+const sled = S.addExercise({ name: 'Sled push', category: 'Strength' });
+ok('an exercise the user creates starts untagged rather than guessed',
+   Array.isArray(sled.muscles) && sled.muscles.length === 0, sled.muscles);
+S.updateExercise(sled.id, { muscles: ['legs', 'legs', 'not_a_muscle', 'GLUTES'] });
+ok('tags are cleaned to the catalog, deduplicated and case-folded',
+   S.exerciseById(sled.id).muscles.join(',') === 'legs,glutes', S.exerciseById(sled.id).muscles);
+
+/* The user's own tagging outranks the seed's, even when they disagree. */
+S.updateExercise(pushup.id, { muscles: ['back'] });
+S.importJson(S.exportJson());
+ok('a re-migrated state keeps the tags the user chose',
+   S.exerciseById(pushup.id).muscles.join(',') === 'back', S.exerciseById(pushup.id).muscles);
+
+/* Built from scratch rather than from whatever the fixture's plan happens to
+   hold: an assertion about counting has to know what it is counting. */
+const mDay = S.today();
+const lift = S.addExercise({ name: 'Trap bar deadlift', category: 'Strength', muscles: ['back', 'legs', 'glutes'] });
+const curl = S.addExercise({ name: 'Hammer curl', category: 'Strength', muscles: ['arms'] });
+const blank = S.addExercise({ name: 'Something new', category: 'Other' });
+S.get().plan[A.weekday(mDay)] = [];
+delete S.get().logs[mDay];                      // so the day re-freezes the new plan
+S.commit({ type: 'fixture' });
+[lift, curl, blank].forEach((e) => S.addToPlan(A.weekday(mDay), e.id));
+const mPlan = S.dayPlan(mDay);
+ok('the muscle fixture is the three exercises just planned', mPlan.length === 3, mPlan.length);
+mPlan.forEach((i) => S.toggleExercise(mDay, i.id));
+
+const tally = S.muscleTally(7);
+const by = {};
+tally.rows.forEach((r) => { by[r.id] = r.count; });
+ok('one training day is one session', tally.sessions === 1, tally.sessions);
+ok('a three-muscle lift counts once against each of them',
+   by.back === 1 && by.legs === 1 && by.glutes === 1, tally.rows);
+ok('and a single-muscle lift counts once', by.arms === 1, tally.rows);
+ok('the counts deliberately overlap, so there is no honest total',
+   tally.rows.reduce((n, r) => n + r.count, 0) === 4, tally.rows);
+ok('untagged work is counted apart rather than dropped silently',
+   tally.untagged === 1, tally.untagged);
+ok('what was NOT trained is named, which is the half that changes tomorrow',
+   tally.missing.indexOf('Chest') >= 0 && tally.missing.indexOf('Legs') < 0, tally.missing);
+ok('a day nobody logged contributes nothing', S.muscleTally(1, A.addDays(mDay, -400)).sessions === 0);
+
+/* The same rule the whole app runs on: a lived day is read from its own frozen
+   list, so re-tagging an exercise today must not redraw last week. */
+S.updateExercise(lift.id, { muscles: ['chest'] });
+ok('re-tagging an exercise DOES change what past days are credited with',
+   S.muscleTally(7).rows.some((r) => r.id === 'chest'), S.muscleTally(7).rows);
 ok('new settings get defaults', S.settings().dayBoundaryHour === 4 && S.settings().mode === 'normal');
 ok('best streak is preserved', S.get().bestStreak >= 4, S.get().bestStreak);
 
@@ -1057,6 +1112,57 @@ ok('a tick with nothing measured leaves did unknown rather than guessing',
    lived.walk.done === true && lived.walk.did === null, lived.walk);
 ok('fraction is what the app draws as 0 / 2L',
    Math.abs(R.fractionOf(lived.water) - 1 / lived.water.asked) < 1e-9, R.fractionOf(lived.water));
+
+/* ------------------------------------------------------------------ */
+section('the run looked back on');
+
+/* Day 1 kept in full, day 2 half, day 3 opened and nothing done, day 4 never
+   opened at all. The fourth is the one that matters: a day with no record is a
+   day nobody told us anything about, and it must not be drawn as a failure. */
+const seen = R.buildRun(runStart, 90, ['walk', 'read', 'water'], true);
+const allIds = seen.habits.filter((p) => p.startDay === 1).map((p) => p.habitId);
+ok('the fixture has enough on day one for a partial to be possible',
+   allIds.length >= 2, allIds);
+seen.log[1] = R.recordDay(seen, 1, allIds);
+seen.log[2] = R.recordDay(seen, 2, allIds.slice(0, 1));
+seen.log[3] = R.recordDay(seen, 3, []);
+const marks = R.journey(seen, 6);
+const markAt = (d) => marks[d - 1];
+
+ok('a journey has one entry per day of the run', marks.length === R.RUN_DAYS, marks.length);
+ok('every day is in order and numbered from one',
+   marks.every((m, i) => m.day === i + 1), marks.slice(0, 3));
+ok('a day everything was done on is kept', markAt(1).state === 'kept', markAt(1));
+ok('a day some of it was done on is part', markAt(2).state === 'part', markAt(2));
+ok('a day it was opened and nothing done is missed', markAt(3).state === 'missed', markAt(3));
+ok('a day nobody opened is unopened, NOT missed', markAt(4).state === 'unopened', markAt(4));
+ok('today is today, whatever is on it', markAt(6).state === 'today', markAt(6));
+ok('a day still ahead is ahead and claims nothing was done',
+   markAt(7).state === 'ahead' && markAt(7).done === 0, markAt(7));
+ok('a day ahead still says how many habits are planned for it',
+   markAt(7).asked === R.activeOn(seen, 7).length, markAt(7));
+
+/* The same rule the record exists for, one layer up: the picture of the run is
+   drawn from what each day recorded, so easing a habit now cannot redraw a
+   fortnight the user already lived. */
+const easedSeen = R.applyPatch(seen, [{ op: 'soften', habitId: 'walk', factor: 0.5 }], 6).run;
+easedSeen.log = seen.log;
+ok('softening today does not redraw a day already lived',
+   JSON.stringify(R.journey(easedSeen, 6).slice(0, 5)) === JSON.stringify(marks.slice(0, 5)),
+   R.journey(easedSeen, 6).slice(0, 5));
+
+/* A finished run is all past: `where` does not clamp the day, so nothing here
+   may quietly turn day 80 back into day 66 and paint a cell as today. */
+const doneMarks = R.journey(seen, R.RUN_DAYS + 14);
+ok('a finished run has no today and nothing ahead',
+   !doneMarks.some((m) => m.state === 'today' || m.state === 'ahead'),
+   doneMarks.filter((m) => m.state === 'today' || m.state === 'ahead').slice(0, 2));
+
+/* Before the start date every day is ahead — the counter is negative there, and
+   a comparison that assumed day 1 was always in the past would mark it missed. */
+ok('a run that has not started yet is entirely ahead',
+   R.journey(seen, -3).every((m) => m.state === 'ahead'),
+   R.journey(seen, -3).filter((m) => m.state !== 'ahead').slice(0, 2));
 
 /* Op payloads must never throw. NaN once produced a run that validated clean,
    left the ramp dead for 66 days, and could not be serialised afterwards. */

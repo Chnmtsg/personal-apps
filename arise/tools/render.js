@@ -87,7 +87,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-for (const f of ['data.js', 'program.js', 'goals.js', 'run.js', 'store.js', 'ui.js']) {
+for (const f of ['data.js', 'program.js', 'goals.js', 'run.js', 'photos.js', 'store.js', 'ui.js']) {
   vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8'), sandbox, { filename: f });
 }
 
@@ -371,7 +371,290 @@ behaves('an unwritable device is told to export, not to restore', () => {
   return html.indexOf('Changes are not being saved') >= 0 ? '' : 'no unwritable banner rendered';
 });
 
+/* A leg day of eight exercises pushed the habits, the streak and the journal
+   two screens down, on the tab the user opens to do the day's work. */
+console.log('\na long workout does not take over Today');
+S.resetAll();
+UI.setViewDate(S.today());
+const wkDay = A.weekday(S.today());
+S.get().plan[wkDay] = [];
+S.commit({ type: 'fixture' });
+S.get().exercises.slice(0, 8).forEach((e) => S.addToPlan(wkDay, e.id));
+const planned = S.dayPlan(S.today()).length;
+
+behaves('the fixture really is a long day', () => (planned >= 6 ? '' : planned + ' exercises'));
+
+behaves('the workout starts folded, so a leg day costs one row', () => {
+  const html = renderRoute('today');
+  if (html.indexOf('class="section-fold') < 0) return 'the heading is not a disclosure';
+  if (html.indexOf('aria-expanded="false"') < 0) return 'it does not open folded';
+  const rows = (html.match(/class="item tight/g) || []).length;
+  return rows === 0 ? '' : rows + ' rows rendered while folded';
+});
+
+/* Folding may hide the list. It may not hide the fact that there is one. */
+behaves('and the folded heading still says how much of it is left', () => {
+  const html = renderRoute('today');
+  return html.indexOf('0 of ' + planned + ' done') > 0
+    ? '' : 'the heading does not carry the count';
+});
+
+/* The wrapper survives the fold even though its contents do not, so the
+   heading's `aria-controls` always resolves to something real. */
+behaves('the folded heading still points at an element that exists', () => {
+  const html = renderRoute('today');
+  if (html.indexOf('id="workoutBody"') < 0) return 'no body element to control';
+  return html.indexOf('aria-controls="workoutBody"') > 0 ? '' : 'the heading controls nothing';
+});
+
+/* Folding the section took the only way of finishing a workout with it. The
+   tick sits outside the fold so a finished workout is always one tap away. */
+behaves('a folded workout can still be ticked off', () => {
+  const html = renderRoute('today');
+  if (html.indexOf('data-act="workout-done"') < 0) return 'no tick on the folded heading';
+  if (html.indexOf('aria-expanded="false"') < 0) return 'the fixture is not folded';
+  // The tick must not be inside the button it sits beside — nested buttons do
+  // not survive a real browser, whatever the stub DOM says about them.
+  const head = html.slice(html.indexOf('class="section-fold'), html.indexOf('id="workoutBody"'));
+  const main = head.indexOf('data-act="workout-more"');
+  const tick = head.indexOf('data-act="workout-done"');
+  return head.slice(main, tick).indexOf('</button>') > 0 ? '' : 'the tick is nested inside the fold toggle';
+});
+
+behaves('ticking the heading marks the whole workout, and says so', () => {
+  S.toggleWorkout(S.today());
+  const html = renderRoute('today');
+  if (S.dayPlan(S.today()).some((i) => !S.log(S.today()).ex[i.id])) return 'not every exercise was ticked';
+  if (html.indexOf('All ' + planned + ' done') < 0) return 'the heading does not say it is finished';
+  return html.indexOf('section-fold is-open is-done') >= 0 || html.indexOf('is-done') > 0
+    ? '' : 'the heading is not drawn as done';
+});
+
+/* The tap is its own undo: the heading is the only place a whole workout can be
+   marked from, so a mis-tap there must not need the day cleared to correct. */
+behaves('and ticking it again takes the whole workout back off', () => {
+  S.toggleWorkout(S.today());
+  const done = S.dayPlan(S.today()).filter((i) => S.log(S.today()).ex[i.id]).length;
+  return done === 0 ? '' : done + ' exercises still ticked';
+});
+
+/* It says "workout". It must not quietly answer for the daily habits too, which
+   is what `completeAll` next door does. */
+behaves('the workout tick does not reach into the daily habits', () => {
+  const before = JSON.stringify((S.log(S.today()) || {}).hb || {});
+  S.toggleWorkout(S.today());
+  const after = JSON.stringify((S.log(S.today()) || {}).hb || {});
+  S.toggleWorkout(S.today());
+  return before === after ? '' : 'it ticked habits as well: ' + after;
+});
+
+/* Emptying `state.plan` is not enough once the day has been opened: `ensureLog`
+   freezes that day's exercise list, and `dayPlan` answers from the frozen copy.
+   That is the invariant working — a day you have started is never re-cast — so
+   the fixture has to drop the log as well as the weekly plan. */
+function restDayFixture() {
+  const keep = S.get().plan[wkDay];
+  const log = S.get().logs[S.today()];
+  delete S.get().logs[S.today()];
+  S.get().plan[wkDay] = [];
+  S.commit({ type: 'fixture' });
+  return () => {
+    S.get().plan[wkDay] = keep;
+    if (log) S.get().logs[S.today()] = log;
+    S.commit({ type: 'fixture' });
+  };
+}
+
+behaves('a rest day is not offered a workout tick at all', () => {
+  const restore = restDayFixture();
+  const html = renderRoute('today');
+  restore();
+  return html.indexOf('data-act="workout-done"') < 0 ? '' : 'it offers to complete nothing';
+});
+
+behaves('opening it shows every exercise, not a capped few', () => {
+  UI.toggleWorkoutOpen();
+  const html = renderRoute('today');
+  const rows = (html.match(/class="item tight/g) || []).length;
+  if (rows !== planned) return rows + ' rows for ' + planned + ' exercises';
+  if (html.indexOf('aria-expanded="true"') < 0) return 'it does not report itself as open';
+  return html.indexOf('data-act="workout-done"') > 0 ? '' : 'the tick vanished once it was opened';
+});
+
+behaves('and changing the day folds it again', () => {
+  UI.toggleWorkoutOpen();
+  UI.setViewDate(A.addDays(S.today(), -1));
+  if (UI.workoutOpen()) return 'it stayed open across a date change';
+  UI.setViewDate(S.today());
+  return '';
+});
+
+/* Muscle groups: what an exercise works, as opposed to what kind it is. */
+console.log('\nmuscles trained');
+
+behaves('the exercise editor offers every muscle group as a chip', () => {
+  sheetBody.innerHTML = '';
+  UI.openExerciseEditor(S.get().exercises[0].id);
+  const html = sheetBody.innerHTML;
+  const missing = A.MUSCLES.filter((m) => html.indexOf('data-muscle="' + m.id + '"') < 0);
+  if (missing.length) return 'not offered: ' + missing.map((m) => m.id).join(', ');
+  // A seeded exercise arrives already tagged, so at least one must be on.
+  return /aria-pressed="true"/.test(html) ? '' : 'a tagged exercise shows nothing selected';
+});
+
+behaves('Stats breaks the work down by muscle, over a window you can change', () => {
+  const html = renderRoute('progress');
+  if (html.indexOf('Muscles trained') < 0) return 'no muscle section';
+  const windows = (html.match(/data-act="muscle-window"/g) || []).length;
+  if (windows !== 3) return windows + ' windows offered';
+  return html.indexOf('aria-pressed="true"') > 0 ? '' : 'no window is selected';
+});
+
+behaves('and the window actually changes what is counted', () => {
+  UI.setMuscleWindow(90);
+  if (UI.muscleWindow() !== 90) return 'the window did not change';
+  const wide = renderRoute('progress');
+  UI.setMuscleWindow(7);
+  const narrow = renderRoute('progress');
+  if (wide === narrow) return 'week and 3 months render identically';
+  return UI.muscleWindow() === 7 ? '' : 'it did not go back';
+});
+
+behaves('a window with nothing in it says so rather than rendering an empty card', () => {
+  const before = S.get().logs;
+  S.get().logs = {};
+  S.commit({ type: 'fixture' });
+  const html = renderRoute('progress');
+  S.get().logs = before;
+  S.commit({ type: 'fixture' });
+  return html.indexOf('Nothing logged in this window') > 0 ? '' : 'no empty state for the muscle card';
+});
+
+/* Exercise pictures. The base64 below is deliberately short and checked to hold
+   none of "undefined", "NaN" or "[object Object]" — the harness scans rendered
+   HTML for those, and a data URL is a long enough random-looking string to trip
+   it by accident. */
+console.log('\nexercise pictures');
+const SHOT = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAg=';
+
+behaves('a picture cache is available even with no database behind it', () => {
+  if (!A.Photos) return 'the module did not load';
+  if (A.Photos.supported()) return 'the sandbox unexpectedly has IndexedDB';
+  return A.Photos.get('nothing') === null ? '' : 'get invented a picture';
+});
+
+behaves('the how-to sheet offers to add one when there is none', () => {
+  const ex = S.get().exercises[0];
+  sheetBody.innerHTML = '';
+  UI.openExerciseHow(ex.id, null);
+  const html = sheetBody.innerHTML;
+  if (html.indexOf('data-act="ex-photo-pick"') < 0) return 'no way to add a picture';
+  if (html.indexOf('<img') >= 0) return 'it rendered an image element with no image';
+  // It must say where the picture goes, because "add a picture" to an app that
+  // makes no network calls is a promise worth being explicit about.
+  return html.indexOf('never uploaded') > 0 ? '' : 'it does not say the picture stays on the device';
+});
+
+/* `put` writes the memory cache synchronously and the database after, so this
+   seeds a picture in a sandbox that has no database at all. */
+behaves('and shows the picture once there is one', () => {
+  const ex = S.get().exercises[0];
+  A.Photos.put(ex.id, SHOT);
+  sheetBody.innerHTML = '';
+  UI.openExerciseHow(ex.id, null);
+  const html = sheetBody.innerHTML;
+  if (html.indexOf('src="' + SHOT + '"') < 0) return 'the picture is not in the img src';
+  if (html.indexOf('data-act="ex-photo-rm"') < 0) return 'no way to remove it';
+  // A picture is not a caption: the alt text has to name the exercise.
+  return html.indexOf('alt="How to do ' + ex.name + '"') > 0 ? '' : 'no useful alt text';
+});
+
+behaves('a picture belongs to its own exercise and no other', () => {
+  const other = S.get().exercises[1];
+  sheetBody.innerHTML = '';
+  UI.openExerciseHow(other.id, null);
+  return sheetBody.innerHTML.indexOf('<img') < 0 ? '' : 'the picture leaked onto another exercise';
+});
+
+behaves('removing it puts the empty state back', () => {
+  const ex = S.get().exercises[0];
+  A.Photos.remove(ex.id);
+  sheetBody.innerHTML = '';
+  UI.openExerciseHow(ex.id, null);
+  return sheetBody.innerHTML.indexOf('<img') < 0 ? '' : 'the picture survived removal';
+});
+
+/* The pictures live outside `arise.state.v1`, so the backup is the only thing
+   carrying them across an origin move — the move that backup exists for. */
+behaves('pictures are collected for the backup, and restored from one', () => {
+  const ex = S.get().exercises[0];
+  A.Photos.put(ex.id, SHOT);
+  const backup = A.Photos.all();
+  if (backup[ex.id] !== SHOT) return 'the backup does not hold the picture';
+  A.Photos.remove(ex.id);
+  if (A.Photos.get(ex.id)) return 'remove did not clear it';
+  return A.Photos.restore(backup) ? '' : 'restore returned nothing';
+});
+
+behaves('and a backup with no pictures in it removes none', () => {
+  const ex = S.get().exercises[0];
+  A.Photos.put(ex.id, SHOT);
+  A.Photos.restore(undefined);
+  A.Photos.restore({});
+  const kept = A.Photos.get(ex.id) === SHOT;
+  A.Photos.remove(ex.id);
+  return kept ? '' : 'an empty restore wiped an existing picture';
+});
+
+/* Fifty-nine exercises pushed Reminders, Profile and the export route off the
+   bottom of More. */
+behaves('the exercise library folds too, and says how many it holds', () => {
+  const html = renderRoute('more');
+  const total = S.get().exercises.length;
+  if (html.indexOf('data-act="lib-open"') < 0) return 'the library heading is not a disclosure';
+  if (html.indexOf(total + ' exercises') < 0) return 'it does not say how many there are';
+  return html.indexOf('data-act="lib-edit"') < 0 ? '' : 'the rows rendered while folded';
+});
+
+behaves('and opening it lists every one of them', () => {
+  UI.toggleLibOpen();
+  const html = renderRoute('more');
+  const rows = (html.match(/data-act="lib-edit"/g) || []).length;
+  UI.toggleLibOpen();
+  return rows === S.get().exercises.length ? '' : rows + ' rows for ' + S.get().exercises.length;
+});
+
+/* Folding the workout took its only completion control with it. Adding a new
+   exercise must stay reachable the same way. */
+behaves('a new exercise can be added without opening the library', () => {
+  const html = renderRoute('more');
+  return html.indexOf('data-act="lib-add"') > 0 ? '' : 'no way to add one while folded';
+});
+
+behaves('a rest day says so on the heading rather than opening onto nothing', () => {
+  const restore = restDayFixture();
+  const html = renderRoute('today');
+  restore();
+  return html.indexOf('Rest day') > 0 ? '' : 'a day with no exercises gives no summary';
+});
+
+/* The row lost a line, so the dose has to still be on it — a workout row that
+   does not say how much is not a workout row. */
+behaves('the tightened row still carries the dose', () => {
+  S.get().exercises.slice(0, 3).forEach((e) => S.addToPlan(wkDay, e.id));
+  UI.toggleWorkoutOpen();
+  const html = renderRoute('today');
+  const first = S.dayPlan(S.today())[0];
+  const ex = S.exerciseById(first.exerciseId);
+  if (html.indexOf('class="dose"') < 0) return 'no dose column at all';
+  if (html.indexOf(ex.name) < 0) return 'the exercise name went with it';
+  UI.toggleWorkoutOpen();
+  return '';
+});
+
 behaves('a healthy account shows no such banner', () => {
+  S.resetAll();
+  UI.setViewDate(S.today());
   S.get().meta.storageError = null;
   const html = renderRoute('today');
   if (html.indexOf('data-act="download-unreadable"') >= 0) return 'unreadable banner rendered without an error';
@@ -860,10 +1143,37 @@ behaves('every state class the run UI emits is actually styled', () => {
   // and a scan that reads prose reports the thing it is describing.
   const css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '');
-  const needed = ['.pick.on', '.runrow.is-done', '.runrow.is-part', '.runitem.on'];
+  const needed = ['.pick.on', '.runrow.is-done', '.runrow.is-part', '.runitem.on',
+                  '.lat.kept', '.lat.part', '.lat.missed', '.lat.unopened', '.lat.today',
+                  '.lat.ahead', '.latphase.is-now', '.row.ahead',
+                  '.item.tight', '.item.tight .dose', '.section-fold.is-open',
+                  '.section-fold.is-done .fold-tick', '.fold-main', '.how-photo img', '.how-photo-add', '.chip-pick.on', '.segbar.tight'];
   const missing = needed.filter((sel) => css.indexOf(sel) < 0);
   if (missing.length) return 'no rule for: ' + missing.join(', ');
   return css.indexOf(':has(:checked)') < 0 ? '' : 'a dead :has(:checked) rule is still in the sheet';
+});
+
+/* The one layout rule this suite can meaningfully guard, because it shipped.
+   `html, body { height: 100% }` plus border-box sizing locks the body to the
+   viewport, so its `padding-bottom` reserves nothing at the end of a scroll and
+   the last control on any long screen sits under the fixed tab bar. The run's
+   Start button lost 34px that way and could not be tapped on a phone.
+
+   The stub DOM has no geometry, so nothing here can measure it — this asserts
+   the rule that caused it instead. Real layout still needs a real browser at a
+   real phone height; a tall window does not scroll and hides this entirely. */
+behaves('the page can grow past the viewport, so a fixed bar cannot eat the end of it', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = /html\s*,\s*body\s*\{([^}]*)\}/.exec(css);
+  if (!rule) return 'no html, body rule at all — has the reset moved?';
+  if (/(^|[^-])height\s*:\s*100%/.test(rule[1])) {
+    return 'html, body is locked to height:100%; the bottom padding reserves nothing';
+  }
+  if (!/min-height\s*:\s*100%/.test(rule[1])) return 'html, body no longer fills the viewport';
+  // And the padding that clears the tab bar has to still be there to be reserved.
+  return /padding-bottom:\s*calc\(var\(--tab-h\)/.test(css)
+    ? '' : 'nothing reserves room for the fixed tab bar';
 });
 
 behaves('a chosen habit is marked in the markup, not only in colour', () => {
@@ -997,9 +1307,12 @@ behaves('the button says how many are chosen, so the count is never a surprise',
 
 behaves('with no run, the screen says what it costs before what it gives', () => {
   S.resetAll();
+  UI.resetRunPicks();
   const html = renderRoute('run');
   if (html.indexOf('run-start') < 0) return 'no way to start one';
   if (html.indexOf('id="run_budget"') < 0) return 'no way to say how many minutes';
+  // The catalog is the choice: no questions in front of it.
+  if (html.indexOf('run-answer') >= 0) return 'the intake came back';
   return html.indexOf('separate from your goals') > 0 ? '' : 'it does not say the goals are untouched';
 });
 
@@ -1065,6 +1378,88 @@ behaves('a finished run stops asking for anything', () => {
   const html = renderRoute('run');
   if (html.indexOf('run is over') < 0) return 'it does not say the run is over';
   return html.indexOf('data-act="run-tick"') < 0 ? '' : 'it still asks for habits after day 66';
+});
+
+/* The run screen showed today and what was still coming, and nothing about what
+   had happened — sixty-five days of record with no way to look at them. */
+behaves('a running run draws all 66 of its days', () => {
+  S.resetAll();
+  S.startRun(['walk', 'water', 'read'], 90, true);
+  const run = S.run();
+  run.startDate = A.addDays(S.today(), -9);          // day 10
+  const ids = run.habits.map((p) => p.habitId);
+  run.log[1] = RunE.recordDay(run, 1, ids);          // kept
+  run.log[2] = RunE.recordDay(run, 2, ids.slice(0, 1));  // part
+  run.log[3] = RunE.recordDay(run, 3, []);           // opened, nothing done
+  // day 4 deliberately left with no record at all
+  S.commit({ type: 'fixture' });
+
+  const html = renderRoute('run');
+  const cells = html.match(/class="lat [a-z]+"/g) || [];
+  if (cells.length !== RunE.RUN_DAYS) return cells.length + ' cells, want ' + RunE.RUN_DAYS;
+  return html.indexOf('The whole run') > 0 ? '' : 'the section is not headed';
+});
+
+/* The invariant, drawn. A day the user never opened the app on is a day we know
+   nothing about, and the run must not retroactively decide they failed it —
+   `computeDayStatus` already refuses to, and a picture that disagreed with the
+   streak would be the more believable of the two. */
+behaves('a day nobody opened is not painted as a missed one', () => {
+  const html = renderRoute('run');
+  const at = (d) => (html.match(new RegExp('class="lat ([a-z]+)" title="Day ' + d + ' ')) || [])[1];
+  if (at(1) !== 'kept') return 'day 1 drawn as ' + at(1);
+  if (at(2) !== 'part') return 'day 2 drawn as ' + at(2);
+  if (at(3) !== 'missed') return 'day 3 drawn as ' + at(3);
+  if (at(4) !== 'unopened') return 'day 4 drawn as ' + at(4) + ', not unopened';
+  if (at(10) !== 'today') return 'day 10 drawn as ' + at(10);
+  return at(11) === 'ahead' ? '' : 'day 11 drawn as ' + at(11);
+});
+
+/* Six shades of one palette is a chart that stops meaning anything on a phone
+   in daylight, and the guidelines forbid meaning carried by colour alone. */
+behaves('and the same counts are stated in words, not only in colour', () => {
+  const html = renderRoute('run');
+  const want = ['1 kept', '1 part of it', '1 missed', 'not opened', 'to come'];
+  const absent = want.filter((s) => html.indexOf(s) < 0);
+  return absent.length ? 'the tally never says: ' + absent.join(', ') : '';
+});
+
+behaves('the phases are named with their days, and the current one marked', () => {
+  const html = renderRoute('run');
+  const missing = RunE.PHASES.filter((p) => html.indexOf('day ' + p.first + '–' + p.last) < 0);
+  if (missing.length) return 'no range for: ' + missing.map((p) => p.name).join(', ');
+  if (html.indexOf('latphase is-now') < 0) return 'no phase is marked as the current one';
+  return (html.match(/latphase is-now/g) || []).length === 1 ? '' : 'more than one phase is "now"';
+});
+
+/* "Read arrived on day 8" is the half of the schedule that explains the lattice
+   above it, and it was the half the old "Still to come" list left out. */
+behaves('the ladder says when each habit joined, past ones included', () => {
+  const html = renderRoute('run');
+  if (html.indexOf('How it was built') < 0) return 'no ladder';
+  if (html.indexOf('started day 1') < 0) return 'it does not say when a habit already running began';
+  return html.indexOf('Still to come') < 0 ? '' : 'the future half is still listed twice';
+});
+
+behaves('a habit that has not joined yet says how long that is', () => {
+  S.resetAll();
+  S.startRun(['walk', 'water', 'read'], 90, false);   // eased in, so some start later
+  const html = renderRoute('run');
+  const later = S.run().habits.filter((p) => p.startDay > 1);
+  if (!later.length) return 'the fixture has nothing starting later';
+  const away = later[0].startDay - S.runToday();
+  if (html.indexOf('starts day ' + later[0].startDay) < 0) return 'no start day for a habit still to come';
+  return html.indexOf('in ' + away + (away === 1 ? ' day' : ' days')) > 0
+    ? '' : 'it does not say how far off that is';
+});
+
+behaves('a finished run can still be looked back on', () => {
+  S.run().startDate = A.addDays(S.today(), -80);
+  S.commit({ type: 'fixture' });
+  const html = renderRoute('run');
+  if (html.indexOf('The whole run') < 0) return 'the lattice is gone the moment it is worth reading';
+  if (html.indexOf('class="lat today"') >= 0) return 'a finished run still has a today';
+  return html.indexOf('class="lat ahead"') < 0 ? '' : 'a finished run still has days ahead of it';
 });
 
 behaves('a run naming a habit this build lost says so, and shows the rest', () => {

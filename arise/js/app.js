@@ -126,6 +126,21 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  /**
+   * Ask for an image from the device.
+   *
+   * No `capture` attribute: that forces the camera on a phone, and the pictures
+   * people want here are ones they already have — saved from a search, cropped
+   * out of a book. Leaving it off offers the library and the camera both.
+   */
+  function pickImage(onFile) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = () => onFile(input.files && input.files[0]);
+    input.click();
+  }
+
   function pickFile(onText) {
     const input = document.createElement('input');
     input.type = 'file';
@@ -236,7 +251,12 @@
       repsMax: unit === 'reps' && !isNaN(rawMax) && rawMax > reps ? rawMax : null,
       minutes: unit === 'time' ? aVal : undefined,
       km: unit === 'distance' ? aVal : undefined,
-      how: howEl ? howEl.value.trim() : undefined
+      how: howEl ? howEl.value.trim() : undefined,
+      /* Read off the chips that are actually on, so an untagged exercise saves
+         as an empty list rather than as "leave it alone" — clearing every
+         muscle has to be something the user can do. */
+      muscles: Array.from(document.querySelectorAll('[data-act="ex-muscle"][aria-pressed="true"]'))
+        .map((el) => el.dataset.muscle)
     };
     Object.keys(data).forEach((k) => data[k] === undefined && delete data[k]);
     return data;
@@ -766,6 +786,74 @@
         break;
       }
 
+      case 'workout-more':
+        UI.toggleWorkoutOpen();
+        UI.render();
+        break;
+      case 'lib-open':
+        UI.toggleLibOpen();
+        UI.render();
+        break;
+      /* Toggled in the DOM rather than through a re-render: the editor is a
+         form the user is part-way through, and rebuilding it to flip one chip
+         would throw away everything typed above it. */
+      case 'muscle-window':
+        UI.setMuscleWindow(actEl.dataset.days);
+        UI.render();
+        break;
+      case 'ex-muscle': {
+        const on = actEl.getAttribute('aria-pressed') === 'true';
+        actEl.setAttribute('aria-pressed', on ? 'false' : 'true');
+        if (actEl.classList) actEl.classList.toggle('on', !on);
+        break;
+      }
+
+      /* --- exercise pictures --- */
+      case 'ex-photo-pick':
+        pickImage((file) => {
+          if (!file) return;
+          A.Photos.shrink(file).then((dataUrl) => {
+            if (!dataUrl) {
+              UI.toast('⚠️ <span>That file could not be read as a picture.</span>', 'bad');
+              return;
+            }
+            A.Photos.put(id, dataUrl).then((saved) => {
+              UI.refreshExerciseHow();
+              /* Said out loud on purpose. A picture that looks added and is gone
+                 after a reload is worse than one that was refused, and a device
+                 with no IndexedDB — private mode, mostly — fails exactly that
+                 way. */
+              if (saved) UI.toast('🖼 <span>Picture saved on this device.</span>');
+              else UI.toast('⚠️ <span>This browser will not store pictures — it is showing but will not survive a reload.</span>', 'bad');
+            });
+          });
+        });
+        break;
+      case 'ex-photo-rm':
+        UI.openConfirm({
+          title: 'Remove this picture?',
+          body: 'The exercise and its written cues are kept. Only the picture goes, and it cannot be undone — you would have to pick the file again.',
+          confirmLabel: 'Remove picture',
+          danger: true,
+          onConfirm: () => {
+            A.Photos.remove(id).then(() => {
+              UI.refreshExerciseHow();
+              UI.toast('<span>Picture removed.</span>');
+            });
+          }
+        });
+        break;
+      /* The whole workout in one tap, from the heading, without opening it.
+         Toggling rather than only completing means the tap is its own undo. */
+      case 'workout-done': {
+        const now = act(() => S.toggleWorkout(date));
+        if (now != null) {
+          buzz(now ? 18 : 0);
+          UI.toast(now ? '💪 <span>Workout logged.</span>' : '<span>Workout unticked.</span>');
+        }
+        break;
+      }
+
       /* --- the 66-day run --- */
       case 'run-start': {
         const sel = $('#run_budget');
@@ -875,10 +963,21 @@
           UI.toast('📲 <span>Use your browser menu → “Install app”</span>');
         }
         break;
-      case 'export':
-        download(`discipline-backup-${A.key()}.json`, S.exportJson());
+      /* The pictures ride along in the backup, and they have to: they are the
+         user's own files, they live outside `arise.state.v1` in a database of
+         their own, and a backup that quietly left them behind would lose them
+         on the one move it exists to survive — a change of origin. `photos` is
+         an extra top-level key, so an older build reading this file simply
+         ignores it, and a backup written before pictures existed restores
+         none. */
+      case 'export': {
+        const backup = JSON.parse(S.exportJson());
+        const shots = A.Photos.all();
+        if (Object.keys(shots).length) backup.photos = shots;
+        download(`discipline-backup-${A.key()}.json`, JSON.stringify(backup, null, 2));
         UI.toast('⬇️ <span>Backup downloaded</span>');
         break;
+      }
       case 'download-unreadable': {
         // Discipline cannot parse these bytes, but they are still the user's data and
         // getting them off the device is worth more than anything we can say.
@@ -927,7 +1026,21 @@
             onConfirm: () => {
               try {
                 S.importJson(text);
-                UI.toast('✅ <span>Data restored</span>');
+                /* After the state, and never instead of it. The pictures live in
+                   their own database, so a failure to restore them must not be
+                   able to take the restore of the ledger down with it — that is
+                   the whole reason they are kept apart. Additive: a backup with
+                   no `photos` key removes nothing. */
+                let shots = null;
+                try {
+                  shots = JSON.parse(text).photos;
+                } catch (err2) {
+                  shots = null;   // already restored; the state is what mattered
+                }
+                A.Photos.restore(shots).then((n) => {
+                  UI.toast(n ? `✅ <span>Data restored, with ${n} picture${n === 1 ? '' : 's'}</span>`
+                             : '✅ <span>Data restored</span>');
+                });
               } catch (err) {
                 UI.openConfirm({
                   title: 'That backup could not be restored',
@@ -1233,6 +1346,15 @@
     // something a render does. See Store.runCheckIn.
     S.runCheckIn();
     UI.go((location.hash || '').replace('#/', '') || 'today');
+
+    /* Fill the picture cache, then repaint. Reading IndexedDB is async and
+       rendering is not, so the first paint is drawn without pictures and the
+       one after has them — which is right for a screen nobody is looking at
+       yet. Deliberately after `UI.go`: making the app wait on a database it may
+       not even have would trade a whole app for a picture. */
+    A.Photos.load().then((map) => {
+      if (map && Object.keys(map).length) UI.render();
+    });
   } catch (err) {
     console.error('Discipline: failed to start.', err);
     const view = $('#view');

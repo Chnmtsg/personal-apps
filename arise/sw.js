@@ -2,7 +2,7 @@
 /* Bump on every shipped change to styles.css or js/ — the fetch handler is
    cache-first, so without a new VERSION an existing install keeps serving the
    old shell until a second load. */
-const VERSION = 'discipline-v36';
+const VERSION = 'discipline-v45';
 const ASSETS = [
   './',
   './index.html',
@@ -17,6 +17,7 @@ const ASSETS = [
   './js/program.js',
   './js/goals.js',
   './js/run.js',
+  './js/photos.js',
   './js/store.js',
   './js/ui.js',
   './js/app.js',

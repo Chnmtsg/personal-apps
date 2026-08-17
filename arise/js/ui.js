@@ -15,6 +15,18 @@
   // Which bucket of today's goals is on screen: 'todo' | 'done' | 'skipped'.
   // View state, not user data — it resets to the work still outstanding on load.
   let todayFilter = 'todo';
+  // Whether a long workout is showing all of itself. Same kind of state, and it
+  // collapses again when the day changes: opening yesterday is a different
+  // question from working through today.
+  let workoutOpen = false;
+  // Same again for the exercise library on More: a reference list you open to
+  // change something, not one you read on the way past.
+  let libOpen = false;
+  /* Which window the muscle breakdown on Stats is showing. View state, like the
+     folds — a look at the last week is not a setting anybody wants remembered
+     across devices. */
+  const MUSCLE_WINDOWS = [{ days: 7, label: 'Week' }, { days: 30, label: 'Month' }, { days: 90, label: '3 months' }];
+  let muscleWindow = 7;
 
   const esc = (s) =>
     String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -51,6 +63,9 @@
     // rectangle, and that is exactly what the first attempt looked like.
     book: '<path d="M12 7v13"/><path d="M12 7a4.5 4.5 0 0 0-4.5-3H3v13h4.5a4.5 4.5 0 0 1 4.5 3"/><path d="M12 7a4.5 4.5 0 0 1 4.5-3H21v13h-4.5a4.5 4.5 0 0 0-4.5 3"/>',
     chart: '<path d="M4 20V10m6 10V4m6 16v-7"/>',
+    /* A frame with a horizon and a sun — the shape reads as "picture" at 13px,
+       where a mountain outline alone reads as a triangle. */
+    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 16l-5-5-6.5 7"/>',
     trophy: '<path d="M7 3h10v5.5a5 5 0 0 1-10 0V3Z"/><path d="M7 5H4v1.5A3.5 3.5 0 0 0 7.5 10M17 5h3v1.5a3.5 3.5 0 0 1-3.5 3.5"/><path d="M12 13.5V17m-3.5 3.5h7"/>',
     grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
 
@@ -151,13 +166,42 @@
     const ex = S.exerciseById(item.exerciseId);
     // `icon` is ready-to-insert HTML from here down, so its call sites must not
     // escape it a second time. Anything user-typed is escaped inside exGlyph.
-    if (!ex) return { icon: esc('❓'), name: 'Removed exercise', sub: '', cat: 'Other' };
-    return { icon: exGlyph(ex), name: ex.name, sub: `${dose(item, ex)} · ${ex.category}`, cat: ex.category };
+    if (!ex) return { icon: esc('❓'), name: 'Removed exercise', sub: '', dose: '', cat: 'Other' };
+    /* `dose` on its own as well as inside `sub`: Today puts it in a column of
+       its own so the row fits on one line, and Plan still reads as a sentence. */
+    return {
+      icon: exGlyph(ex), name: ex.name, dose: dose(item, ex),
+      sub: `${dose(item, ex)} · ${ex.category}`, cat: ex.category
+    };
   }
 
   const dayOrder = [1, 2, 3, 4, 5, 6, 0]; // Monday-first
 
   /* ---------- shared fragments ---------- */
+
+  /**
+   * A section heading that is also its own disclosure.
+   *
+   * Two screens fold a long list behind their heading — Today's workout and the
+   * exercise library — and this is the only thing that builds the markup for it,
+   * so there is no second copy to drift from the first.
+   *
+   * It renders a *container*, not a button: `tail` sits beside the fold rather
+   * than inside it, because a button nested in a button does not survive a
+   * browser. The heading keeps the summary whether it is open or shut — folding
+   * may hide a list, it may not hide the fact that there is one.
+   */
+  function foldHead(o) {
+    return `<div class="section-fold ${o.open ? 'is-open' : ''} ${o.done ? 'is-done' : ''}">
+      <button type="button" class="fold-main" data-act="${esc(o.act)}"
+        aria-expanded="${!!o.open}" aria-controls="${esc(o.id)}">
+        <h2>${esc(o.title)}</h2>
+        <span class="fold-sum">${esc(o.summary)}</span>
+        <i class="fold-chev" aria-hidden="true">›</i>
+      </button>
+      ${o.tail || ''}
+    </div>`;
+  }
 
   /** Every XP figure goes through one formatter, so a card cannot show
       "12,480" beside "1240 / 2200". */
@@ -351,6 +395,16 @@
       ? 'Nothing logged yet'
       : `${st.total - st.done} left to go`;
 
+    /* The workout is one folded section, opened by tapping its heading.
+       A leg day of eight exercises pushed the habits, the streak and the journal
+       two screens down on the tab the user opens to do the day's work — and
+       capping the list at four only made it shorter, not short. Folded, it costs
+       one row until it is wanted.
+
+       The heading still carries the count, so folding hides the list and never
+       the fact that there is one. */
+    const exDone = plan.filter((i) => l && l.ex && l.ex[i.id]).length;
+
     const exHtml = plan.length
       ? plan
           .map((i) => {
@@ -358,13 +412,14 @@
             const done = !!(l && l.ex && l.ex[i.id]);
             // The row is a container, not a button, so the "how to" control can
             // sit beside the toggle — same shape as a .goal row.
-            return `<div class="item ${done ? 'done' : ''} ${future ? 'locked' : ''}">
+            return `<div class="item tight ${done ? 'done' : ''} ${future ? 'locked' : ''}">
               <button type="button" class="item-main" data-act="toggle-ex" data-id="${i.id}" ${future ? 'disabled' : ''}>
                 <span class="tick" aria-hidden="true">✓</span>
                 <span class="emoji" aria-hidden="true">${p.icon}</span>
-                <span class="body"><span class="name">${esc(p.name)}</span><span class="sub">${esc(p.sub)}${
-              i.note ? ' · ' + esc(i.note) : ''
-            }</span></span>
+                <span class="body"><span class="name">${esc(p.name)}</span>${
+              i.note ? `<span class="sub">${esc(i.note)}</span>` : ''
+            }</span>
+                <span class="dose">${esc(p.dose)}</span>
               </button>
               <button type="button" class="icon-btn" data-act="ex-how" data-id="${i.exerciseId}" data-item="${i.id}"
                 aria-label="How to do ${esc(p.name)}">${icon('info')}</button>
@@ -373,6 +428,16 @@
           .join('')
       : `<div class="empty"><span class="big">🛌</span>No exercises scheduled for ${esc(A.DAY_NAMES[A.weekday(k)])}.<br>
          <button class="link" data-act="go-plan" data-day="${A.weekday(k)}">Plan this day →</button></div>`;
+
+    /* What the folded heading says, and it has to be true at a glance: how much
+       of the day's training is left without opening it. */
+    const exSummary = !plan.length
+      ? 'Rest day'
+      : future
+      ? plan.length + (plan.length === 1 ? ' exercise' : ' exercises')
+      : exDone === plan.length
+      ? 'All ' + plan.length + ' done'
+      : exDone + ' of ' + plan.length + ' done';
 
     const extras = (l && l.extra) || [];
     const extraHtml = extras
@@ -542,18 +607,42 @@
 
       ${offset === 0 ? runSection() : ''}
 
-      <div class="section-head"><h2>${esc(A.DAY_NAMES[A.weekday(k)])} workout</h2>
-        ${plan.length && !future ? `<button class="link" data-act="complete-all">Mark all done</button>` : ''}</div>
-      <div class="list">${exHtml}${extraHtml}</div>
-
-      ${
-        future
+      <!-- Folding the section used to take the only way of finishing a workout
+           with it, so the tick rides the heading where it is always reachable. -->
+      ${foldHead({
+        id: 'workoutBody',
+        act: 'workout-more',
+        title: A.DAY_NAMES[A.weekday(k)] + ' workout',
+        summary: exSummary,
+        open: workoutOpen,
+        done: plan.length && exDone === plan.length,
+        tail:
+          plan.length && !future
+            ? `<button type="button" class="fold-tick" data-act="workout-done"
+                aria-pressed="${exDone === plan.length}"
+                aria-label="${exDone === plan.length ? 'Undo the whole' : 'Mark the whole'} ${esc(
+                A.DAY_NAMES[A.weekday(k)]
+              )} workout done">✓</button>`
+            : ''
+      })}
+      <!-- The wrapper is always here so aria-controls always resolves; what is
+           inside it is built only when open. Hiding a rendered list with the
+           hidden attribute instead would leave the whole section one CSS
+           display rule away from being invisible but still reachable, which is
+           a failure this app has shipped before. -->
+      <div id="workoutBody">${
+        !workoutOpen
           ? ''
-          : `<div class="inline-add">
-              <input type="text" id="extraInput" placeholder="Log something extra you did…" maxlength="60">
-              <button class="btn" data-act="add-extra">Add</button>
-            </div>`
-      }
+          : `<div class="list">${exHtml}${extraHtml}</div>
+        ${
+          future
+            ? ''
+            : `<div class="inline-add">
+                <input type="text" id="extraInput" placeholder="Log something extra you did…" maxlength="60">
+                <button class="btn" data-act="add-extra">Add</button>
+              </div>`
+        }`
+      }</div>
 
       <div class="section-head"><h2>Daily habits</h2><button class="link" data-nav="more">Manage</button></div>
       <div class="list">${habitHtml}</div>
@@ -911,6 +1000,35 @@
         mixTotal++;
       });
     }
+    /* Muscles over a window the user picks. This is the question a training
+       plan is actually built around — "have I trained legs this week" — and
+       `category` could never answer it: Strength is not a muscle.
+
+       Bars are drawn against the busiest group, never against a total. The
+       counts overlap on purpose (a deadlift is back and legs and glutes), so a
+       percentage would be dividing by a number that means nothing. */
+    const tally = S.muscleTally(muscleWindow);
+    const muscleRows = tally.rows.length
+      ? tally.rows
+          .map(
+            (r) =>
+              `<div class="breakdown-row"><span class="lbl">${esc(r.name)}</span>${bar(
+                (r.count / tally.most) * 100
+              )}<span class="val">${r.count}</span></div>`
+          )
+          .join('') +
+        `<p class="faint" style="margin:10px 2px 0;font-size:var(--fs-xs);line-height:1.5">${esc(
+          tally.sessions + (tally.sessions === 1 ? ' training day' : ' training days') +
+          (tally.missing.length ? ' · nothing for ' + tally.missing.join(', ').toLowerCase() : '') +
+          (tally.untagged ? ' · ' + tally.untagged + ' untagged' : '')
+        )}${
+          tally.untagged
+            ? ' — <button class="link" data-nav="more" style="min-height:0;padding:0;font-size:var(--fs-xs)">tag them in the library</button>'
+            : ''
+        }</p>`
+      : `<div class="empty">Nothing logged in this window.<br>
+         <span class="faint" style="font-size:var(--fs-sm)">Tick exercises on Today, and what they work shows up here.</span></div>`;
+
     const mixRows = Object.keys(mix).length
       ? Object.entries(mix)
           .sort((a, b) => b[1] - a[1])
@@ -1000,6 +1118,13 @@
 
       <div class="section-head"><h2>Weekly goal history</h2><span class="faint" style="font-size:var(--fs-sm)">goal ${S.settings().goalPerWeek}/wk</span></div>
       <div class="card"><div class="bars">${bars}</div></div>
+
+      <div class="section-head"><h2>Muscles trained</h2>
+        <div class="segbar tight">${MUSCLE_WINDOWS.map(
+          (w) => `<button class="seg ${muscleWindow === w.days ? 'on' : ''}" data-act="muscle-window"
+            data-days="${w.days}" aria-pressed="${muscleWindow === w.days}">${esc(w.label)}</button>`
+        ).join('')}</div></div>
+      <div class="card">${muscleRows}</div>
 
       <div class="section-head"><h2>Training mix · 30 days</h2></div>
       <div class="card">${mixRows}</div>
@@ -1259,8 +1384,22 @@
       <div class="section-head"><h2>Daily habits</h2><button class="link" data-act="habit-add">＋ Add</button></div>
       <div class="card">${habitRows}</div>
 
-      <div class="section-head"><h2>Exercise library</h2><button class="link" data-act="lib-add">＋ New</button></div>
-      <div class="card">${libRows}</div>
+      <!-- Fifty-nine exercises pushed Reminders, Profile and the export route
+           off the bottom of More. It is a reference list, opened to change
+           something rather than read on the way past, so it folds. -->
+      ${foldHead({
+        id: 'libBody',
+        act: 'lib-open',
+        title: 'Exercise library',
+        /* The picture count rides the heading rather than hiding in a settings
+           screen: they are the only thing this app stores outside its own
+           backup-able state, so the user should be able to see they exist. */
+        summary: (exs.length ? exs.length + ' exercises' : 'empty') +
+          (A.Photos.count() ? ' · ' + A.Photos.count() + ' pictures' : ''),
+        open: libOpen,
+        tail: `<button type="button" class="icon-btn" data-act="lib-add" aria-label="New exercise">＋</button>`
+      })}
+      <div id="libBody">${libOpen ? `<div class="card">${libRows}</div>` : ''}</div>
 
       <div class="section-head"><h2>Reminders</h2></div>
       <div class="card">
@@ -1505,6 +1644,16 @@
         <input type="number" id="e_max" min="1" placeholder="e.g. 12 for a 8–12 range" value="${
           esc(v.repsMax != null ? v.repsMax : '')
         }"></label>
+      <!-- What it works, as opposed to what kind of thing it is. Chips rather
+           than a select: most exercises are more than one muscle, and a
+           multi-select on a phone is a scroll list nobody opens twice. -->
+      <div class="field"><span>What it works</span>
+        <div class="chips">${A.MUSCLES.map((m) => {
+          const on = (v.muscles || []).indexOf(m.id) >= 0;
+          return `<button type="button" class="chip-pick ${on ? 'on' : ''}" data-act="ex-muscle"
+            data-muscle="${esc(m.id)}" aria-pressed="${on}">${esc(m.name)}</button>`;
+        }).join('')}</div>
+      </div>
       <label class="field"><span>How to do it — one step per line</span>
         <textarea id="e_how" rows="7" placeholder="Lie on the floor, knees bent…">${esc(v.how || '')}</textarea></label>
       <div class="btn-row"><button class="btn primary block" data-act="lib-save" data-id="${e ? e.id : ''}">${e ? 'Save changes' : 'Create exercise'}</button></div>
@@ -1558,18 +1707,44 @@
    * you cannot trust is worse than none. The written cues carry what actually
    * matters anyway: tempo, setup, and what to avoid.
    */
+  /* What the how-to sheet was last opened with, so adding a picture can rebuild
+     it without losing the prescription it was showing. */
+  let howArgs = null;
+
   function openExerciseHow(exerciseId, item) {
     const ex = S.exerciseById(exerciseId);
     if (!ex) return;
+    howArgs = { id: exerciseId, item: item || null };
     const lines = String(ex.how || '')
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);
     const prescription = item ? dose(item, ex) : dose({}, ex);
 
+    /* The picture of the movement, if the user has added one. It goes above the
+       written cues because that is the order they are used in: you look at the
+       shape, then read the detail. `A.Photos.get` is a synchronous read of a
+       cache filled at boot — nothing here waits on a database, and nothing here
+       reaches the network, which is what the whole app is built on. */
+    const photo = A.Photos.get(ex.id);
+
     // Plain text: the sheet title goes in through `textContent`, so an inline
     // SVG would arrive as literal markup. The name alone is enough here.
     openSheet(ex.name, `
+      ${
+        photo
+          ? `<figure class="how-photo">
+              <img src="${esc(photo)}" alt="How to do ${esc(ex.name)}">
+              <figcaption>
+                <button class="link" data-act="ex-photo-pick" data-id="${esc(ex.id)}">Replace</button>
+                <button class="link danger" data-act="ex-photo-rm" data-id="${esc(ex.id)}">Remove</button>
+              </figcaption>
+            </figure>`
+          : `<button type="button" class="how-photo-add" data-act="ex-photo-pick" data-id="${esc(ex.id)}">
+              ${icon('image')}<b>Add a picture</b>
+              <small>From your phone. Kept on this device — it is never uploaded anywhere.</small>
+            </button>`
+      }
       <div class="how-dose">
         <b>${esc(prescription)}</b>
         <span>${esc(ex.category)}${item && item.note ? ' · ' + esc(item.note) : ''}</span>
@@ -1582,6 +1757,11 @@
       }
       <button class="btn ghost block" data-act="lib-edit" data-id="${ex.id}" style="margin-top:12px">Edit exercise</button>
     `);
+  }
+
+  /** Rebuild the how-to sheet in place — after a picture is added or removed. */
+  function refreshExerciseHow() {
+    if (howArgs) openExerciseHow(howArgs.id, howArgs.item);
   }
 
   /* ---------- confirm / prompt sheets ----------
@@ -2052,6 +2232,108 @@
       }`;
   }
 
+  /* ---------------- the run, looked back on ---------------- */
+
+  /* Until this existed the run screen showed today and what was still coming,
+     and nothing at all about what had happened. Sixty-five days of record sat
+     in storage with no way to see them: the one screen in the app you cannot
+     open to ask "how has this actually gone" was the sixty-six-day commitment.
+
+     Everything drawn here comes from `A.Run.journey`, which reads each day's
+     frozen record. Nothing is re-derived from the programme as it stands, so
+     easing a habit today cannot redraw a week the user already lived. */
+
+  const MARK_LABEL = {
+    kept: 'kept', part: 'part of it', missed: 'missed',
+    unopened: 'not opened', today: 'today', ahead: 'to come'
+  };
+
+  /**
+   * The lattice: one cell per day, seven to a row.
+   *
+   * A row is a week of the run, which is the unit the run's own rules are
+   * written in — at most two new habits in any seven days. The day number is
+   * printed in the cell rather than left to colour, because six shades of one
+   * palette is exactly the kind of chart that stops meaning anything on a
+   * phone in daylight, and because the content genuinely is a sequence.
+   *
+   * The grid is `aria-hidden` and the same counts are stated as text beneath
+   * it. A screen reader walking sixty-six cells learns less than one sentence
+   * does, and the sentence is not a summary of the picture — it is the picture,
+   * written down.
+   */
+  function runLattice(marks) {
+    return `<div class="lattice" aria-hidden="true">${marks
+      .map((m) => {
+        const label = m.state === 'unopened' || m.state === 'ahead'
+          ? MARK_LABEL[m.state]
+          : m.done + ' of ' + m.asked;
+        return `<i class="lat ${m.state}" title="Day ${m.day} — ${esc(label)}">${m.day}</i>`;
+      })
+      .join('')}</div>`;
+  }
+
+  /** The same run, said in words — and the only version colour is not carrying. */
+  function runTally(marks) {
+    const n = (state) => marks.filter((m) => m.state === state).length;
+    return ['kept', 'part', 'missed', 'unopened', 'ahead']
+      .map((s) => ({ s: s, n: n(s) }))
+      .filter((x) => x.n)
+      .map((x) => x.n + ' ' + MARK_LABEL[x.s])
+      .join(' · ');
+  }
+
+  /**
+   * The whole run: what happened, the three phases, and when each habit joined.
+   *
+   * The ladder is every habit rather than only the ones still to come, because
+   * "Read arrived on day 8" is the half of the schedule that explains the
+   * lattice above it. It replaces the old "Still to come" section, which showed
+   * the future half of this same list.
+   */
+  function runJourney(run, day) {
+    const marks = RUN().journey(run, day);
+    const ladder = (run.habits || [])
+      .filter((p) => RUN().isKnown(p.habitId))
+      .sort((a, b) => a.startDay - b.startDay || a.habitId.localeCompare(b.habitId));
+
+    return `
+      <div class="section-head"><h2>The whole run</h2></div>
+      ${runLattice(marks)}
+      <p class="faint runnote">${esc(runTally(marks))}</p>
+
+      <div class="latphases">${RUN()
+        .PHASES.map((p) => {
+          const now = day >= p.first && day <= p.last;
+          const when = day > p.last ? 'done' : now ? 'now' : '';
+          return `<div class="latphase ${now ? 'is-now' : ''}">
+            <b>${esc(p.name)}</b>
+            <span>day ${p.first}–${p.last}${when ? ' · ' + when : ''}</span>
+          </div>`;
+        })
+        .join('')}</div>
+
+      <div class="section-head"><h2>How it was built</h2></div>
+      ${
+        ladder.length
+          ? `<div class="list">${ladder
+              .map((p) => {
+                const h = RUN().habit(p.habitId);
+                const away = p.startDay - day;
+                const when = away <= 0
+                  ? 'started day ' + p.startDay
+                  : 'starts day ' + p.startDay + ' · in ' + away + (away === 1 ? ' day' : ' days');
+                return `<div class="row ${away > 0 ? 'ahead' : ''}"><div class="body">
+                  <div class="name">${esc(h.name)}</div>
+                  <div class="sub">${esc(when)} · ${esc(
+                  A.formatValue('count', h.start)
+                )} → ${esc(A.formatValue('count', h.target))} ${esc(h.unit)}</div></div></div>`;
+              })
+              .join('')}</div>`
+          : `<div class="empty">This run has no habits left in it.</div>`
+      }`;
+  }
+
   /* A suggestion, carried in data attributes rather than by an index into a
      list that is recomputed on every render — the list the user tapped and the
      list the handler rebuilds are two different objects. */
@@ -2096,6 +2378,7 @@
   /* Checklists edited before the run exists have nowhere to be stored yet, so
      they wait here and are handed to `startRun`. */
   const draftItems = {};
+
   /* The service worker version actually serving this page. See UI.setBuild. */
   let buildVersion = '';
 
@@ -2114,7 +2397,10 @@
   }
 
   /** Forget the selection once it has become a run, so the next one starts fresh. */
-  function resetRunPicks() { runPicks = null; runTogether = true; }
+  function resetRunPicks() {
+    runPicks = null;
+    runTogether = true;
+  }
 
   /**
    * Repaint the picker alone after a tap.
@@ -2168,7 +2454,12 @@
 
     if (!run) {
       /* Deliberately not a sales pitch. A run is a second commitment on top of
-         goals, so the screen says what it costs before what it gives. */
+         goals, so the screen says what it costs before what it gives.
+
+         There was briefly a five-question intake here that scored the catalog
+         and pre-ticked the result. It went because the connection between an
+         answer and a habit was never visible on screen, so it read as a
+         questionnaire that got thrown away. The catalog is the choice. */
       return `
         <div class="section-head"><h2>The 66-day run</h2></div>
         <section class="card">
@@ -2197,9 +2488,9 @@
         </button>
 
         <p class="faint pickhint">Pick what you want in it. Anything that will not
-          fit your minutes is dropped when the run is built, and you will be told
-          what went — every one of the 66 days has to be a day you can actually do.
-          Fewer than ${A.Run.MIN_HABITS} and the rest is filled in for you.</p>
+          fit your minutes is dropped when the run is built, and you will be told what went — every one
+          of the 66 days has to be a day you can actually do. Fewer than
+          ${A.Run.MIN_HABITS} and the rest is filled in for you.</p>
         <div id="runPicker">${runPicker()}</div>
         <button class="btn primary block" data-act="run-start" style="margin-top:14px">Start the run · ${
           currentRunPicks().length
@@ -2225,7 +2516,8 @@
         <p class="faint" style="margin:12px 4px">It finished ${st.daysOver} day${
         st.daysOver === 1 ? '' : 's'
       } ago. Nothing here is asked of you any more.</p>
-        <button class="btn ghost block" data-act="run-end">Clear it and start again</button>`;
+        ${runJourney(run, st.day)}
+        <button class="btn ghost block" data-act="run-end" style="margin-top:14px">Clear it and start again</button>`;
     }
 
     if (st.state === 'not_started') {
@@ -2246,9 +2538,6 @@
       notes: patchedToday ? run.lastPatchNotes || [] : [],
       recommendations: patchedToday ? [] : RUN().recommend(run, day)
     };
-    const upcoming = (run.habits || [])
-      .filter((p) => p.startDay > day && RUN().isKnown(p.habitId))
-      .sort((a, b) => a.startDay - b.startDay);
     const eased = check.notes.filter((n) => n.indexOf('softened') === 0 || n.indexOf('froze') === 0);
 
     return `
@@ -2290,21 +2579,7 @@
           : ''
       }
 
-      <div class="section-head"><h2>Still to come</h2></div>
-      ${
-        upcoming.length
-          ? `<div class="list">${upcoming
-              .map((p) => {
-                const h = RUN().habit(p.habitId);
-                return `<div class="row"><div class="body">
-                  <div class="name">${esc(h.name)}</div>
-                  <div class="sub">starts day ${p.startDay} · ${esc(
-                  A.formatValue('count', h.start)
-                )} → ${esc(A.formatValue('count', h.target))} ${esc(h.unit)}</div></div></div>`;
-              })
-              .join('')}</div>`
-          : `<div class="empty">Everything in this run has started.</div>`
-      }
+      ${runJourney(run, day)}
 
       <button class="btn ghost block" data-act="run-end" style="margin-top:14px">End this run</button>`;
   }
@@ -2575,7 +2850,16 @@
 
   UI.route = () => route;
   UI.viewDate = () => viewDate || (viewDate = S.today());
-  UI.setViewDate = (k) => { viewDate = k; };
+  UI.setViewDate = (k) => { viewDate = k; workoutOpen = false; };
+  UI.toggleWorkoutOpen = () => { workoutOpen = !workoutOpen; };
+  UI.workoutOpen = () => workoutOpen;
+  UI.toggleLibOpen = () => { libOpen = !libOpen; };
+  UI.libOpen = () => libOpen;
+  UI.setMuscleWindow = (d) => {
+    const n = Number(d);
+    if (MUSCLE_WINDOWS.some((w) => w.days === n)) muscleWindow = n;
+  };
+  UI.muscleWindow = () => muscleWindow;
   UI.openReading = openReading;
   UI.openGoalLog = openGoalLog;
   UI.openRunValue = openRunValue;
@@ -2603,6 +2887,7 @@
   UI.openGoalEditor = openGoalEditor;
   UI.openGoalRestart = openGoalRestart;
   UI.openExerciseHow = openExerciseHow;
+  UI.refreshExerciseHow = refreshExerciseHow;
   UI.openConfirm = openConfirm;
   UI.resolveConfirm = resolveConfirm;
   UI.openTextPrompt = openTextPrompt;

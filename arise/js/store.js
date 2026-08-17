@@ -9,7 +9,7 @@
   // lifeboat, not state: nothing in the normal read path ever touches it. It
   // exists so the single-key rule can never cost a user their history.
   const QUARANTINE_KEY = 'arise.state.v1.unreadable';
-  const STATE_VERSION = 4;
+  const STATE_VERSION = 5;
 
   /* ---------- defaults ---------- */
 
@@ -287,6 +287,24 @@
       }
     });
 
+    /* v4 → v5: what an exercise works.
+       Additive twice over. A stored exercise with no `muscles` gets the seed's
+       list *only* if its name still matches a seed entry, so a library the user
+       has renamed or built themselves is left alone rather than guessed at —
+       and an empty list is a real answer meaning "not tagged yet", which is why
+       the test is `!Array.isArray` and not `!length`. An existing list is never
+       touched: it is the user's, even when it disagrees with the seed. */
+    /* Both catalogues, because most of a real library came from the training
+       programme rather than the seed — and `installProgram` runs exactly once,
+       so an account that already has it would never be filled in from there. */
+    const seedMuscles = {};
+    A.SEED_EXERCISES.forEach((e) => { seedMuscles[e.name] = e.muscles || []; });
+    (A.PROGRAM_EXERCISES || []).forEach((e) => { seedMuscles[e.name] = e.muscles || []; });
+    (s.exercises || []).forEach((e) => {
+      if (Array.isArray(e.muscles)) { e.muscles = A.cleanMuscles(e.muscles); return; }
+      e.muscles = A.cleanMuscles(seedMuscles[e.name] || []);
+    });
+
     // Old journals lived on the day log; lift them into the journal proper.
     for (const k in s.logs) {
       const note = s.logs[k] && s.logs[k].note;
@@ -326,6 +344,7 @@
       // Fill gaps only — never overwrite something the user has edited.
       if (!existing.how && p.how) existing.how = p.how;
       if (existing.repsMax == null && p.repsMax != null) existing.repsMax = p.repsMax;
+      if (!Array.isArray(existing.muscles) && p.muscles) existing.muscles = p.muscles.slice();
     });
     s.plan = programPlan(s.exercises);
   }
@@ -1554,6 +1573,83 @@
     commit({ type: 'completeAll', dateKey });
   }
 
+  /**
+   * Tick the whole of a day's workout, or take it all back off.
+   *
+   * Exercises only, and that is the point of it existing beside `completeAll`:
+   * that one also ticks the daily habits, which is more than a control sitting
+   * on the workout heading has any business answering for.
+   *
+   * It toggles rather than only completing, so the tap is its own undo — the
+   * heading is the one place a whole workout can be marked from, and a
+   * mis-tap there would otherwise need the day cleared to correct.
+   */
+  function toggleWorkout(dateKey) {
+    if (isFuture(dateKey)) return null;
+    const plan = dayPlan(dateKey);
+    if (!plan.length) return null;
+    const l = ensureLog(dateKey);
+    const all = plan.every((i) => l.ex[i.id]);
+    plan.forEach((i) => {
+      if (all) delete l.ex[i.id];
+      else l.ex[i.id] = true;
+    });
+    commit({ type: 'toggleWorkout', dateKey });
+    return !all;
+  }
+
+  /**
+   * What was actually trained over the last `days` days, by muscle group.
+   *
+   * Counted from the day's own frozen exercise list and only from exercises the
+   * user ticked — this answers "what did I do", never "what was planned". A day
+   * never opened contributes nothing, the same way it contributes nothing to
+   * the streak.
+   *
+   * The totals deliberately overlap: a deadlift counts once to back, once to
+   * legs and once to glutes, because it trained all three and pretending
+   * otherwise is the reason a single-value muscle field would be a lie. That is
+   * why this returns per-group counts and a `most`, and no percentage — there
+   * is no honest denominator to divide by.
+   */
+  function muscleTally(days, endKey) {
+    const end = endKey || today();
+    const counts = {};
+    let sessions = 0;
+    let untagged = 0;
+
+    for (let i = 0; i < Math.max(1, days); i++) {
+      const k = A.addDays(end, -i);
+      const l = state.logs[k];
+      if (!l || !l.ex) continue;
+      let didAny = false;
+      dayPlan(k).forEach((item) => {
+        if (!l.ex[item.id]) return;
+        didAny = true;
+        const ex = exerciseById(item.exerciseId);
+        const muscles = A.cleanMuscles(ex && ex.muscles);
+        if (!muscles.length) { untagged++; return; }
+        muscles.forEach((m) => { counts[m] = (counts[m] || 0) + 1; });
+      });
+      if (didAny) sessions++;
+    }
+
+    const rows = A.MUSCLES
+      .filter((m) => counts[m.id])
+      .map((m) => ({ id: m.id, name: m.name, count: counts[m.id] }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    return {
+      rows: rows,
+      sessions: sessions,
+      untagged: untagged,
+      most: rows.length ? rows[0].count : 0,
+      /* Named so the screen can say what was *missed*, which is the half of a
+         training week that actually changes what you do tomorrow. */
+      missing: A.MUSCLES.filter((m) => !counts[m.id] && m.id !== 'full' && m.id !== 'cardio')
+        .map((m) => m.name)
+    };
+  }
+
   function clearDay(dateKey) {
     const l = state.logs[dateKey];
     if (!l) return;
@@ -1632,9 +1728,11 @@
 
   function addExercise(data) {
     const ex = Object.assign(
-      { id: A.uid('ex'), name: 'New exercise', category: 'Other', unit: 'reps', sets: 3, reps: 10, icon: '🏋️' },
+      { id: A.uid('ex'), name: 'New exercise', category: 'Other', unit: 'reps', sets: 3, reps: 10, icon: '🏋️', muscles: [] },
       data || {}
     );
+    // Only ids the catalog knows, whatever the caller passed.
+    ex.muscles = A.cleanMuscles(ex.muscles);
     state.exercises.push(ex);
     commit({ type: 'exerciseAdd', id: ex.id });
     return ex;
@@ -1644,6 +1742,7 @@
     const ex = exerciseById(id);
     if (!ex) return;
     Object.assign(ex, patch);
+    if ('muscles' in (patch || {})) ex.muscles = A.cleanMuscles(ex.muscles);
     commit({ type: 'exerciseUpdate', id });
   }
 
@@ -1782,7 +1881,7 @@
     challenges, activeChallenge, challengeDay, challengeProgress, startChallenge, updateChallenge, endChallenge,
     customRewards, addCustomReward, updateCustomReward, removeCustomReward,
     customRewardProgress, claimCustomReward,
-    toggleExercise, toggleHabit, completeAll, clearDay, addExtra, removeExtra,
+    toggleExercise, toggleHabit, completeAll, toggleWorkout, muscleTally, clearDay, addExtra, removeExtra,
     addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan,
     addExercise, updateExercise, removeExercise, addHabit, removeHabit, habitStreak,
     goals, activeGoals, goalById, goalEntry, goalTimeline, goalTarget, goalTargetOn,

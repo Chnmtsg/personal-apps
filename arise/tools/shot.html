@@ -8,10 +8,52 @@
   const viewName = q.get('view') || 'today';
   const seed = q.get('seed') === '1';
   const days = Number(q.get('days') || 12);
+  /* A real phone viewport. The frame is 1800px tall by default so a whole
+     screen fits in one shot, which is exactly wrong for anything about what is
+     reachable above the fold — `?h=844` gives a fixed tab bar something honest
+     to be fixed to. */
+  if (q.get('h')) f.height = Number(q.get('h'));
+  if (q.get('w')) f.width = Number(q.get('w'));
+
+  /* Stands in for a photo the user picked. Two panels on white, like the
+     reference pictures these are for. */
+  function drawSample() {
+    const c = document.createElement('canvas');
+    c.width = 840; c.height = 400;
+    const x = c.getContext('2d');
+    x.fillStyle = '#fff'; x.fillRect(0, 0, 840, 400);
+    x.strokeStyle = '#333'; x.lineWidth = 6;
+    [0, 420].forEach((dx, i) => {
+      x.beginPath(); x.arc(dx + 210, 130, 42, 0, 7); x.stroke();
+      x.beginPath(); x.moveTo(dx + 210, 172); x.lineTo(dx + 210, 280); x.stroke();
+      x.beginPath(); x.moveTo(dx + 210, 280); x.lineTo(dx + (i ? 300 : 140), 350); x.stroke();
+      x.beginPath(); x.moveTo(dx + 210, 210); x.lineTo(dx + (i ? 130 : 300), 250); x.stroke();
+      x.fillStyle = '#e2542b'; x.fillRect(dx + 186, 200, 48, 40); x.fillStyle = '#fff';
+    });
+    return c.toDataURL('image/jpeg', 0.8);
+  }
 
   f.addEventListener('load', () => {
     const w = f.contentWindow;
     const A = w.Arise, S = w.Store, UI = w.UI;
+    /* Any seeded shot is of a user who is already using the app, so the welcome
+       sheet is not part of the picture — and left alone it covers the screen. */
+    if (seed || q.get('run')) S.completeOnboarding({});
+
+    /* `?workout=long` fills today with eight exercises — the leg day the cap on
+       Today exists for, and more than any seeded plan has.
+
+       It runs BEFORE the seed, and has to: `dayPlan` returns the day's own
+       frozen list once that day has been opened, so a plan edited afterwards
+       correctly does not reach today. That is the invariant, not a bug — a day
+       you have started is never re-cast. */
+    if (q.get('workout') === 'long') {
+      const wd = A.weekday(A.key());
+      S.get().plan[wd] = [];
+      S.commit({ type: 'shot' });
+      S.get().exercises.slice(0, 8).forEach((e) => S.addToPlan(wd, e.id));
+    }
+
     if (seed) {
       const today = A.key();
       for (let i = days; i >= 1; i--) {
@@ -25,11 +67,62 @@
       plan.slice(0, Math.ceil(plan.length / 2)).forEach((i) => S.toggleExercise(today, i.id));
       S.claimReward('m3');
     }
+    /* A run part-way through, so the run screen can be looked at. `?run=live`
+       lands on day 20, `?run=done` past the end. Every fourth day is left with
+       no record at all — that is the state the lattice must draw as "not
+       opened" rather than as a day the user failed. */
+    const runSeed = q.get('run');
+    if (runSeed) {
+      S.startRun(['walk', 'water', 'read', 'journal', 'stretch'], 90, true);
+      const r = S.run();
+      r.startDate = A.addDays(A.key(), runSeed === 'done' ? -80 : -19);
+      const ids = r.habits.map((p) => p.habitId);
+      const last = Math.min(w.Arise.Run.RUN_DAYS, S.runToday() || w.Arise.Run.RUN_DAYS) - 1;
+      for (let d = 1; d <= last; d++) {
+        if (d % 4 === 0) continue;                       // nobody opened the app
+        const done = d % 5 === 0 ? [] : d % 3 === 0 ? ids.slice(0, 1) : ids;
+        r.log[d] = w.Arise.Run.recordDay(r, d, done);
+      }
+      S.commit({ type: 'shot' });
+    }
+
+    /* `?sheet=how` opens the how-to sheet for the first exercise. With
+       `&photo=1` a picture is stored against it first, through the real
+       IndexedDB path, so the shot proves storage as well as layout. */
+    const sheetWant = q.get('sheet');
+
+    // Today's workout is folded by default; `?fold=open` shoots it opened.
+    if (q.get('fold') === 'open') UI.toggleWorkoutOpen();
+
     UI.go(viewName);
     const open = q.get('open');
+    // boot() opens the welcome sheet on a 400ms timer, i.e. after this handler.
+    if (!open && !sheetWant) setTimeout(() => UI.closeSheet(), 700);
+    if (sheetWant === 'how') {
+      const ex = S.get().exercises[0];
+      const shot = q.get('photo') === '1'
+        ? A.Photos.put(ex.id, drawSample()) : Promise.resolve();
+      shot.then(() => A.Photos.load())
+          .then(() => new Promise((r) => setTimeout(r, 800)))   // let boot's sheet timer pass
+          .then(() => UI.openExerciseHow(ex.id, null));
+    }
     if (open === 'picker') UI.openPicker(1);
     if (open === 'editor') UI.openPlanEditor(1, S.get().plan[1][0].id);
     if (open === 'library') UI.openExerciseEditor(null);
+    /* `?scroll=bottom` shoots the end of a long screen. What sits *under* a
+       fixed tab bar is invisible to every screenshot taken from the top. */
+    if (q.get('scroll') === 'bottom') {
+      setTimeout(() => {
+        w.scrollTo(0, 999999);
+        const btn = f.contentDocument.querySelector('[data-act="run-start"], .btn.primary.block');
+        const bar = f.contentDocument.querySelector('.tabbar');
+        if (btn && bar) {
+          const b = btn.getBoundingClientRect(), t = bar.getBoundingClientRect();
+          document.title = 'btn-bottom=' + Math.round(b.bottom) + ' tabbar-top=' + Math.round(t.top) +
+                           ' hidden=' + (b.bottom > t.top);
+        }
+      }, 900);
+    }
     document.title = 'ready:' + viewName;
   });
 </script>

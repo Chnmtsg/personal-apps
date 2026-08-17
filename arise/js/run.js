@@ -315,6 +315,48 @@
     return Math.min(1, Math.max(0, entry.did / entry.asked));
   }
 
+  /* ================= the run, looked back on ================= */
+
+  /**
+   * What one day of the run looks like from where the user is standing.
+   *
+   * `unopened` is a state of its own, and keeping it apart from `missed` is the
+   * whole reason this lives in the engine rather than in three lines of view
+   * code. A day with no record is a day we know nothing about — the app was not
+   * opened — and painting it as a failure would be the run retroactively
+   * deciding somebody failed a day it never actually asked them about. The
+   * streak already refuses to do that, and a picture of the run that quietly
+   * disagreed with the streak would be the more believable of the two.
+   *
+   * Everything about a lived day is read from its frozen record and nothing
+   * from the programme as it now stands. Counting `activeOn` instead would make
+   * easing a habit in week five redraw week two — the same bug `diagnose`
+   * shipped once, in a place the user can see.
+   *
+   * A day still ahead is the one honest exception: there is no record to read,
+   * so `asked` is what the programme currently intends, which is a plan and not
+   * a claim about anything that happened.
+   */
+  function dayMark(run, day, today) {
+    if (day > today) return { day: day, state: 'ahead', done: 0, asked: activeOn(run, day).length };
+
+    const entry = (run.log || {})[day] || {};
+    const ids = Object.keys(entry);
+    const done = ids.filter((k) => entry[k] && entry[k].done).length;
+
+    if (day === today) return { day: day, state: 'today', done: done, asked: ids.length };
+    if (!ids.length) return { day: day, state: 'unopened', done: 0, asked: 0 };
+    if (done === ids.length) return { day: day, state: 'kept', done: done, asked: ids.length };
+    return { day: day, state: done ? 'part' : 'missed', done: done, asked: ids.length };
+  }
+
+  /** All 66 days in order, so a view can draw the run without walking the log. */
+  function journey(run, today) {
+    const out = [];
+    for (let day = 1; day <= RUN_DAYS; day++) out.push(dayMark(run, day, today));
+    return out;
+  }
+
   /* ================= validation ================= */
 
   /**
@@ -1047,7 +1089,7 @@
     MAX_PATCH_HABITS, TRAILING_DAYS, INTERVENTION_RATE, INTERVENTION_MISSES, PROTECTED_RATE,
     ADD_READY_RATE, ADVANCE_READY_RATE, MIN_EVIDENCE_DAYS,
     DEFAULT_PICKS, habit, isKnown, isItemHabit, itemsFor, toggleItem, phaseFor, doseOn, minutesOn, activeOn, dayMinutes, dayIndex,
-    where, runDay, recordDay, fractionOf, validate, repair, buildRun,
+    where, runDay, recordDay, fractionOf, dayMark, journey, validate, repair, buildRun,
     applyPatch, diagnose, adapt, recommend, applyRecommendation, checkIn
   });
 
