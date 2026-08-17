@@ -58,7 +58,7 @@ npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
-- `sw.js` VERSION → **`discipline-v45`**
+- `sw.js` VERSION → **`discipline-v46`**
 - `js/` is **eight** files, loaded in this order:
   `data.js` → `program.js` → `goals.js` → `run.js` → `photos.js` → `store.js` →
   `ui.js` → `app.js`
@@ -131,11 +131,11 @@ the tree beside it.
 
 ## 4. Open, in priority order
 
-1. **The CSP is not enforced on the live site.** `_headers` is a Netlify file
-   and Pages ignores it, so the no-network invariant is back to being enforced
-   by review rather than by the browser. Restoring it means a
-   `<meta http-equiv="Content-Security-Policy">` in `index.html`. See the
-   GitHub Pages section of `arise/CLAUDE.md`.
+1. **Clickjacking protection is gone, and a meta tag cannot bring it back.**
+   The CSP itself was restored as a `<meta http-equiv>` in `index.html` and is
+   enforced on the live site — but `frame-ancestors` and `X-Frame-Options` are
+   both ignored in meta, so the app can be framed by anyone. It needs a host
+   that sends response headers. Pages does not.
 2. **Custom habits.** The user asked twice to "add and edit things in the
    catalog". Checklist *items* are editable; the catalog of *habits* is closed,
    and that closedness is what makes an unknown id a dropped habit rather than a

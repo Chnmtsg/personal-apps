@@ -2,6 +2,26 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- The app's first constraint — no network calls, ever — enforced by the
+     browser instead of by review. It lived in `_headers` until the app moved to
+     GitHub Pages, which ignores that file, so it moved here.
+
+     This is the one exception to "nothing is inlined into the shell": a meta tag
+     is not a script, and the alternative is no enforcement at all. It must stay
+     ABOVE the manifest, icon and stylesheet links below — a policy declared
+     after a resource does not govern it. tools/package.js checks that, and
+     checks that none of the directives has gone missing.
+
+     Two things cannot be carried in a meta tag: `frame-ancestors` and
+     `X-Frame-Options` are both ignored here, so clickjacking protection is a
+     real thing lost in the move to Pages and needs a host that sends headers.
+
+     Every value below is load-bearing. `style-src` needs 'unsafe-inline' for
+     style *attributes* only (`style="--hue:32"` on a goal card) — there is no
+     inline <style> anywhere. `img-src` needs `data:` for exercise pictures,
+     which are stored and drawn as data URLs. Dropping either breaks a screen
+     that works today. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Discipline — Personal Development Tracker</title>
 <meta name="description" content="Set goals that progress from where you actually are to a target you choose, keep the streak, and write before you can call the reading done.">

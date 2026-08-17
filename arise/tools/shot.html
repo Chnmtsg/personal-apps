@@ -33,8 +33,17 @@
     return c.toDataURL('image/jpeg', 0.8);
   }
 
+  /* Every CSP violation and script error the app raises, collected so `?csp=1`
+     can report them. A Content-Security-Policy that quietly blocks a font, a
+     photo or the export blob looks exactly like a working app until the moment
+     someone needs that thing. */
+  const violations = [];
   f.addEventListener('load', () => {
     const w = f.contentWindow;
+    f.contentDocument.addEventListener('securitypolicyviolation', (e) => {
+      violations.push(e.violatedDirective + '<' + (e.blockedURI || '?').slice(0, 40) + '>');
+    });
+    w.addEventListener('error', (e) => { violations.push('error:' + (e.message || '?')); });
     const A = w.Arise, S = w.Store, UI = w.UI;
     /* Any seeded shot is of a user who is already using the app, so the welcome
        sheet is not part of the picture — and left alone it covers the screen. */
@@ -97,7 +106,7 @@
     UI.go(viewName);
     const open = q.get('open');
     // boot() opens the welcome sheet on a 400ms timer, i.e. after this handler.
-    if (!open && !sheetWant) setTimeout(() => UI.closeSheet(), 700);
+    if (!open && !sheetWant && !q.get('csp')) setTimeout(() => UI.closeSheet(), 700);
     if (sheetWant === 'how') {
       const ex = S.get().exercises[0];
       const shot = q.get('photo') === '1'
@@ -123,6 +132,45 @@
         }
       }, 900);
     }
+    /* `?csp=1` exercises the things the policy could plausibly block — a data:
+       photo, the local fonts, the export blob — and reports what it stopped. */
+    if (q.get('csp')) {
+      const ex = S.get().exercises[0];
+      A.Photos.put(ex.id, drawSample())
+        .then(() => A.Photos.load())
+        .then(() => { UI.openExerciseHow(ex.id, null); })
+        .then(() => new Promise((r) => setTimeout(r, 600)))
+        .then(() => {
+          /* The export path builds a blob: URL for an <a download>. Building it
+             is the part a policy could refuse; the click is deliberately NOT
+             fired, because a real download hangs a headless run. */
+          const blob = new w.Blob([JSON.stringify({ probe: 1 })], { type: 'application/json' });
+          const url = w.URL.createObjectURL(blob);
+          violations.push.apply(violations, url.indexOf('blob:') === 0 ? [] : ['blob-url-refused']);
+          w.URL.revokeObjectURL(url);
+        })
+        .then(() => new Promise((r) => setTimeout(r, 900)))
+        .then(() => {
+          /* Zero violations also describes a policy the browser threw away as
+             malformed. Prove it is live by asking for something it must refuse:
+             an image from an origin that is not this one. */
+          const probe = new w.Image();
+          probe.src = 'https://example.com/blocked-on-purpose.png';
+          return new Promise((r) => setTimeout(r, 700));
+        })
+        .then(() => {
+          const enforcing = violations.some((v) => v.indexOf('img-src') === 0);
+          const real = violations.filter((v) => v.indexOf('img-src') !== 0);
+          const img = f.contentDocument.querySelector('.how-photo img');
+          document.title = 'enforcing=' + enforcing +
+                           ' violations=' + (real.length || 0) +
+                           (real.length ? ' [' + real.join(' | ') + ']' : '') +
+                           ' photoDrawn=' + (!!img && img.naturalWidth > 0) +
+                           ' fonts=' + f.contentDocument.fonts.size;
+        });
+      return;
+    }
+
     /* `?measure=1` reports whether the app overflows its own viewport. Headless
        Chrome enforces a minimum WINDOW width, so a top-level page shot at 390
        lays out wider and only looks clipped; an iframe sized to 390 is a true

@@ -96,6 +96,24 @@ function main() {
      precaches works perfectly online and vanishes the first time offline. */
   const swScripts = assets.filter((a) => a.startsWith('js/')).map((a) => a.slice(3));
 
+  /* The no-network invariant, enforced by the browser rather than by review.
+     It lived in `_headers` until the app moved to GitHub Pages, which ignores
+     that file — so it is a meta tag now, and a meta tag is one careless edit
+     from being gone with nothing failing. Nothing else would notice: the app
+     works perfectly without a policy, right up until something starts making
+     requests it should not.
+
+     Each directive below is checked because each one is load-bearing.
+     `img-src data:` carries the exercise pictures and `style-src
+     'unsafe-inline'` carries the style attributes; dropping either breaks a
+     working screen, so a policy that has quietly lost one must not ship. */
+  const csp = /<meta http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(shell);
+  const cspNeeds = ["default-src 'self'", "script-src 'self'", "img-src 'self' data:",
+                    "font-src 'self'", "style-src 'self' 'unsafe-inline'", "object-src 'none'"];
+  const cspMissing = csp ? cspNeeds.filter((d) => csp[1].indexOf(d) < 0) : cspNeeds;
+  /* Above the first thing it governs, or it governs nothing. */
+  const cspLate = csp && shell.indexOf(csp[0]) > shell.search(/<link[^>]+href/);
+
   console.log(`\n  ${shipped.join(', ')}`);
   console.log(`  service worker  ${version}`);
   console.log(`  index.html      ${(shell.length / 1024).toFixed(1)} KB, ${scripts.length} scripts linked`);
@@ -107,6 +125,18 @@ function main() {
   }
   if (inlined) {
     console.log('\n  FAIL  index.html carries an inline script — it must stay a shell');
+    bad++;
+  }
+  if (!csp) {
+    console.log("\n  FAIL  index.html has no Content-Security-Policy meta tag — the app's" +
+                '\n        no-network invariant would ship unenforced');
+    bad++;
+  } else if (cspMissing.length) {
+    console.log(`\n  FAIL  the Content-Security-Policy has lost: ${cspMissing.join('; ')}`);
+    bad++;
+  } else if (cspLate) {
+    console.log('\n  FAIL  the Content-Security-Policy meta tag sits below a <link> it should' +
+                '\n        govern; a policy declared after a resource does not apply to it');
     bad++;
   }
   const onlyShell = scripts.filter((f) => !swScripts.includes(f));

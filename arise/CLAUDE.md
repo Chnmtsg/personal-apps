@@ -195,11 +195,18 @@ things it used to buy are now the platform's decision:
   to be seen by a browser that has just fetched the old file. Ten minutes, not
   the year a misconfigured CDN could hold — tolerable, but it is why "I bumped
   the version and nothing happened" can be true for a few minutes now.
-- *The `Content-Security-Policy`.* That was the app's no-network invariant
-  enforced by the browser rather than by review, and on Pages it is not applied
-  at all. If it is wanted back it has to be a `<meta http-equiv>` in
-  `index.html`, which is the one exception worth making to "nothing is inlined
-  into the shell" — a meta tag is not a script. Not done yet.
+- *The `Content-Security-Policy`.* Restored as a `<meta http-equiv>` at the top
+  of `index.html` — the one exception to "nothing is inlined into the shell",
+  because a meta tag is not a script and the alternative was no enforcement at
+  all. `tools/package.js` fails the build if it goes missing, loses a
+  load-bearing directive, or sinks below a `<link>` it is meant to govern; all
+  four of those were checked by breaking them. Verified live in a browser too:
+  it blocks a foreign-origin image, and raises zero violations against the app's
+  own fonts, data-URL pictures and export blob.
+
+  **`frame-ancestors` could not come with it.** That directive and
+  `X-Frame-Options` are both ignored in a meta tag, so clickjacking protection
+  is genuinely gone until the app is behind a host that sends headers.
 
 **Each origin is its own storage.** Moving from `localhost:8123` to a hosted URL
 starts empty; the user's goals, logs and journal do not follow. Export from
@@ -292,7 +299,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v45`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v46`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by
