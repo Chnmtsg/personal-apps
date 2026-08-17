@@ -328,7 +328,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v51`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v52`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

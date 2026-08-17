@@ -1766,6 +1766,39 @@
     };
   }
 
+  /* ---------- undo ----------
+
+     Three setters that put a container back exactly as it was. They exist only
+     for the UNDO in a toast, and they are deliberately dumb: they restore a
+     snapshot rather than re-deriving anything, because the point of an undo is
+     that the state afterwards is the state before, not a fresh computation that
+     happens to agree. Day status is derived from these, so putting them back
+     puts it back too. */
+
+  function restoreExercises(dateKey, exMap) {
+    const l = state.logs[dateKey];
+    if (!l || !exMap || typeof exMap !== 'object') return null;
+    l.ex = {};
+    Object.keys(exMap).forEach((id) => { if (exMap[id]) l.ex[id] = true; });
+    commit({ type: 'restoreExercises', dateKey });
+    return l.ex;
+  }
+
+  function restorePlanDay(dayIndex, items) {
+    if (!Array.isArray(items) || !state.plan[dayIndex]) return null;
+    state.plan[dayIndex] = items.map((i) => Object.assign({}, i));
+    commit({ type: 'restorePlanDay', dayIndex });
+    return state.plan[dayIndex];
+  }
+
+  function restoreExtras(dateKey, items) {
+    const l = state.logs[dateKey];
+    if (!l || !Array.isArray(items)) return null;
+    l.extra = items.map((x) => Object.assign({}, x));
+    commit({ type: 'restoreExtras', dateKey });
+    return l.extra;
+  }
+
   function clearDay(dateKey) {
     const l = state.logs[dateKey];
     if (!l) return;
@@ -1992,6 +2025,7 @@
     customRewards, addCustomReward, updateCustomReward, removeCustomReward,
     customRewardProgress, claimCustomReward,
     toggleExercise, toggleHabit, completeAll, toggleWorkout, muscleTally, clearDay, addExtra, removeExtra,
+    restoreExercises, restorePlanDay, restoreExtras,
     addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan,
     addExercise, updateExercise, removeExercise, addHabit, removeHabit, habitStreak,
     goals, activeGoals, goalById, goalEntry, goalTimeline, goalTarget, goalTargetOn,

@@ -1260,17 +1260,20 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
    inside it, because a button nested in a button does not survive a browser. */
 .section-fold {
   display: flex; align-items: center; gap: var(--sp-sm); width: 100%;
-  margin: var(--sp-xl) 0 var(--sp-sm);
+  margin: var(--sp-xl) 2px var(--sp-sm);
 }
 .fold-main {
   display: flex; align-items: center; gap: var(--sp-sm);
   flex: 1; min-width: 0; min-height: 44px; padding: var(--sp-xs) 2px;
   background: none; border: 0; color: inherit; text-align: left;
 }
-.section-fold h2 {
-  flex: none; font-size: var(--fs-lg); letter-spacing: 0.04em;
-  text-transform: uppercase; color: var(--muted);
-}
+/* No font-size or letter-spacing here: the shared rule near the goal-card block
+   already sets both for `.section-head h2, .section-fold h2`, and this used to
+   restate them 200 lines later at the same specificity — so a folded heading
+   rendered 15px/0.04em while every heading beside it rendered 11px/0.14em, and
+   the comment above claiming it "sits in the same rhythm" was defeated by the
+   cascade. `2px` matches `.section-head`'s side margin so the two align. */
+.section-fold h2 { flex: none; text-transform: uppercase; color: var(--muted); }
 .section-fold .fold-sum {
   flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1490,3 +1493,35 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
    beats a name you cannot read, and these rows are already two lines high
    because of the muscles underneath. */
 .item.tight .name { white-space: normal; overflow: visible; line-height: 1.25; }
+
+/* ---- the 44px floor, met by growing the target rather than the graphic ----
+
+   ui-guidelines.md names it and names the technique, and `.icon-btn`,
+   `.fold-tick`, `.section-head .link` and `.switch` already use it. These did
+   not: the goal tick and the run tick — the two most-tapped controls in the app
+   — were 40px, and the run checklist chips, the muscle chips and the Stats
+   window picker were 32-36px in wrapped grids where a mis-tap costs a
+   different control. The graphic stays exactly the size it was. */
+.gcard-tick, .runrow-tick, .runitem, .chip-pick,
+.segbar.tight .seg, .pick-edit, .how-photo figcaption .link,
+.reward .claim, .toast .undo-btn, .entry .link { position: relative; }
+
+.gcard-tick::after, .runrow-tick::after, .runitem::after, .chip-pick::after,
+.segbar.tight .seg::after, .pick-edit::after, .how-photo figcaption .link::after,
+.reward .claim::after, .toast .undo-btn::after, .entry .link::after {
+  content: ''; position: absolute;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 100%; height: 44px; min-width: 44px;
+}
+/* The wrapped chip grids gap by 6px, so a 44px band on a 36px chip would reach
+   1px past its neighbour's. Gaps go to 8px, which the spacing scale has and
+   which leaves the bands touching rather than overlapping — the guidelines warn
+   against two overlapping targets more strongly than against a small one. */
+.chips, .runitems { gap: var(--sp-sm); }
+
+/* The one line that says how the day is going in words rather than as a
+   fraction. Quiet: the day number above it is the headline, this is the state. */
+.dayline-headline {
+  margin-top: 3px; font-size: var(--fs-sm); font-weight: 700;
+  color: var(--muted); letter-spacing: 0.01em;
+}

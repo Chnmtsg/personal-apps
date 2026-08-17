@@ -66,6 +66,22 @@
     if (party) UI.confetti();
   }
 
+  /* ---------- undo, for the actions that destroy something ----------
+
+     One slot, because one toast is on screen at a time and it lives five
+     seconds. Holding a stack would be pretending we keep a history we do not.
+
+     The toast can only carry strings through `data-` attributes, so the thing
+     that actually puts the state back lives here and the toast carries a token
+     for it. Taking the undo clears the slot, so a stale toast cannot fire a
+     restore a second time and overwrite work done since. */
+  let pendingUndo = null;
+
+  function offerUndo(msg, restore) {
+    pendingUndo = restore;
+    UI.toastAction(msg, { act: 'undo-last' });
+  }
+
   /** Run a mutation, then diff for anything worth celebrating. */
   function act(fn) {
     const before = snapshot();
@@ -476,9 +492,14 @@
         if (input && input.value.trim()) act(() => S.addExtra(date, input.value));
         break;
       }
-      case 'rm-extra':
+      case 'rm-extra': {
+        const wasExtras = ((S.log(date) || {}).extra || []).map((x) => Object.assign({}, x));
+        const gone = wasExtras.filter((x) => x.id === id)[0];
         S.removeExtra(date, id);
+        offerUndo('<span>Removed <b>' + esc(gone ? gone.name : 'it') + '</b>.</span>',
+                  () => S.restoreExtras(date, wasExtras));
         break;
+      }
       case 'today-filter':
         UI.setTodayFilter(actEl.dataset.filter);
         UI.render();
@@ -599,10 +620,16 @@
       case 'plan-edit':
         UI.openPlanEditor(day, id);
         break;
-      case 'plan-rm':
+      case 'plan-rm': {
+        /* It carries the sets, reps and note the user configured, and the row
+           beside it (`plan-clear`) is confirmed while this one was not. */
+        const wasPlan = (S.get().plan[day] || []).map((i) => Object.assign({}, i));
         S.removePlanItem(day, id);
         UI.closeSheet();
+        offerUndo('<span>Removed from ' + esc(A.DAY_NAMES[day]) + '.</span>',
+                  () => S.restorePlanDay(day, wasPlan));
         break;
+      }
       case 'plan-move':
         S.movePlanItem(day, id, Number(actEl.dataset.delta));
         break;
@@ -739,6 +766,24 @@
         break;
       }
 
+      /* --- today ---
+         These two were deleted by accident in 2026-08 along with the onboarding
+         handlers that happened to sit above them in the same switch, and nothing
+         noticed for a commit: ticking an exercise or a daily habit silently did
+         nothing on the one screen the app is opened for. See the tests in
+         tools/wire.js that now cover both. */
+      case 'toggle-ex':
+        act(() => S.toggleExercise(date, id));
+        break;
+      case 'toggle-hb':
+        act(() => S.toggleHabit(date, id));
+        break;
+      case 'undo-last': {
+        const restore = pendingUndo;
+        pendingUndo = null;              // one shot: a stale toast must not fire twice
+        if (restore) act(restore);
+        break;
+      }
       case 'workout-more':
         UI.toggleWorkoutOpen();
         UI.render();
@@ -799,10 +844,18 @@
       /* The whole workout in one tap, from the heading, without opening it.
          Toggling rather than only completing means the tap is its own undo. */
       case 'workout-done': {
+        /* Snapshot first. `toggleWorkout` is all-or-nothing: with five of six
+           ticked by hand it sets all six, and the NEXT tap deletes all six —
+           including the five the user ticked one at a time. "The tap is its own
+           undo" was only ever true for what that tap set. */
+        const before = Object.assign({}, (S.log(date) || {}).ex || {});
         const now = act(() => S.toggleWorkout(date));
         if (now != null) {
           buzz(now ? 18 : 0);
-          UI.toast(now ? '💪 <span>Workout logged.</span>' : '<span>Workout unticked.</span>');
+          offerUndo(
+            now ? '💪 <span>Workout logged.</span>' : '<span>Workout unticked.</span>',
+            () => S.restoreExercises(date, before)
+          );
         }
         break;
       }
@@ -1208,11 +1261,6 @@
   document.addEventListener('change', (ev) => {
     const t = ev.target;
 
-    // Onboarding difficulty is a radio group inside a sheet we don't re-render.
-    if (t.name === 'ob_mode') {
-      document.querySelectorAll('.mode-card').forEach((c) => c.classList.toggle('on', c.contains(t) && t.checked));
-      return;
-    }
     // Changing the unit swaps clock fields for number fields — rebuild the sheet
     // from what's already typed rather than throwing the user's input away.
     // Which goal a reward tracks only applies when it tracks a goal at all, so

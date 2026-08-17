@@ -430,7 +430,8 @@
               // The row is a container, not a button, so the "how to" control can
               // sit beside the toggle — same shape as a .goal row.
               return `${head}<div class="item tight ${done ? 'done' : ''} ${future ? 'locked' : ''}">
-                <button type="button" class="item-main" data-act="toggle-ex" data-id="${i.id}" ${future ? 'disabled' : ''}>
+                <button type="button" class="item-main" data-act="toggle-ex" data-id="${i.id}"
+                  aria-pressed="${done}" ${future ? 'disabled' : ''}>
                   <span class="tick" aria-hidden="true">✓</span>
                   <span class="emoji" aria-hidden="true">${p.icon}</span>
                   <span class="body"><span class="name">${esc(p.name)}</span></span>
@@ -476,7 +477,7 @@
           .map((h) => {
             const done = !!(l && l.hb && l.hb[h.id]);
             const hs = S.habitStreak(h.id);
-            return `<button type="button" class="item ${done ? 'done' : ''} ${future ? 'locked' : ''}" data-act="toggle-hb" data-id="${h.id}" ${
+            return `<button type="button" class="item ${done ? 'done' : ''} ${future ? 'locked' : ''}" data-act="toggle-hb" data-id="${h.id}" aria-pressed="${done}" ${
               future ? 'disabled' : ''
             }>
               <span class="tick" aria-hidden="true">✓</span>
@@ -587,6 +588,10 @@
           <div class="daydate">${esc(offset === 0 ? A.prettyDate(k) : relative + ' · ' + A.prettyDate(k))}${
             st.total ? ` · ${st.done}/${st.total} done` : ''
           }</div>
+          <!-- The headline was computed on every render and never inserted, so
+               the day's state was said only by the 3/7 suffix above and by the
+               fixed strip. This is where it was plainly meant to go. -->
+          <div class="dayline-headline">${esc(headline)}</div>
         </div>
         <div class="dayline-nav">
           <button class="icon-btn" data-act="date-prev" aria-label="Previous day" ${
@@ -667,7 +672,8 @@
           future
             ? ''
             : `<div class="inline-add">
-                <input type="text" id="extraInput" placeholder="Log something extra you did…" maxlength="60">
+                <input type="text" id="extraInput" aria-label="Log something extra you did"
+                       placeholder="Log something extra you did…" maxlength="60">
                 <button class="btn" data-act="add-extra">Add</button>
               </div>`
         }`
@@ -695,7 +701,8 @@
       </div>
 
       <div class="section-head"><h2>Journal</h2><button class="link" data-nav="read">All entries</button></div>
-      <div class="card"><textarea id="dayNote" data-date="${k}" placeholder="How did the day actually go? Energy, mood, anything worth remembering…">${esc(
+      <div class="card"><textarea id="dayNote" data-date="${k}" aria-label="Journal for this day"
+        placeholder="How did the day actually go? Energy, mood, anything worth remembering…">${esc(
         (journal && journal.text) || ''
       )}</textarea></div>
 
@@ -943,7 +950,8 @@
             `<button type="button" class="mood ${j.mood === i ? 'on' : ''}" data-act="mood" data-i="${i}" data-date="${k}"
               aria-label="${esc(m.name)}" aria-pressed="${j.mood === i}">${m.icon}</button>`
         ).join('')}</div>
-        <textarea id="dayNote" data-date="${k}" rows="5" placeholder="How did the day actually go?">${esc(j.text || '')}</textarea>
+        <textarea id="dayNote" data-date="${k}" rows="5" aria-label="Journal for this day"
+          placeholder="How did the day actually go?">${esc(j.text || '')}</textarea>
       </div>
 
       <div class="section-head"><h2>Past summaries</h2><span class="faint" style="font-size:var(--fs-sm)">${archiveCount(past.length)}</span></div>
@@ -1570,7 +1578,8 @@
 
     return `
       <div class="picker-search">
-        <input type="text" id="pickerQ" placeholder="Search exercises…" value="${esc(picker.q)}" autocomplete="off">
+        <input type="text" id="pickerQ" aria-label="Search exercises"
+          placeholder="Search exercises…" value="${esc(picker.q)}" autocomplete="off">
       </div>
       <div class="cat-tabs">${cats
         .map((c) => `<button class="cat-tab ${picker.cat === c ? 'active' : ''}" data-act="pick-cat" data-cat="${esc(c)}">${esc(c)}</button>`)

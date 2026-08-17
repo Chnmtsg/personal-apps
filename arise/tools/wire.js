@@ -179,6 +179,89 @@ console.log('\nmuscle statistics through app.js');
 /* The picture handlers. The stub has no real file input, so a tap opens a
    picker that never fires — which is the point: it must not throw on the way
    there, and `app.js` is the only file these two live in. */
+/* Every data-act the views emit must have a handler. `toggle-ex` and `toggle-hb`
+   were deleted by accident along with the onboarding cases that sat above them
+   in the same switch, and all three suites stayed green: render.js checks
+   markup, smoke.js calls the store directly, and wire.js had no test for those
+   two taps. Ticking an exercise or a daily habit — the whole point of the app —
+   silently did nothing for a commit, on the screen it is opened for.
+
+   So: the two taps by name, and the general form of the bug underneath them. */
+console.log('\nevery tap the views emit is actually handled');
+{
+  const day = A.weekday(S.today());
+  S.get().plan[day] = [];
+  delete S.get().logs[S.today()];
+  S.commit({ type: 'fixture' });
+  S.get().exercises.slice(0, 3).forEach((e) => S.addToPlan(day, e.id));
+
+  const first = S.dayPlan(S.today())[0];
+  click({ act: 'toggle-ex', id: first.id });
+  ok('tapping an exercise logs it', !!(S.log(S.today()) || { ex: {} }).ex[first.id],
+     (S.log(S.today()) || {}).ex);
+  click({ act: 'toggle-ex', id: first.id });
+  ok('and tapping it again takes it back off', !(S.log(S.today()) || { ex: {} }).ex[first.id]);
+
+  const habit = S.dayHabits(S.today())[0];
+  if (habit) {
+    click({ act: 'toggle-hb', id: habit.id });
+    ok('tapping a daily habit logs it', !!(S.log(S.today()) || { hb: {} }).hb[habit.id],
+       (S.log(S.today()) || {}).hb);
+    click({ act: 'toggle-hb', id: habit.id });
+    ok('and tapping it again takes it back off', !(S.log(S.today()) || { hb: {} }).hb[habit.id]);
+  }
+
+  /* Read the emitted names out of ui.js and the handled ones out of app.js
+     rather than listing either by hand, so a new control is covered the day it
+     is written instead of the day someone remembers to add it here. */
+  const uiSrc = fs.readFileSync(path.join(DIR, 'ui.js'), 'utf8');
+  const appSrc = fs.readFileSync(path.join(DIR, 'app.js'), 'utf8');
+  const emitted = Array.from(new Set((uiSrc.match(/data-act="([a-z-]+)"/g) || [])
+    .map((m) => m.slice(10, -1))));
+  const handled = new Set((appSrc.match(/case '([a-z-]+)'/g) || []).map((m) => m.slice(6, -1)));
+  const orphans = emitted.filter((a) => !handled.has(a));
+  ok('no control in the views is wired to a handler that does not exist',
+     orphans.length === 0, orphans);
+}
+
+console.log('\nundo for the actions that destroy something');
+{
+  const day = A.weekday(S.today());
+  S.get().plan[day] = [];
+  delete S.get().logs[S.today()];
+  S.commit({ type: 'fixture' });
+  S.get().exercises.slice(0, 6).forEach((e) => S.addToPlan(day, e.id));
+  const plan = S.dayPlan(S.today());
+
+  /* The exact shape of the bug the UI review found: five ticked one at a time,
+     then the heading tapped twice. The second tap deletes all six, and without
+     an undo the five done by hand are simply gone. */
+  plan.slice(0, 5).forEach((i) => click({ act: 'toggle-ex', id: i.id }));
+  const byHand = plan.slice(0, 5).filter((i) => S.log(S.today()).ex[i.id]).length;
+  ok('five exercises ticked individually', byHand === 5, byHand);
+
+  click({ act: 'workout-done' });                    // completes the sixth too
+  ok('the heading tick completes the rest',
+     plan.every((i) => S.log(S.today()).ex[i.id]), Object.keys(S.log(S.today()).ex).length);
+
+  click({ act: 'workout-done' });                    // this is what used to erase them
+  ok('tapping it again clears the whole day', Object.keys(S.log(S.today()).ex).length === 0);
+
+  /* UNDO restores the state immediately before the LAST tap — all six — rather
+     than the five that were ticked by hand. That is what "undo the last action"
+     means, and it is the right semantics: the point is that the clear is
+     recoverable, not that the app second-guesses which ticks the user valued. */
+  click({ act: 'undo-last' });
+  const back = plan.filter((i) => S.log(S.today()).ex[i.id]).length;
+  ok('UNDO puts the cleared day back', back === 6, back);
+  ok('so nothing ticked by hand is lost', back >= 5, back);
+
+  click({ act: 'undo-last' });
+  ok('and the undo is one-shot, so a stale toast cannot fire it twice',
+     plan.filter((i) => S.log(S.today()).ex[i.id]).length === 6,
+     plan.filter((i) => S.log(S.today()).ex[i.id]).length);
+}
+
 console.log('\nediting a run in progress through app.js');
 {
   S.endRun();
