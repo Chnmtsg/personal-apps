@@ -829,7 +829,7 @@ behaves('the goal cards come before the streak and XP block', () => {
 behaves('the day counter leads, with the segments under it', () => {
   const html = renderRoute('today');
   const day = html.indexOf('class="daynum"');
-  const segs = html.indexOf('class="segbar"');
+  const segs = html.indexOf('class="segbar');   // `segbar ledger` since the redesign
   const cards = html.indexOf('class="gcard');
   if (day < 0) return 'no day counter';
   if (segs < 0) return 'no To-do/Done/Skipped segments';
@@ -1146,7 +1146,7 @@ behaves('every state class the run UI emits is actually styled', () => {
                   '.lat.kept', '.lat.part', '.lat.missed', '.lat.unopened', '.lat.today',
                   '.lat.ahead', '.latphase.is-now', '.row.ahead',
                   '.item.tight', '.item.tight .dose', '.section-fold.is-open',
-                  '.section-fold.is-done .fold-tick', '.fold-main', '.block-head', '.fold-bar', '.item.tight .exsub', '.item.tight .name', '.card.flush.runlist-card', '.how-photo img', '.how-photo-add', '.chip-pick.on', '.segbar.tight'];
+                  '.section-fold.is-done .fold-tick', '.fold-main', '.block-head', '.fold-bar', '.item.tight .exsub', '.item.tight .name', '.card.flush.runlist-card', '.gcard.ledger', '.item.ledger-row', '.segbar.ledger .seg.on', '.how-photo img', '.how-photo-add', '.chip-pick.on', '.segbar.tight'];
   const missing = needed.filter((sel) => css.indexOf(sel) < 0);
   if (missing.length) return 'no rule for: ' + missing.join(', ');
   return css.indexOf(':has(:checked)') < 0 ? '' : 'a dead :has(:checked) rule is still in the sheet';

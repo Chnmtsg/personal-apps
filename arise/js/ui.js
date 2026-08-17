@@ -311,22 +311,43 @@
        work. Derived here from the entry, never guessed from the rendered text. */
     const part = !!logged && !entry.done && !entry.skipped;
 
-    return `<article class="gcard ${entry.done ? 'is-done' : ''} ${entry.skipped ? 'is-skipped' : ''} ${
+    /* The ledger row. Same element, same classes, same data-act and the same
+       `data-goal` the swipe and press-and-hold handlers close on — this is a
+       restyle, not a new component, so every gesture keeps working and nothing
+       has to learn a second name for a goal row.
+
+       What changes is what carries the hierarchy. The card, the monogram tile
+       and the step bar go; the name is the only bold thing, the ask sits right
+       on the same line as a number, and everything else is one quiet line of
+       12px underneath. The design brief's own summary: "numerals do the
+       hierarchy; ember appears exactly once, on the live action". */
+    /* The brief's mockup puts a bare number here — "06:15", "75 min". That works
+       for a wake time and fails for anything counting DOWN: "Screen time 4 h"
+       does not say which side of four hours you want. `targetPhrase` keeps the
+       direction in words, which is the app's own rule and a test by name. The
+       number still does the visual work; it just is not alone. */
+    const ask = entry.target != null ? targetPhrase(g, entry.target) : '';
+    return `<article class="gcard ledger ${entry.done ? 'is-done' : ''} ${entry.skipped ? 'is-skipped' : ''} ${
       part ? 'is-part' : ''
     } ${locked ? 'locked' : ''}" style="--hue:${hue}" data-goal="${g.id}">
-      <span class="gcard-mono" aria-hidden="true">${esc((g.name || '?').trim().charAt(0).toUpperCase())}</span>
-      <button type="button" class="gcard-open" data-act="goal-detail" data-id="${g.id}">
-        <span class="gcard-badges">
-          ${entry.streak > 0 ? `<span class="gcard-streak">${icon('flame')}${entry.streak}d</span>` : ''}
-          ${entry.skipped ? '<span class="gcard-streak skip">Skipped</span>' : ''}
-        </span>
-        <span class="gcard-title">${esc(g.name)} ${esc(targetPhrase(g, entry.target))}</span>
-        <span class="gcard-meta">${meta}</span>
-      </button>
       <button type="button" class="gcard-tick" data-act="${gated ? 'open-read' : 'goal-hit'}" data-id="${g.id}"
               data-date="${dateKey}" aria-label="${entry.done ? 'Undo' : 'Complete'} ${esc(g.name)}"
               ${locked ? 'disabled' : ''}>✓</button>
-      <span class="gcard-bar"><i style="width:${Math.min(100, Math.max(0, stepPct))}%"></i></span>
+      <button type="button" class="gcard-open" data-act="goal-detail" data-id="${g.id}">
+        <span class="gcard-title">${esc(g.name)}${
+          gated ? ' <i class="gcard-gate">· write to close</i>' : ''
+        }</span>
+        <span class="gcard-meta">${meta}</span>
+      </button>
+      <span class="gcard-value">${esc(ask)}</span>
+      ${
+        entry.streak > 0 || entry.skipped
+          ? `<span class="gcard-badges">
+              ${entry.streak > 0 ? `<span class="gcard-streak">${icon('flame')}${entry.streak}d</span>` : ''}
+              ${entry.skipped ? '<span class="gcard-streak skip">Skipped</span>' : ''}
+            </span>`
+          : ''
+      }
     </article>`;
   }
 
@@ -500,11 +521,14 @@
           .map((h) => {
             const done = !!(l && l.hb && l.hb[h.id]);
             const hs = S.habitStreak(h.id);
-            return `<button type="button" class="item ${done ? 'done' : ''} ${future ? 'locked' : ''}" data-act="toggle-hb" data-id="${h.id}" aria-pressed="${done}" ${
+            /* A habit is a thing you tick today, exactly like a goal, so on the
+               ledger it is the same row rather than a third visual language on
+               one screen. Same classes and the same data-act — only the shape
+               changes. */
+            return `<button type="button" class="item ledger-row ${done ? 'done' : ''} ${future ? 'locked' : ''}" data-act="toggle-hb" data-id="${h.id}" aria-pressed="${done}" ${
               future ? 'disabled' : ''
             }>
               <span class="tick" aria-hidden="true">✓</span>
-              <span class="emoji" aria-hidden="true">${esc(h.icon || '✅')}</span>
               <span class="body"><span class="name">${esc(h.name)}</span><span class="sub">${
                 S.settings().requireHabits ? 'Counts toward the day' : 'Optional'
               }</span></span>
@@ -646,7 +670,7 @@
 
       ${offset !== 0 ? `<button class="btn ghost block" data-act="date-today" style="margin-bottom:12px">Back to today</button>` : ''}
 
-      <div class="segbar">
+      <div class="segbar ledger">
         ${seg('todo', 'To-dos')}${seg('done', 'Done')}${seg('skipped', 'Skipped')}
         <button class="icon-btn seg-add" data-act="goal-new" aria-label="New goal">＋</button>
       </div>

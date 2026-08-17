@@ -1533,3 +1533,92 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
    Padding matches `.card`'s so the rows are not flush against the edge. */
 .card.flush.runlist-card { padding: 0 var(--sp-lg); }
 .card.flush.runlist-card > .row:last-child { border-bottom: 0; }
+
+/* ================= the ledger =================
+
+   Today, redrawn from the "Arise — visual and structural redesign" brief. Its
+   own summary of this direction: hairlines instead of cards, numerals doing the
+   hierarchy, and ember appearing exactly once — on the live action.
+
+   It reuses every existing token. The brief's mockup samples out to --faint,
+   --surface-2, --stroke, --text, --stroke-strong, --good, --cream, --muted,
+   --bg, --gold, --accent and --on-accent, so this is a change of structure and
+   weight, not a repaint. Nothing new was added to :root.
+
+   `.gcard` keeps its name, its `data-goal` and every data-act: the swipe and
+   press-and-hold handlers close on `.gcard`, so renaming the row would have
+   silently dropped three gestures. */
+.gcard.ledger {
+  display: flex; align-items: center; gap: 14px;
+  background: none; border: 0; border-radius: 0; box-shadow: none;
+  border-bottom: 1px solid var(--surface-2);
+  padding: 15px 2px; min-height: 0; overflow: visible;
+}
+/* The card, the monogram tile and the step bar are what made a row a card. */
+.gcard.ledger .gcard-mono, .gcard.ledger .gcard-bar { display: none; }
+
+.gcard.ledger .gcard-tick {
+  order: 0; flex: none; width: 26px; height: 26px; border-radius: 999px;
+  border: 1.5px solid var(--stroke-strong); background: none;
+  color: transparent; font-size: var(--fs-sm); font-weight: 900;
+}
+.gcard.ledger.is-done .gcard-tick { background: var(--good); border-color: var(--good); color: var(--on-good); }
+.gcard.ledger.is-part .gcard-tick { border-color: var(--gold); color: var(--gold); }
+.gcard.ledger.will-keep .gcard-tick { border-color: var(--good); color: var(--good); }
+
+.gcard.ledger .gcard-open {
+  order: 1; flex: 1; min-width: 0; display: block; text-align: left;
+  background: none; border: 0; padding: 0;
+}
+.gcard.ledger .gcard-title {
+  display: block; font-size: var(--fs-lg); font-weight: 600; color: var(--text);
+  letter-spacing: 0; text-transform: none;
+}
+.gcard.ledger .gcard-gate { font-style: normal; font-size: var(--fs-xs); font-weight: 600; color: var(--gold); }
+.gcard.ledger .gcard-meta {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px;
+  font-size: var(--fs-sm); color: var(--faint); text-transform: none; letter-spacing: 0;
+}
+/* The value is the numeral the hierarchy rests on, so it is the only thing on
+   the row in --cream. */
+.gcard.ledger .gcard-value {
+  order: 2; flex: none; font-size: var(--fs-lg); color: var(--cream); white-space: nowrap;
+}
+.gcard.ledger .gcard-badges { order: 3; flex: none; }
+.gcard.ledger.is-done .gcard-title,
+.gcard.ledger.is-skipped .gcard-title { color: var(--faint); }
+.gcard.ledger.is-done .gcard-value { color: var(--faint); }
+
+/* Tabs, not pills: the active one is marked by weight and a rule under it, so
+   the accent is free to mean "the live action" and nothing else. */
+.segbar.ledger { gap: 20px; border-bottom: 1px solid var(--stroke); padding-bottom: 0; }
+.segbar.ledger .seg {
+  flex: none; min-height: 40px; padding: 0 0 9px; border: 0; border-radius: 0;
+  background: none; color: var(--faint); font-size: var(--fs-md); font-weight: 500;
+  border-bottom: 2px solid transparent;
+}
+.segbar.ledger .seg.on {
+  background: none; color: var(--text); font-weight: 700; border-bottom-color: var(--text);
+}
+.segbar.ledger .seg b { color: var(--faint); font-weight: 600; }
+.segbar.ledger .seg-add { margin-left: auto; min-height: 40px; }
+
+/* A daily habit is a thing you tick today, exactly like a goal, so it is the
+   same row on the ledger rather than a third visual language on one screen.
+   The emoji goes: the tick already says what state it is in, and a column of
+   platform emoji is what made this screen read as a toy once before. */
+.item.ledger-row {
+  background: none; border: 0; border-radius: 0; box-shadow: none;
+  border-bottom: 1px solid var(--surface-2);
+  min-height: 0; padding: 15px 2px; gap: 14px;
+}
+.item.ledger-row .tick {
+  order: 0; width: 26px; height: 26px; border-radius: 999px;
+  border: 1.5px solid var(--stroke-strong); background: none;
+  color: transparent; font-size: var(--fs-sm);
+}
+.item.ledger-row.done { background: none; }
+.item.ledger-row.done .tick { background: var(--good); border-color: var(--good); color: var(--on-good); }
+.item.ledger-row .name { font-size: var(--fs-lg); font-weight: 600; }
+.item.ledger-row.done .name { color: var(--faint); text-decoration: none; }
+.item.ledger-row .sub { font-size: var(--fs-sm); color: var(--faint); }
