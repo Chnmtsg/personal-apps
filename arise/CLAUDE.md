@@ -171,26 +171,35 @@ remember, and exits non-zero on either, so a broken package cannot deploy:
 - `index.html` still links six `js/` files and carries no inline script, which
   is the 440KB self-extracting bundle caught by the one place that can see it.
 
-## Netlify
+## GitHub Pages
 
-`netlify.toml` at the repository root: `base = "arise"`,
-`command = "node tools/package.js"`, `publish = "dist"`. No Netlify UI
-configuration is needed, and no redirect rules — Discipline routes on the hash,
-so every URL is already `/index.html` to the server, and an SPA catch-all would
-only swallow genuine 404s on missing assets.
+Published at **https://chnmtsg.github.io/personal-apps/** by
+`.github/workflows/pages.yml`, on every push to `master`. The workflow runs
+`npm test` and then `node tools/package.js`, and uploads `arise/dist` — so the
+two pre-upload checks and all three suites stand between a commit and the live
+site. Netlify was dropped in 2026-08; `netlify.toml` is gone from the tree and
+recoverable from history if it is ever wanted back.
 
-`_headers` ships with the app rather than living in `netlify.toml`, so the cache
-policy travels in the same list that decides what ships. **Everything the
-service worker precaches must revalidate at the edge.** The SW is cache-first
-and busts on VERSION; a CDN holding `js/` for a year makes a VERSION bump fetch
-the old files, which is the stale-shell failure one layer further out. Fonts are
-the deliberate exception — three cuts that never change without a new filename.
+Pages serves at a **sub-path** (`/personal-apps/`). Nothing needed rewriting for
+that: every path in the app is relative — `./styles.css`, `./js/…` — and the
+manifest declares `"scope": "./"` with `"start_url": "./index.html"`. Keep it
+that way. A single leading `/` anywhere would resolve against the domain root
+and 404 on the live site while working perfectly on `localhost:8123`.
 
-The `Content-Security-Policy` there is the offline invariant enforced by the
-browser instead of by review: no external origin is reachable even if a future
-change tries. `style-src` needs `'unsafe-inline'` for style *attributes* only
-(`style="--hue:32"` on a goal card); there is no inline `<script>` anywhere.
-Verify it on a deploy preview after any change that adds an asset type.
+**`_headers` no longer does anything.** It is a Netlify file, and Pages ignores
+it. It still ships because it costs nothing and documents the intent, but two
+things it used to buy are now the platform's decision:
+
+- *Cache policy.* Pages serves assets with a ten-minute max-age rather than the
+  `must-revalidate` `_headers` asked for, so a VERSION bump can take that long
+  to be seen by a browser that has just fetched the old file. Ten minutes, not
+  the year a misconfigured CDN could hold — tolerable, but it is why "I bumped
+  the version and nothing happened" can be true for a few minutes now.
+- *The `Content-Security-Policy`.* That was the app's no-network invariant
+  enforced by the browser rather than by review, and on Pages it is not applied
+  at all. If it is wanted back it has to be a `<meta http-equiv>` in
+  `index.html`, which is the one exception worth making to "nothing is inlined
+  into the shell" — a meta tag is not a script. Not done yet.
 
 **Each origin is its own storage.** Moving from `localhost:8123` to a hosted URL
 starts empty; the user's goals, logs and journal do not follow. Export from

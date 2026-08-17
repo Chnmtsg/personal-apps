@@ -1,0 +1,71 @@
+# Publish Discipline to GitHub Pages.
+#
+# The app is static and has no build step, so this is a copy and a deploy. It
+# still goes through `tools/package.js` rather than uploading `arise/` directly,
+# for the two reasons that script exists:
+#
+#   - a publish directory is a whole folder, so pointing Pages at `arise/` would
+#     upload `tools/`, `knowledge/` and `CLAUDE.md` alongside the app;
+#   - it cross-checks that every asset named in `sw.js` ASSETS exists, and that
+#     `index.html` still links the js/ files and carries no inline script. Both
+#     exit non-zero, so a broken package cannot deploy.
+#
+# Pages serves this at a sub-path (/personal-apps/). Every path in the app is
+# relative — `./styles.css`, `./js/…`, and a manifest with `"scope": "./"` — so
+# nothing here needs a base-path rewrite.
+
+name: Publish to Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Least privilege: read the code, write a Pages deployment, nothing else.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never two deploys at once. `cancel-in-progress: false` so a queued deploy
+# finishes rather than being dropped — the last push should win, but only after
+# the one already running has landed.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # The whole safety net. There is no typechecker and no build, so if these
+      # do not run here they do not run before a deploy at all.
+      - name: Test
+        working-directory: arise
+        run: npm test
+
+      - name: Package
+        working-directory: arise
+        run: node tools/package.js
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: arise/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

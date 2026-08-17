@@ -17,7 +17,7 @@ Never sacrifice maintainability for short-term speed.
 ```
 arise/          the application — see arise/CLAUDE.md
 reports/        HANDOFF.md, the map for whoever picks this up next
-netlify.toml    base = "arise", command = "node tools/package.js", publish = "dist"
+.github/        the Pages workflow — tests, packages and publishes on push
 .claude/        launch config
 ```
 
@@ -90,6 +90,19 @@ All of it lives under `arise/`:
 - `arise/knowledge/coding-standards.md` — vanilla JS, layers, migrations, tests
 - `arise/knowledge/ui-guidelines.md`
 - `arise/knowledge/review-conventions.md`
+
+---
+
+# Publishing
+
+Live at **https://chnmtsg.github.io/personal-apps/**, deployed by
+`.github/workflows/pages.yml` on every push to `master`. It runs the three
+suites and `tools/package.js` first, so a broken package cannot reach the site.
+Netlify was dropped in 2026-08.
+
+**Each origin is its own storage.** Data on `localhost:8123` does not follow the
+app to the published URL — `localStorage` is per-origin. Export from More →
+Export on the old origin and Import on the new one.
 
 ---
 

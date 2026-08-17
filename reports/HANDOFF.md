@@ -36,12 +36,12 @@ A second worktree at `D:/3_Claude/Apps-efb` held a whole duplicate checkout,
 398MB of it. It was clean and fully merged, so it was removed; `git worktree
 add` recreates one if a parallel checkout is ever wanted again.
 
-**The most important open question, asked four times and never answered:** the
-user has an existing Netlify site and nobody knows what it builds. There is now
-exactly one branch, so "which branch" has stopped being the risk — but whether
-the site is wired to this repo at all is still unknown. `netlify.toml` sets
-`base = "arise"`, `command = "node tools/package.js"`, `publish = "dist"`. Ask
-before debugging anything reported about the live site.
+**The Netlify question is closed.** The user said they do not use it; it was
+dropped and `netlify.toml` deleted. The app is published on **GitHub Pages** at
+https://chnmtsg.github.io/personal-apps/ by `.github/workflows/pages.yml`, which
+runs the three suites and `tools/package.js` on every push to `master` before it
+uploads `arise/dist`. A red build is a site that does not update, so check the
+Actions tab before believing "it didn't deploy".
 
 **If the origin changes, every existing user starts empty.** `localStorage` is
 per-origin; goals, logs, streaks and journal do not follow a domain move. The
@@ -85,10 +85,7 @@ whole card rather than the tick in its corner: swipe right to keep, left to
 skip, press and hold to log part of it. Today ends in a fixed strip carrying the
 next thing and one tap. Toasts carry UNDO for five seconds.
 
-**Netlify.** `netlify.toml` at the repo root (`base = arise`,
-`command = node tools/package.js`, `publish = dist`). `arise/_headers` carries
-the cache policy and a CSP that enforces the app's own no-network invariant at
-the browser. `tools/package.js` copies the runtime set byte for byte — **it is
+**Publishing.** GitHub Pages, via `.github/workflows/pages.yml`. `tools/package.js` copies the runtime set byte for byte — **it is
 not a build step and must never become one** — and fails the build when `sw.js`
 ASSETS and `index.html` disagree about `js/`.
 
@@ -134,8 +131,11 @@ the tree beside it.
 
 ## 4. Open, in priority order
 
-1. **Confirm the Netlify branch and origin.** §0. Blocks everything about the
-   live site.
+1. **The CSP is not enforced on the live site.** `_headers` is a Netlify file
+   and Pages ignores it, so the no-network invariant is back to being enforced
+   by review rather than by the browser. Restoring it means a
+   `<meta http-equiv="Content-Security-Policy">` in `index.html`. See the
+   GitHub Pages section of `arise/CLAUDE.md`.
 2. **Custom habits.** The user asked twice to "add and edit things in the
    catalog". Checklist *items* are editable; the catalog of *habits* is closed,
    and that closedness is what makes an unknown id a dropped habit rather than a
@@ -147,7 +147,7 @@ the tree beside it.
    schedules and `run.js` assumes every habit is daily. Nothing was created for
    them: Plan → new goal, schedule Mon/Thu, baseline 2/week → target 3/week.
 4. **Flattening `arise/` to the repo root.** With one project left, the nesting
-   is arguably pointless — but `netlify.toml` sets `base = "arise"` and the
+   is arguably pointless — but the Pages workflow uploads `arise/dist` and the
    folder name is deliberate (see `arise/CLAUDE.md` on the rename). Not done,
    and not obviously worth doing.
 5. **Muscle tags are read live, not frozen.** Re-tagging an exercise changes
