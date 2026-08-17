@@ -49,26 +49,28 @@ only bridge is More → Export on the old origin, Import on the new one.
 
 ---
 
-## 1. State of the tree — `arise-discipline-redesign`
+## 1. State of the tree — `master`
 
 ```bash
 cd arise
-npm test          # smoke 390, render 167, wire 29 — all green
+npm test          # smoke 403, render 180, wire 29 — all green
 npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
 - `sw.js` VERSION → **`discipline-v45`**
-- `js/` is **seven** files, loaded in this order:
-  `data.js` → `program.js` → `goals.js` → `run.js` → `store.js` → `ui.js` → `app.js`
+- `js/` is **eight** files, loaded in this order:
+  `data.js` → `program.js` → `goals.js` → `run.js` → `photos.js` → `store.js` →
+  `ui.js` → `app.js`
 - `tools/` is `smoke.js`, `render.js`, `wire.js`, `package.js`, `serve.py`,
   `make_icons.py`, `shot.html`
-- `STATE_VERSION` is **4** — `arise.state.v1` gained a `run` key, default `null`
-- Nothing is half-finished. No stashed edits.
-
-Uncommitted, none of it mine, none of it blocking:
-`arise/.claude/scheduled_tasks.lock` (deleted), `reports/arise-2026-08-10/`
-(untracked), `arise/arise-redesign/` (untracked — see §4).
+- `STATE_VERSION` is **5** — v5 added `muscles` to every exercise
+- Exercise pictures live OUTSIDE `arise.state.v1`, in their own IndexedDB store
+  (`js/photos.js`), and ride in the backup as a `photos` key. That separation is
+  the point: photos in the state blob would risk `QuotaExceededError` on every
+  write, which would cost the user the ledger.
+- Nothing is half-finished. No stashed edits, nothing uncommitted, and the
+  working tree is clean and in sync with `origin/master`.
 
 ---
 
@@ -107,22 +109,26 @@ had.
 
 ---
 
-## 3. State of `life-reset-habit-recommender`
+## 3. This repository holds one project now
 
-Python, no dependencies, no network, no UI. `life-reset/STATUS.md` is the honest
-inventory and is current — read it rather than `README.md` / `AGENTS.md`, which
-are a specification written before the code and describe more than exists.
+`english-feedback-app/` and `life-reset/` were deleted in 2026-08 at the user's
+request, along with `knowledge/` and the four review reports that belonged to
+the first. The root `.claude/agents` and `.claude/commands` went with them —
+they were the english-feedback-flavoured copies of the review roles, and
+`arise/.claude/` carries the arise ones.
+
+**Nothing is lost.** Both projects are in this repository's history, on
+`master`, and pushed. To bring one back:
 
 ```bash
-cd life-reset
-python tests.py          # 126
-python eval_harness.py   # 2,000 users, zero invariant violations
-python demo_program.py   # read the output; it catches what neither suite can
+git log --oneline --diff-filter=D -- life-reset | head -1
+git checkout <that-commit>~1 -- life-reset
 ```
 
-Added this session: four self-care habits, an `add`/`advance` recommender,
-`state.py` (schema 3 — the stored shape, no I/O), `session.py` (`where`,
-`check_in`), a `resume` op, seventeen adversarial Adaptations, partial credit.
+`arise/js/run.js` is a port of the `life-reset` Python engine and its comments
+still say so. That history is why the code is shaped the way it is, so the
+references were left rather than scrubbed — the engine is simply no longer in
+the tree beside it.
 
 ---
 
@@ -140,13 +146,16 @@ Added this session: four self-care habits, an `add`/`advance` recommender,
    cadence is to be a *goal*, not a run habit — `goals.js` already does weekday
    schedules and `run.js` assumes every habit is daily. Nothing was created for
    them: Plan → new goal, schedule Mon/Thu, baseline 2/week → target 3/week.
-4. **`arise/arise-redesign/`** — a complete stale copy of `js/` and `styles.css`
-   inside `arise/`. Its design was applied and committed long ago. Deleting it
-   was offered twice and never authorised; it is exactly the duplicate-snapshot
-   hazard §6a is about.
-5. **life-reset:** no store, deliberately — `state.py` decides the shape, where
-   the bytes go is the caller's. `diagnose` ignores `did`, so somebody doing 80%
-   every day looks identical to somebody doing nothing.
+4. **Flattening `arise/` to the repo root.** With one project left, the nesting
+   is arguably pointless — but `netlify.toml` sets `base = "arise"` and the
+   folder name is deliberate (see `arise/CLAUDE.md` on the rename). Not done,
+   and not obviously worth doing.
+5. **Muscle tags are read live, not frozen.** Re-tagging an exercise changes
+   what past days are credited with in the muscle breakdown on Stats. Day
+   completion, streaks and the ledger are untouched — only the attribution
+   moves — and there is a test documenting it by name. Freezing them into each
+   day's record, the way the exercise list already is, was offered and not yet
+   asked for.
 
 ---
 

@@ -1,10 +1,10 @@
-# This repository holds three codebases that share nothing. Only one of them is
-# a deployable site: `arise/`, the Discipline PWA. `english-feedback-app/` ships
-# separately (its Worker deploys with wrangler), and `life-reset/` is a Python
-# library with no UI at all.
+# The deployable site is `arise/`, the Discipline PWA — the only project in this
+# repository since the other two were removed in 2026-08.
 #
 # `base` puts every path below relative to `arise/`, so this file is the only
-# place in the repo root that knows about it.
+# place in the repo root that knows about it. That indirection is why the app
+# was left nested rather than flattened to the root: moving it means editing
+# this file and re-pointing the site.
 
 [build]
   base = "arise"

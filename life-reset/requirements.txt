@@ -1,8 +1,0 @@
-# The deterministic core needs none of this. `python demo_program.py` and
-# `python eval_harness.py` run on a bare interpreter, which is the point.
-#
-# Install these only for the paths that talk to a model or build a graph:
-#   --live on any demo, and the daily graph in life_reset/graph.py
-
-anthropic>=0.116.0     # life_reset/nodes.py — the only file that imports it
-langgraph>=0.2.0       # factory.py, and life_reset/graph.py when it lands
