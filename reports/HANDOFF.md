@@ -12,10 +12,10 @@ commits.
 
 ## 0. Read this first: it is pushed now, and the branch matters
 
-**Remote: https://github.com/Chnmtsg/personal-apps — public.** All six branches
-are pushed and the default is `arise-discipline-redesign`, which is where the
-app is. Commits are authored as `Chnmtsg` through the GitHub noreply address,
-set repo-locally so a real address is not published on a public repo.
+**Remote: https://github.com/Chnmtsg/personal-apps — public. One branch,
+`master`, and one working copy.** Commits are authored as `Chnmtsg` through the
+GitHub noreply address, set repo-locally so a real address is not published on
+a public repo.
 
 Public was the user's explicit decision, asked and answered. The repo carries
 their real skincare routine, sleep and wake times, training programme and habit
@@ -24,26 +24,24 @@ were scanned before the first push — and `.gitignore` now covers the patterns
 that would hold one. It did not exist before; nothing bad had reached the repo,
 but that was luck rather than a rule.
 
-```
-master                              a2e6480   the base everything forks from
-├─ repo-docs-three-projects         134abfa   root CLAUDE.md: three projects, not two
-│  ├─ arise-discipline-redesign     8bccd6e   ALL the arise work — the default branch
-│  └─ life-reset-habit-recommender  8173ae3   4 commits — the Python engine work
-└─ english-feedback-app-review-fixes da9951a  pre-existing, untouched this session
-```
+There were six branches and two working copies. Everything is on `master` now,
+and nothing was thrown away to get there: `english-feedback-app-review-fixes`
+carried twelve commits and `life-reset-habit-recommender` six that existed
+nowhere else, so both were **merged** rather than deleted. The three that were
+already contained — `arise-discipline-redesign`, `arise-sprint1-and-visual-pass`,
+`repo-docs-three-projects` — were deleted only after `git branch -d` confirmed
+it. The branches touched disjoint directories, so both merges were clean.
 
-`arise-discipline-redesign` is where the app is. **`master` is 17 commits
-behind and still has the pre-rename app**: no Discipline branding, no 66-day
-run, no habit picker. Check out `master`, serve it, and you are looking at
-something months old. It was pushed as-is rather than fast-forwarded, because
-nobody has said whether anything still builds from it.
+A second worktree at `D:/3_Claude/Apps-efb` held a whole duplicate checkout,
+398MB of it. It was clean and fully merged, so it was removed; `git worktree
+add` recreates one if a parallel checkout is ever wanted again.
 
-**The most important open question, asked three times and never answered:** the
-user has an existing Netlify site and nobody knows which branch it builds. If it
-builds `master`, none of this session's work is deployed — which would account
-for a long run of "it didn't connect" reports that turned out to be part real
-bug, part stale build. Ask before debugging anything reported about the live
-site.
+**The most important open question, asked four times and never answered:** the
+user has an existing Netlify site and nobody knows what it builds. There is now
+exactly one branch, so "which branch" has stopped being the risk — but whether
+the site is wired to this repo at all is still unknown. `netlify.toml` sets
+`base = "arise"`, `command = "node tools/package.js"`, `publish = "dist"`. Ask
+before debugging anything reported about the live site.
 
 **If the origin changes, every existing user starts empty.** `localStorage` is
 per-origin; goals, logs, streaks and journal do not follow a domain move. The
