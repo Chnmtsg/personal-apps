@@ -42,18 +42,122 @@ invocation and could never fail. Both triggers are now tested independently.
 
 | File | What it is |
 |---|---|
-| `life_reset/catalog.py` | The closed lists: 20 habits, 3 phases, the constraint constants |
-| `life_reset/program.py` | `dose_for`, `minutes_for`, `program_day`, `validate`, `repair`, `_respace`, `apply_patch`, `render_program_day` |
+| `life_reset/catalog.py` | The closed lists: 24 habits, 3 phases, the constraint constants |
+| `life_reset/program.py` | `dose_for`, `minutes_for`, `program_day`, `validate`, `repair`, `_respace`, `apply_patch` (five ops, `resume` included), `DayEntry`/`record_day`, `render_program_day` |
 | `life_reset/agents.py` | Architect (`build_program`, `coerce_program`, `fallback_program`) and Adaptation (`diagnose`, `adapt_program`) |
+| `life_reset/recommend.py` | `recommend`, `apply_recommendation` — `add` and `advance`, pure code, no model |
+| `life_reset/session.py` | `where`, `check_in` — the app-facing loop: run boundaries, and step-in-or-offer |
+| `life_reset/state.py` | `SCHEMA_VERSION` 3, `to_dict`/`from_dict`, `dumps`/`loads`, `_upgrade` — the stored shape, no I/O |
 | `life_reset/nodes.py` | `AnthropicLLM` — the only file that imports `anthropic` |
-| `eval_harness.py` | 12 adversarial Architects, the invariants, per-user and per-patch |
-| `demo_program.py` | Hostile Architect → repaired programme → a user who stops for four days |
+| `eval_harness.py` | 12 adversarial Architects, 17 adversarial Adaptations, the invariants, per-user, per-patch, per-recommendation and per-save |
+| `demo_program.py` | Hostile Architect → repaired programme → a user who stops for four days → the same user recovered |
 
-**Current numbers:** 2,000 users, ~165,000 day-renders, **zero invariant
-violations**. A separate fuzz over 12,000 random programmes: `repair` leaves
-zero infeasible days, `build_program` returns zero invalid programmes.
+**Current numbers:** 2,000 users, ~165,000 day-renders, 1,652 recommendations
+offered and accepted (1,468 `add`, 184 `advance`), 5,010 saves written and read
+back, 1,000 check-ins (505 patched, 321 offered, 174 quiet), all five patch ops
+landed (soften 264, freeze 67, drop 19, defer 17, resume 184), **zero invariant
+violations**; 126 unit tests. A separate fuzz over 12,000 random programmes:
+`repair` leaves zero infeasible days, `build_program` returns zero invalid
+programmes.
+
+The per-kind split in the harness summary is part of the check, not decoration.
+The `advance` half first reported **zero** — the harness patched people and then
+stopped watching, so the only state that op fires in was never modelled and its
+assertions all passed without running. That is the same shape as the
+`A and not (A or B)` tautology below.
+
+The same leak bit the codec. `check_round_trip` compares against the original
+`Program`, which is a sound oracle — but the only programmes it had were the
+harness's own, and `adapt_program(None, ...)` softens every time, so none of
+them has ever carried a `frozen_day`. Deleting that field from `to_dict` passed
+2,000 users clean while failing a unit test by name. The check now round-trips a
+twin with every optional field populated, and catching the same break went from
+zero violations to 2,599.
+
+## The decision behind schema 2
+
+`dose_for` answers from a habit's *current* state, so softening on day 30
+changes what it says day 12 asked for. Two ways out, and the cheap one is the
+one that was taken:
+
+| | |
+|---|---|
+| **Taken** — record the day | `record_day` freezes what each habit asked and whether it happened. A past day is read, so the drift has nowhere to land. `ProgramHabit` unchanged. |
+| **Rejected** — dated adjustments | `Adjustment(day, scale, frozen_day, ramp_shift)` replayed up to the day being asked about. Strictly more correct, also fixes the resume jump, and rewrites `dose_for`, `repair`, `apply_patch`, `recommend`, the schema and most tests at once. |
+
+The rejected one touches the function whose arithmetic error once survived
+165,000 clean day-renders, and `repair` is already at its stated complexity
+ceiling. The record buys the same guarantee where it is actually needed.
+
+`diagnose` moved with it: it used to decide whether a day counted from the
+habit's *current* `start_day`, so deferring a habit on day 30 re-scored the
+fortnight behind it. It now reads the record.
+
+The `never_both` invariant was vacuous when written, for the third time in
+this file's history. An `advance` needs an *eased* habit the user is keeping,
+and nothing in the harness eases a habit somebody is succeeding at — so
+breaking `check_in` to offer suggestions alongside a patch changed nothing in
+the summary while failing a unit test by name. Both suites now construct the
+conjunction deliberately, and the same break raises 204 violations.
+
+## Four crashes the Adaptation adversaries found
+
+`apply_patch` had five ops and the harness executed one, because
+`adapt_program(None, ...)` takes the fallback path and emits a single
+`soften`. Giving Adaptation adversaries of its own — the Architect has had
+twelve since the start — turned up four crashes reachable from a plausible
+model response, every one of them landing in the app's daily check-in:
+
+| op payload | before |
+|---|---|
+| `soften factor:"half"` | `ValueError` out of `float()` |
+| `soften factor:null` | `TypeError` out of `float()` |
+| `defer days:"soon"` | `ValueError` out of `int()` |
+| `soften factor:NaN` | `scale=NaN`, validates clean, run **unsaveable** |
+
+The NaN one is the interesting one. It passed `float()`, `min`/`max` returned
+it unchanged, and `max(0.0, nan)` inside `dose_for` then returned 0.0 — the
+ramp dead for the whole run, on a programme `validate` called healthy. The
+next save threw, because `state.dumps` refuses NaN, and it threw for every
+save after that. Removing the fix now raises 95 harness violations across
+three classes.
+
+The harness itself had to be fixed to report it: `state.dumps` raises a plain
+`ValueError`, not `StateError`, so the NaN killed the run instead of being
+counted, and a harness that dies on the first bug reports nothing about the
+other 1,900 users.
+
+## The bug the Adaptation adversaries found next
+
+`resume` is the only op that *adds* load, and `repair` cannot take it back:
+every sacrifice branch protects `start_day > today`, so a resume on a habit
+the user is already running pushed day 64 over the budget and nothing
+downstream was permitted to pay for it. The programme shipped with a day the
+user physically cannot do — the failure this codebase calls its most
+expensive, arriving through the one op written to be generous.
+
+`recommend._resumed` had validated before offering one since the day it was
+written. The path a *model* takes, through `adapt_program`, had no guard at
+all — and the adversaries found it on their first run. `apply_patch` now
+reverts the resume when the result does not validate, and only then: a
+programme that arrived infeasible is not resume's fault, and reverting would
+hide the real cause. Removing the reversal fails 3 named unit tests and
+raises 7 harness violations.
+
+Two harness faults surfaced alongside it, both mine. Splitting habits into
+measured and ticked on `hash(habit_id)` made the whole run non-reproducible,
+because Python randomises string hashing per process — the one property a
+2,000-user harness cannot do without. And `check_recommendations` was handed
+a *pre-patch* diagnosis while `recommend` recomputed its own, so the two
+disagreed about whether a user was still struggling and it reported a false
+positive. It diagnoses from what it was actually given now.
 
 ## Not built yet
+
+A **store**. `state.py` decides the shape and does the codec; where the bytes go
+is still the caller's, and there is no `Store` protocol, no file layer and no
+sync. That is deliberate — the shape was the part that gets expensive after it
+ships.
 
 The **daily graph** — `life_reset/graph.py` and its 14 nodes, plus
 `engine.py`, `store.py`, `demo.py`. `factory.py` and `demo_factory.py` came
@@ -88,3 +192,13 @@ The fourth is the one no invariant catches. Every programme it produced was
 *valid* — inside budget, inside the phase caps, monotonic — and useless. That
 is the limit of a harness: it proves the rules hold, not that the thing is
 worth using. Reading `demo_program.py`'s output is what caught it.
+
+**And a fifth, of exactly that class, found the same way.** The recommender
+offered `Drink water · 4 -> 4 glasses`. `scale` multiplies the week count before
+rounding, so raising it from 0.5 to 0.75 landed on the same step: a button that
+validated, kept every invariant, and changed nothing the user could see. It ran
+369 times across 2,000 users without a complaint, because nothing was wrong with
+the programme — the *suggestion* was empty, and no invariant is written about
+those. The demo printed it on the first read. `recommend` now requires
+tomorrow's ask to actually rise, and removing that one clause fails a named unit
+test and raises 103 harness violations.

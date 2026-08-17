@@ -29,6 +29,7 @@ from .catalog import (
 )
 from .program import (
     MAX_PATCH_HABITS,
+    DayLog,
     Program,
     ProgramHabit,
     apply_patch,
@@ -186,11 +187,18 @@ INTERVENTION_MISSES = 3      # or this many consecutive misses on one habit
 PROTECTED_RATE = 0.7         # a habit doing this well is not the problem
 
 
-def diagnose(program: Program, logs: dict[int, set[str]], today: int) -> dict:
+def diagnose(program: Program, logs: DayLog, today: int) -> dict:
     """Per-habit completion, consecutive misses, and whether to step in at all.
 
     Pure code. Whether the user is struggling is arithmetic; only *what to
     sacrifice* is a judgement, and that is the only part a model is asked for.
+
+    **Which days counted is read from the record, not re-derived.** This used to
+    ask `d >= p.start_day` — the habit's *current* start day — so deferring a
+    habit on day 30 retroactively decided that days 20 to 29 had never asked for
+    it, and the user's completion rate moved for a fortnight they had already
+    lived. A day that carries a record is answerable from that record alone; a
+    day without one was never lived through this app and is not judged.
     """
     per: dict[str, dict] = {}
     # `today - TRAILING_DAYS` up to but not including today. Written as an
@@ -199,11 +207,11 @@ def diagnose(program: Program, logs: dict[int, set[str]], today: int) -> dict:
     window = range(max(1, today - TRAILING_DAYS), today)
 
     for p in program.habits:
-        asked = [d for d in window if d >= p.start_day]
-        done = [d for d in asked if p.habit_id in logs.get(d, set())]
+        asked = [d for d in window if p.habit_id in logs.get(d, {})]
+        done = [d for d in asked if logs[d][p.habit_id].done]
         missed_streak = 0
         for d in sorted(asked, reverse=True):
-            if p.habit_id in logs.get(d, set()):
+            if logs[d][p.habit_id].done:
                 break
             missed_streak += 1
         per[p.habit_id] = {
@@ -309,6 +317,10 @@ def adapt_program(
 
     patched, notes = apply_patch(program, filtered, today=today)
     meta["notes"] = notes
-    meta["ops_applied"] = filtered
+    # Submitted, not applied. `apply_patch` still ignores an unknown op, a drop
+    # at the habit floor and a defer on something already underway, so calling
+    # this "applied" overstated it — a harness counting these reported 20
+    # `obliterate` ops as having run.
+    meta["ops_submitted"] = filtered
     meta["violations_remaining"] = [str(v) for v in validate(patched)]
     return patched, meta

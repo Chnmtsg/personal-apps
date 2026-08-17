@@ -3,13 +3,18 @@
     python demo_program.py
     python demo_program.py --live    # real Architect, ANTHROPIC_API_KEY
 
-Shows the three things that matter and are hard to see from the code alone:
+Shows the four things that matter and are hard to see from the code alone:
 
 1. A hostile Architect still produces a feasible programme, because `repair`
    fixes rather than re-prompts.
 2. The shape of the ramp: day one, mid-run, and the last day.
 3. A user who stops for four days gets a *softened* day 24 — still day 24.
    The counter does not reset, and that is the whole product.
+4. The same user, a fortnight later, having got back on it: the programme grows
+   again. Read this section rather than trusting the suites — every automated
+   check can tell you a recommendation is *legal*, and none of them can tell you
+   it is worth making. That gap is what shipped five habits frozen at their
+   starting dose for a whole run with zero invariant violations.
 """
 
 from __future__ import annotations
@@ -18,8 +23,9 @@ import json
 import sys
 from datetime import date
 
-from life_reset.agents import adapt_program, build_program, diagnose
-from life_reset.program import PROGRAM_DAYS, render_program_day, validate
+from life_reset.agents import TRAILING_DAYS, adapt_program, build_program, diagnose
+from life_reset.program import PROGRAM_DAYS, record_day, render_program_day, validate
+from life_reset.recommend import apply_recommendation, recommend
 
 START = date(2026, 1, 1)
 RULE = "=" * 72
@@ -81,10 +87,10 @@ def main() -> None:
     section("3. A USER WHO STOPS — the counter does not reset")
     today = 24
     # Kept everything for a fortnight, then stopped dead for four days.
-    logs: dict[int, set[str]] = {}
-    for d in range(1, today):
-        live_ids = {p.habit_id for p in prog.habits if p.start_day <= d}
-        logs[d] = set() if d >= today - 4 else live_ids
+    logs = {
+        d: record_day(prog, d, () if d >= today - 4 else [p.habit_id for p in prog.habits])
+        for d in range(1, today)
+    }
 
     diag = diagnose(prog, logs, today)
     print(f"  overall completion  {diag['overall_rate']:.0%}")
@@ -107,6 +113,32 @@ def main() -> None:
     print(f"\n  still day {today} of {PROGRAM_DAYS}. Nothing was reset.\n")
 
     assert not validate(after), "a shipped programme must be feasible"
+
+    section("4. THE SAME USER, RECOVERED — the programme grows again")
+    later = min(today + TRAILING_DAYS, PROGRAM_DAYS)
+    back = {
+        d: record_day(after, d, [p.habit_id for p in after.habits]) for d in range(1, later)
+    }
+    print(f"  day {later}, having kept everything since the patch")
+    print(f"  overall completion  {diagnose(after, back, later)['overall_rate']:.0%}\n")
+
+    recs = recommend(after, back, later)
+    if not recs:
+        print("  nothing offered — which is a legitimate answer most days.\n")
+    grown = after
+    for r in recs:
+        print(f"  [{r.kind}] {r.headline} · {r.detail}")
+        for why in r.reasons:
+            print(f"        {why}")
+        grown, notes = apply_recommendation(grown, r, later)
+        print(f"        -> {notes[0]}\n")
+
+    if recs:
+        print("  the day after taking all of them:\n")
+        print(render_program_day(grown, later + 1))
+        print()
+
+    assert not validate(grown), "a suggestion must never ship an infeasible day"
 
 
 if __name__ == "__main__":

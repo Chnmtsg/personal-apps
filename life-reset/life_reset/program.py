@@ -16,9 +16,10 @@ The two rules that shape the file:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 from datetime import date
-from typing import Iterable, Literal
+from typing import Iterable, Literal, Mapping
 
 from .catalog import (
     LAST_INTRO_DAY,
@@ -31,7 +32,7 @@ from .catalog import (
     phase_for,
 )
 
-Op = Literal["soften", "freeze", "defer", "drop"]
+Op = Literal["soften", "freeze", "defer", "drop", "resume"]
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +137,106 @@ def day_minutes(program: Program, day: int) -> float:
 def day_index(start_date: date, on: date) -> int:
     """Calendar date -> 1-based day number. Outside the program, still honest."""
     return (on - start_date).days + 1
+
+
+# ---------------------------------------------------------------------------
+# The day record — what a day asked, frozen at the moment it was lived
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DayEntry:
+    """One habit, on one day: what it asked, and whether it happened.
+
+    `asked` is the whole point. Everything else here is derived on demand from
+    the catalog, and `dose_for` is a function of the habit's *current* state —
+    so softening on day 30 changes what `dose_for` says about day 12. That is
+    tolerable for a prescription and intolerable for a record: it means a day
+    the user lived can be re-described later, and once completion is judged
+    against a value rather than a tick, re-described becomes re-judged.
+
+    Writing the ask down at the time is what makes that impossible. A recorded
+    day is read, never recomputed, which is also why `ProgramHabit` did not need
+    to grow a list of dated adjustments — nothing asks `dose_for` about the past
+    once the past has a record.
+
+    `did` is what the user actually managed, where the app measured it — 1.5 of
+    2 glasses, 1.2 of 2 km. It is never inferred: a habit ticked complete with
+    nothing measured keeps `did=None`, because "they said yes" and "we measured
+    the ask" are different facts and flattening them invents data. Same reasoning
+    as `asked` below.
+
+    `done` is frozen here rather than derived on read, and that is the point.
+    Deriving it would mean the rule turning 1.8 of 2 litres into a yes or a no
+    could be changed later and silently re-score every day behind the user.
+    Writing the verdict down at the time is the only version that cannot
+    re-judge a lived day.
+
+    `asked` is optional only for days restored from a schema-1 save, which
+    recorded that a habit was done without recording what it was asked for.
+    Inventing that number afterwards from the current programme would be exactly
+    the re-judging this class exists to prevent, so it stays unknown.
+    """
+
+    asked: float | None = None
+    done: bool = False
+    did: float | None = None
+
+    @property
+    def fraction(self) -> float | None:
+        """How much of the ask was met, or None when nothing was measured.
+
+        This is the app's `0 / 2L` row. Capped at 1.0: beating today's number is
+        not extra credit, because the ramp is what advances a habit and doing
+        more today does not move it.
+        """
+        if self.did is None or not self.asked:
+            return None
+        return min(1.0, max(0.0, self.did / self.asked))
+
+
+# `{day: {habit_id: DayEntry}}`. A habit present on a day was *asked* that day;
+# `.done` says whether it happened. Presence alone used to mean "done", which
+# left nowhere to put a day that asked for something and did not get it.
+DayLog = dict[int, dict[str, DayEntry]]
+
+
+def record_day(
+    program: Program,
+    day: int,
+    done: Iterable[str] = (),
+    did: Mapping[str, float] | None = None,
+) -> dict[str, DayEntry]:
+    """Freeze what `day` asked of this user, and what they did about it.
+
+    Call it as the day is lived and store the result; from then on that day is a
+    fact rather than a re-derivation. Habits that had not started yet are absent
+    — they were not asked, and a record that claims otherwise would make every
+    early day look like a failure.
+
+    Two ways to say what happened, because habits come in two shapes. `done` is
+    a set of ids for the ones that are a yes or a no — you took the vitamin or
+    you did not. `did` carries a measurement for the ones the app tracks against
+    a number, which is where `1.5 / 2 glasses` comes from.
+
+    A measurement wins over a tick: a habit in both is judged on `did`, because
+    the number is the more specific claim. **Meeting the ask is the whole ask.**
+    There is no partial credit toward `done` — 1.8 of 2 litres is 1.8 of 2
+    litres, recorded honestly and not counted as a kept day, for the same reason
+    the reading gate does not accept a summary that was not written. The
+    fraction is there for the app to show; it is not a second, softer pass mark.
+    """
+    got = set(done)
+    values = dict(did or {})
+    out: dict[str, DayEntry] = {}
+    for p in active_on(program, day):
+        ask = dose_for(p, day)
+        measured = values.get(p.habit_id)
+        if measured is None:
+            out[p.habit_id] = DayEntry(asked=ask, done=p.habit_id in got)
+        else:
+            out[p.habit_id] = DayEntry(asked=ask, done=measured + 1e-9 >= ask, did=float(measured))
+    return out
 
 
 def program_day(program: Program, day: int) -> list[dict]:
@@ -434,13 +535,43 @@ def repair(program: Program, today: int = 0) -> tuple[Program, list[str]]:
 # ---------------------------------------------------------------------------
 
 MAX_PATCH_HABITS = 2
+RESUME_SCALE_STEP = 0.25     # one notch of ramp handed back per resume
+
+
+def _number(value: object) -> float | None:
+    """A finite number, or None if the model did not give one.
+
+    Op arguments arrive from a language model and are not to be trusted with
+    `float()`. Every one of these was a live crash reachable from a plausible
+    response: `{"factor": "half"}` raised ValueError, `{"factor": null}` raised
+    TypeError, and both propagated out of `apply_patch`, out of `adapt_program`
+    — whose try/except only ever covered the *call* to the model — and into
+    whatever the app was doing, which is now its daily check-in.
+
+    `NaN` was worse for being quiet. It passes `float()`, and `min`/`max` return
+    it unchanged, so it became the habit's `scale`; `max(0.0, nan)` inside
+    `dose_for` then returned 0.0, leaving the ramp dead for the whole run on a
+    programme `validate` called perfectly healthy. The user's next save then
+    threw, because `state.dumps` refuses to write NaN, and the run was
+    unpersistable from that point on.
+    """
+    try:
+        n = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return n if math.isfinite(n) else None
 
 
 def apply_patch(program: Program, ops: list[dict], today: int) -> tuple[Program, list[str]]:
     """The only sanctioned way to change a program that is already running.
 
-    Four operations and no rewrite. `today` is the user's current day, and
+    Five operations and no rewrite. `today` is the user's current day, and
     everything already underway is protected from rescheduling.
+
+    Four of the five are sacrifices, and for a long time all of them were: the
+    programme could only ever get smaller. `resume` is the way back, and it is
+    deliberately the *only* op that gives something back, so that "the user has
+    recovered" has somewhere to land.
 
     The patch is capped at `MAX_PATCH_HABITS` *ops*, counted here — not counted
     after repair, which is how a 2-habit patch once reported itself as 41.
@@ -448,6 +579,10 @@ def apply_patch(program: Program, ops: list[dict], today: int) -> tuple[Program,
     notes: list[str] = []
     touched: set[str] = set()
     habits = {p.habit_id: p for p in program.habits}
+    # What each habit looked like immediately before a `resume` touched it. See
+    # the reversal below: resume is the one op that can make a programme
+    # infeasible, and this is what taking it back needs.
+    pre_resume: dict[str, ProgramHabit] = {}
 
     for op in ops:
         name = op.get("op")
@@ -461,7 +596,15 @@ def apply_patch(program: Program, ops: list[dict], today: int) -> tuple[Program,
 
         p = habits[hid]
         if name == "soften":
-            factor = float(op.get("factor", 0.5))
+            # "soften walk" is a clear instruction even when "by how much" is
+            # garbled, so an unreadable factor falls back to the documented
+            # default rather than dropping the op — the same call
+            # `coerce_program` makes for an unreadable `start_day`. Dropping it
+            # would leave a user who is slipping with no intervention at all.
+            factor = _number(op.get("factor", 0.5))
+            if factor is None:
+                notes.append(f"{hid}: unreadable soften factor {op.get('factor')!r}, used 0.5")
+                factor = 0.5
             factor = min(max(factor, 0.0), 1.0)
             habits[hid] = replace(p, scale=p.scale * factor)
             notes.append(f"softened {hid} to {habits[hid].scale:.2f} of its ramp")
@@ -473,9 +616,50 @@ def apply_patch(program: Program, ops: list[dict], today: int) -> tuple[Program,
             if p.start_day <= today:
                 notes.append(f"ignored defer on {hid}: already underway")
                 continue
-            by = int(op.get("days", 7))
-            habits[hid] = replace(p, start_day=min(p.start_day + max(by, 1), LAST_INTRO_DAY))
+            by = _number(op.get("days", 7))
+            if by is None:
+                notes.append(f"{hid}: unreadable defer days {op.get('days')!r}, used 7")
+                by = 7
+            habits[hid] = replace(p, start_day=min(p.start_day + max(int(by), 1), LAST_INTRO_DAY))
             notes.append(f"deferred {hid} to day {habits[hid].start_day}")
+        elif name == "resume":
+            # The inverse of `freeze` and `soften`, and the answer to the fact
+            # that those two were a one-way ratchet: a user who stumbled in week
+            # three spent the remaining forty days on a flattened programme,
+            # because nothing in the system could notice they had recovered.
+            #
+            # One notch per call, never a snap back to full. Clearing
+            # `frozen_day` outright takes a habit frozen at 20 minutes on day 20
+            # and resumed on day 40 straight to 35 — three weeks of ramp
+            # arriving in one night, which is how you break the run you were
+            # trying to reward.
+            #
+            # The freeze is unwound before the scale because a week of ramp is
+            # the smaller, more predictable gift: `scale` multiplies the week
+            # count before rounding, so a quarter of it is worth one step early
+            # in a run and three steps late in one. `recommend` refuses any
+            # resume that would move tomorrow by more than a single step.
+            #
+            # **This rewrites the recent past, and cannot not.** Pushing the pin
+            # from day 20 to day 27 changes what days 21-27 ask for, because the
+            # pin is one number and the curve it describes has no elbow — no
+            # value of `frozen_day` says "held at 20 until today, ramping after".
+            # `soften` has had exactly this property since it was written, and
+            # the fix for both is the same fix: a stored record of what each day
+            # actually asked, which is gap 3, not this op. What *is* guaranteed
+            # is that resume only ever raises a day's ask, never lowers one.
+            if p.frozen_day is not None:
+                nxt = p.frozen_day + 7
+                pre_resume.setdefault(hid, p)
+                habits[hid] = replace(p, frozen_day=None if nxt > PROGRAM_DAYS else nxt)
+                notes.append(f"resumed {hid}'s ramp for another week")
+            elif p.scale < 1.0:
+                pre_resume.setdefault(hid, p)
+                habits[hid] = replace(p, scale=min(1.0, p.scale + RESUME_SCALE_STEP))
+                notes.append(f"gave {hid} back some ramp: scale {habits[hid].scale:.2f}")
+            else:
+                notes.append(f"ignored resume on {hid}: already at full pace")
+                continue
         elif name == "drop":
             if len(habits) <= MIN_HABITS:
                 notes.append(f"ignored drop on {hid}: at the {MIN_HABITS}-habit floor")
@@ -489,12 +673,54 @@ def apply_patch(program: Program, ops: list[dict], today: int) -> tuple[Program,
 
     patched = replace(program, habits=tuple(habits.values()))
     patched, repairs = repair(patched, today=today)
+
+    # `resume` is the only op that *adds* load, and `repair` cannot take it back.
+    # Every sacrifice branch protects `start_day > today`, so a resume on a habit
+    # the user is already running can push day 64 over the budget and nothing
+    # downstream is allowed to touch it — the programme ships with a day they
+    # physically cannot do, which this codebase calls its most expensive bug.
+    #
+    # `recommend._resumed` has always validated before offering one. Nothing
+    # guarded the path a *model* takes through `adapt_program`, and an
+    # adversarial Adaptation found it on the first run: `resume write` at scale
+    # 0.75 -> 1.0 against a 45-minute budget, infeasible from day 64 on.
+    #
+    # Taking the resume back is the only correction available, and it is only
+    # taken when it actually helps: a programme that was already infeasible on
+    # the way in is not resume's fault and reverting would hide the real cause.
+    if pre_resume and validate(patched):
+        for hid, was in pre_resume.items():
+            if hid in habits:
+                habits[hid] = was
+        retry, retry_repairs = repair(replace(program, habits=tuple(habits.values())),
+                                      today=today)
+        if not validate(retry):
+            notes.append(
+                f"took back the resume on {', '.join(sorted(pre_resume))}: "
+                "it put a later day over the budget, and nothing may reschedule "
+                "a habit already underway to pay for it"
+            )
+            return retry, notes + retry_repairs
+
     return patched, notes + repairs
 
 
 # ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
+
+
+# Units whose singular is not simply the plural minus its "s". Everything else
+# follows the general rule, so a new catalog unit — doses, times — reads
+# correctly without an edit here.
+_IRREGULAR_UNITS = {"glasses": "glass"}
+
+
+def _singular(unit: str) -> str:
+    """`1 doses` is the kind of thing that makes a product look unfinished."""
+    if unit in _IRREGULAR_UNITS:
+        return _IRREGULAR_UNITS[unit]
+    return unit[:-1] if unit.endswith("s") else unit
 
 
 def _fmt(dose: float, unit: str) -> str:
@@ -509,8 +735,7 @@ def _fmt(dose: float, unit: str) -> str:
         minutes, seconds = divmod(int(round(dose)), 60)
         return f"{minutes}m {seconds:02d}s".rjust(6) + "  "
     n = int(dose) if abs(dose - int(dose)) < 1e-9 else round(dose, 1)
-    label = "glass" if unit == "glasses" and n == 1 else unit
-    return f"{n:>6g} {label}"
+    return f"{n:>6g} {_singular(unit) if n == 1 else unit}"
 
 
 def render_program_day(program: Program, day: int) -> str:
@@ -532,6 +757,14 @@ def render_program_day(program: Program, day: int) -> str:
       in the programme — it is why no more than two may start in a week — and it
       used to render identically to its fortieth, sorted to the bottom.
     """
+    # A run ends. This used to print "Day 80 of 66" over a full day's
+    # prescription, because every function here answers for any integer and
+    # none of them owned the fact that the programme was over.
+    if day > PROGRAM_DAYS:
+        return (f"Day {PROGRAM_DAYS} of {PROGRAM_DAYS} was the last one.\n\n"
+                f"That run finished {day - PROGRAM_DAYS} day(s) ago. "
+                "Nothing here is asked of you any more.")
+
     rows = program_day(program, day)
     ph = phase_for(day) if 1 <= day <= PROGRAM_DAYS else None
     head = f"Day {day} of {PROGRAM_DAYS}"
