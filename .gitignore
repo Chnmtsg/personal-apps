@@ -29,3 +29,11 @@ Thumbs.db
 # Scratch: a lock file the scheduler writes, and screenshots.
 .claude/scheduled_tasks.lock
 *.log
+
+# Design-tool exports. These are self-extracting bundles — a megabyte of gzipped
+# React that references external font and CDN origins and links none of the
+# app's own files. They are useful to READ a design out of and must never be
+# merged into the app; arise/CLAUDE.md marks that Critical. Keep them on disk,
+# out of the repository.
+*Redesign*.html
+*standalone*.html
