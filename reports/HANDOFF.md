@@ -10,21 +10,33 @@ commits.
 
 ---
 
-## 0. Read this first: nothing is pushed, and the branch matters
+## 0. Read this first: it is pushed now, and the branch matters
 
-There is **no git remote**. Every branch below is local only.
+**Remote: https://github.com/Chnmtsg/personal-apps — public.** All six branches
+are pushed and the default is `arise-discipline-redesign`, which is where the
+app is. Commits are authored as `Chnmtsg` through the GitHub noreply address,
+set repo-locally so a real address is not published on a public repo.
+
+Public was the user's explicit decision, asked and answered. The repo carries
+their real skincare routine, sleep and wake times, training programme and habit
+list as seed data. No key is in it — all 149 tracked files and the full history
+were scanned before the first push — and `.gitignore` now covers the patterns
+that would hold one. It did not exist before; nothing bad had reached the repo,
+but that was luck rather than a rule.
 
 ```
 master                              a2e6480   the base everything forks from
 ├─ repo-docs-three-projects         134abfa   root CLAUDE.md: three projects, not two
-│  ├─ arise-discipline-redesign     07814c5   16 commits — ALL the arise work
+│  ├─ arise-discipline-redesign     8bccd6e   ALL the arise work — the default branch
 │  └─ life-reset-habit-recommender  8173ae3   4 commits — the Python engine work
 └─ english-feedback-app-review-fixes da9951a  pre-existing, untouched this session
 ```
 
-`arise-discipline-redesign` is where the app is. **`master` still has the
-pre-rename app**: no Discipline branding, no 66-day run, no habit picker. Check
-out `master`, serve it, and you are looking at something twenty commits old.
+`arise-discipline-redesign` is where the app is. **`master` is 17 commits
+behind and still has the pre-rename app**: no Discipline branding, no 66-day
+run, no habit picker. Check out `master`, serve it, and you are looking at
+something months old. It was pushed as-is rather than fast-forwarded, because
+nobody has said whether anything still builds from it.
 
 **The most important open question, asked three times and never answered:** the
 user has an existing Netlify site and nobody knows which branch it builds. If it
