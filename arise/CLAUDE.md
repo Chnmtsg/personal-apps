@@ -277,20 +277,21 @@ they failed. The daily check-in opens today's record, so *tapping* the run is
 never worse than ignoring it. `runCountsTowardDay` turns it off, the way
 `goalsCountTowardDay` does.
 
-**A run habit must be the only place a thing is tracked.** Ten were removed in
-2026-08 — `read`, `meditate`, `deep_work`, `water`, `sleep_window`, `pushups`,
-`squats`, `plank`, `run`, `strength` — because each repeated a seed goal, a
-daily habit or an exercise in the weekly plan, and Today was showing the same
-commitment up to three times with three separate ticks. The catalog is fifteen
-habits now and holds what nothing else does: skincare, vitamins, floss, cold
-finish, daylight, screens-off, language, course, write. Shrinking it was safe
+**A run habit must be the only place a thing is tracked.** Eleven were removed
+in 2026-08 — `read`, `meditate`, `deep_work`, `water`, `sleep_window`,
+`pushups`, `squats`, `plank`, `run`, `strength` and `journal` — because each
+repeated a seed goal, a daily habit, an exercise in the weekly plan or the
+journal itself, and Today was showing the same commitment up to three times with
+three separate ticks. The catalog is fourteen habits now and holds what nothing
+else does: skincare, vitamins, floss, brush teeth, cold finish, daylight,
+screens-off, walk, mobility, stretch, language, course, write. Shrinking it was safe
 only because an unknown id is already a designed state — a stored run keeps the
 habit, hides it from the day, and the run screen says so.
 
 **The run and the goals share nothing.** `js/run.js` is a port of the
 `life-reset` Python engine and sits beside `js/goals.js`: a goal ramps a target
 the user chose from a baseline they set and earns each step by performing; a run
-picks from a closed 15-habit catalog, ramps on the calendar, and is
+picks from a closed 14-habit catalog, ramps on the calendar, and is
 feasible-by-construction on all 66 days. Neither reads the other's data, a user
 may have both, and merging them would mean migrating every custom goal onto a
 catalog id it does not have.
@@ -309,7 +310,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v47`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v48`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

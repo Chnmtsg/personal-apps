@@ -79,7 +79,7 @@
        opened" rather than as a day the user failed. */
     const runSeed = q.get('run');
     if (runSeed) {
-      S.startRun(['walk', 'water', 'read', 'journal', 'stretch'], 90, true);
+      S.startRun(['walk', 'stretch', 'vitamins', 'floss', 'brush_teeth'], 90, true);
       const r = S.run();
       r.startDate = A.addDays(A.key(), runSeed === 'done' ? -80 : -19);
       const ids = r.habits.map((p) => p.habitId);

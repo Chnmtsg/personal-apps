@@ -38,13 +38,14 @@
      build no longer has keeps it in storage, hides it from the day, and says so
      on the run screen.
 
-     It holds what nothing else in the app tracks. Ten habits were removed in
+     It holds what nothing else in the app tracks. Eleven habits were removed in
      2026-08 because they duplicated something the user already had — `read`,
      `meditate` and `deep_work` are seed goals, `water` and `sleep_window` are
-     daily habits or sleep goals, and `pushups`, `squats`, `plank`, `run` and
-     `strength` are all in the weekly training plan. Today was showing the same
-     commitment three times in three sections with three separate ticks. A run
-     habit has to earn its place by being the only place a thing is tracked.
+     daily habits or sleep goals, `pushups`, `squats`, `plank`, `run` and
+     `strength` are all in the weekly training plan, and `journal` is the
+     journal Today and Read already carry. Today was showing the same commitment
+     three times in three sections with three separate ticks. A run habit has to
+     earn its place by being the only place a thing is tracked.
 
      `min` is a scheduling weight, not a duration: it is what the habit costs
      the daily budget, and it is deliberately not what the user is shown. A day
@@ -80,7 +81,6 @@
     { id: 'floss', name: 'Floss', domain: 'self_care', unit: 'times', start: 1, target: 1, step: 1, min: 1.0, friction: 2 },
     { id: 'brush_teeth', name: 'Brush teeth', domain: 'self_care', unit: 'times', start: 1, target: 2, step: 1, min: 2.0, friction: 1 },
     // --- development ---
-    { id: 'journal', name: 'Journal', domain: 'development', unit: 'min', start: 5, target: 15, step: 2.5, min: 1.0, friction: 1 },
     { id: 'language', name: 'Language practice', domain: 'development', unit: 'min', start: 10, target: 30, step: 5, min: 1.0, friction: 3 },
     { id: 'course', name: 'Course / study', domain: 'development', unit: 'min', start: 15, target: 60, step: 5, min: 1.0, friction: 4 },
     { id: 'write', name: 'Write', domain: 'development', unit: 'min', start: 10, target: 40, step: 5, min: 1.0, friction: 4 }
@@ -606,7 +606,7 @@
      domains. Rebuilt when the ten duplicating habits went: three of the old six
      were `water`, `read` and `pushups`, which is what happens to a default list
      nobody re-derives after the thing it indexes into changes. */
-  const DEFAULT_PICKS = ['walk', 'stretch', 'journal', 'brush_teeth', 'vitamins', 'floss'];
+  const DEFAULT_PICKS = ['walk', 'stretch', 'brush_teeth', 'vitamins', 'floss', 'language'];
 
   function buildRun(startDate, minutesBudget, picks, together) {
     const budget = minutesBudget || 45;

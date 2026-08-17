@@ -58,7 +58,7 @@ npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
-- `sw.js` VERSION → **`discipline-v47`**
+- `sw.js` VERSION → **`discipline-v48`**
 - `js/` is **eight** files, loaded in this order:
   `data.js` → `program.js` → `goals.js` → `run.js` → `photos.js` → `store.js` →
   `ui.js` → `app.js`
@@ -95,8 +95,8 @@ Adaptation agents were dropped: both need a language model, and this app makes
 no network calls. What crossed over is the deterministic fallback each already
 had.
 
-- a closed catalog (25 habits, trimmed to 15 in 2026-08 to stop it duplicating
-  goals, daily habits and the weekly plan), three phases, feasible on all 66 days
+- a closed catalog (25 habits, trimmed to 14 in 2026-08 to stop it duplicating
+  goals, daily habits, the weekly plan and the journal), three phases, feasible on all 66 days
 - checklist habits — `vitamins`, `skincare`, `skincare_pm` — whose dose is a
   list of named items rather than a number, editable per run
 - a habit picker, with a "start everything on day one" toggle that is on by

@@ -1103,7 +1103,7 @@ const hostile = { startDate: runStart, minutesBudget: 45, log: {}, habits: [
   { habitId: 'read', startDay: 1 },                                     // retired in 2026-08
   { habitId: 'course', startDay: 1 }, { habitId: 'write', startDay: 900 },
   { habitId: 'language', startDay: 1 }, { habitId: 'mobility', startDay: 1 },
-  { habitId: 'stretch', startDay: 1 }, { habitId: 'journal', startDay: -4 }
+  { habitId: 'stretch', startDay: 1 }, { habitId: 'sunlight', startDay: -4 }
 ] };
 const fixedRun = R.repair(hostile, 0).run;
 ok('a hostile run is repaired rather than rejected', R.validate(fixedRun).length === 0,
