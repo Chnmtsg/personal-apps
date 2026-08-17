@@ -123,6 +123,21 @@
         }
       }, 900);
     }
+    /* `?measure=1` reports whether the app overflows its own viewport. Headless
+       Chrome enforces a minimum WINDOW width, so a top-level page shot at 390
+       lays out wider and only looks clipped; an iframe sized to 390 is a true
+       390px viewport. Measure in here, never from a screenshot. */
+    if (q.get('measure')) {
+      setTimeout(() => {
+        const d = f.contentDocument.documentElement;
+        const b = f.contentDocument.body;
+        document.title = 'client=' + d.clientWidth +
+                         ' docScroll=' + d.scrollWidth +
+                         ' bodyScroll=' + b.scrollWidth +
+                         ' overflows=' + (b.scrollWidth > d.clientWidth);
+      }, 1200);
+      return;
+    }
     document.title = 'ready:' + viewName;
   });
 </script>
