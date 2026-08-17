@@ -356,6 +356,29 @@
         </div>
       </section>`;
     }
+    /* Rule 1 of knowledge/project.md is that a goal runs from where the user
+       actually is. A fresh install seeds five and puts them on Today as
+       instructions — wake at 07:30, lights out at 23:30 — and until this
+       existed nothing anywhere said they were defaults. Someone who really
+       wakes at 09:00 was asked for 07:30 on their first morning, missed, and
+       the app's opening move was a verdict.
+
+       This is NOT the starting-point sheet coming back. That asked four
+       questions in a modal before the user had seen the app, which is why it
+       went. One line, dismissible, pointing at the screen where the numbers
+       actually live. It reuses `meta.onboarded`, which the sheet's removal left
+       inert in the state shape — so there is no new flag and no migration. */
+    if (!st.meta.onboarded && !st.meta.storageError && S.activeGoals().length) {
+      out += `<section class="banner accent stack">
+        <div><b>These are starting numbers, not yours</b><p>Discipline shipped with five goals so the app is not
+          empty. A goal only works when it starts from where you actually are today — open Plan and move any
+          that are not true for you.</p></div>
+        <div class="btn-row">
+          <button class="btn primary" data-nav="plan">Set my starting points</button>
+          <button class="btn ghost" data-act="starting-ack">They are fine</button>
+        </div>
+      </section>`;
+    }
     if (st.meta.clockWarning) {
       out += `<section class="banner warn">
         <div><b>Device clock moved backwards</b><p>Streaks are dated on this device, so winding the clock back can distort them. Nothing was changed.</p></div>
@@ -1451,14 +1474,14 @@
         </p>
       </div>
 
-      <div class="section-head"><h2>The run</h2></div>
+      <div class="section-head"><h2>Countdown</h2></div>
       <div class="card">
         <div class="row">
-          <div class="body"><div class="name">${S.activeChallenge() ? esc(S.activeChallenge().name) : 'No run in progress'}</div>
+          <div class="body"><div class="name">${S.activeChallenge() ? esc(S.activeChallenge().name) : 'No countdown running'}</div>
             <div class="sub">${
               S.activeChallenge()
                 ? `Day ${S.challengeProgress().day} of ${S.challengeProgress().days} · ${S.challengeProgress().kept} kept`
-                : 'Count against a fixed length — 66 days, or whatever you choose'
+                : 'Count the days you keep against a fixed length — 66, or whatever you choose'
             }</div></div>
           <button class="btn" data-act="challenge-open">${S.activeChallenge() ? 'Open' : 'Start'}</button>
         </div>
@@ -1882,7 +1905,7 @@
   function openGoalRestart(goalId) {
     const g = S.goalById(goalId);
     if (!g) return;
-    openSheet(`Re-baseline ${g.name}`, `
+    openSheet(`Move the starting point — ${g.name}`, `
       <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Move the starting point to where you actually
       are today. The target stays at <b>${esc(A.formatValue(g.unit, g.target))}</b>; the ladder is rebuilt
       from the new start and today becomes day one.</p>
@@ -1891,7 +1914,7 @@
       )}</b> · asking for <b>${esc(A.formatValue(g.unit, S.goalTarget(goalId)))}</b> right now.</p>
       ${valueInput('g_base', g.unit, S.goalTarget(goalId), 'New starting point')}
       <div class="btn-row">
-        <button class="btn primary" data-act="goal-restart-save" data-id="${goalId}" style="flex:1">Re-baseline</button>
+        <button class="btn primary" data-act="goal-restart-save" data-id="${goalId}" style="flex:1">Move it</button>
         <button class="btn ghost" data-act="sheet-close">Cancel</button>
       </div>
     `);
@@ -1993,7 +2016,7 @@
       }
       <div class="btn-row" style="margin-top:${S.isFuture(key) ? 14 : 8}px">
         <button class="btn" data-act="goal-edit" data-id="${goalId}" style="flex:1">Edit goal</button>
-        <button class="btn ghost" data-act="goal-restart" data-id="${goalId}">Re-baseline</button>
+        <button class="btn ghost" data-act="goal-restart" data-id="${goalId}">Move the starting point</button>
       </div>
     `);
   }
@@ -2120,9 +2143,9 @@
            </p>
          </div>
          <button class="btn ghost danger block" data-act="challenge-end" data-id="${c.id}">
-           ${p.complete ? 'Finish and archive' : 'End this run early'}
+           ${p.complete ? 'Finish and archive' : 'End this countdown early'}
          </button>`
-      : `<p class="muted" style="margin-top:0;font-size:var(--fs-md)">Give yourself a fixed run to count against.
+      : `<p class="muted" style="margin-top:0;font-size:var(--fs-md)">Give yourself a fixed stretch to count against.
            The counter on Today becomes <b>DAY 5 / 66</b>, and it counts the days you keep — not just the
            days that pass.</p>
          <label class="field"><span>Call it</span>
@@ -2130,13 +2153,13 @@
          <label class="field"><span>How long</span><select id="ch_days">
            ${CHALLENGE_LENGTHS.map((d) => `<option value="${d}" ${d === 66 ? 'selected' : ''}>${d} days</option>`).join('')}
          </select></label>
-         <div class="btn-row"><button class="btn primary block" data-act="challenge-start">Start the run</button></div>`;
+         <div class="btn-row"><button class="btn primary block" data-act="challenge-start">Start the countdown</button></div>`;
 
-    openSheet(c ? c.name : 'Start a run', `
+    openSheet(c ? c.name : 'Start a countdown', `
       ${body}
       ${
         past.length
-          ? `<div class="section-head" style="margin-top:18px"><h2>Finished runs</h2></div>
+          ? `<div class="section-head" style="margin-top:18px"><h2>Finished countdowns</h2></div>
              <div class="card flush">${past
                .slice()
                .reverse()

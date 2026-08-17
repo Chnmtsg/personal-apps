@@ -1775,6 +1775,19 @@
      happens to agree. Day status is derived from these, so putting them back
      puts it back too. */
 
+  /**
+   * Dismiss the first-run "these are starting numbers" banner.
+   *
+   * Reuses `meta.onboarded`, which the removal of the starting-point sheet left
+   * in the state shape doing nothing. A second flag for the same idea — "this
+   * user has been told where the numbers come from" — would be a migration and
+   * a name to keep in step, for no gain.
+   */
+  function acknowledgeStart() {
+    state.meta.onboarded = true;
+    commit({ type: 'startingAck' });
+  }
+
   function restoreExercises(dateKey, exMap) {
     const l = state.logs[dateKey];
     if (!l || !exMap || typeof exMap !== 'object') return null;
@@ -2025,7 +2038,7 @@
     customRewards, addCustomReward, updateCustomReward, removeCustomReward,
     customRewardProgress, claimCustomReward,
     toggleExercise, toggleHabit, completeAll, toggleWorkout, muscleTally, clearDay, addExtra, removeExtra,
-    restoreExercises, restorePlanDay, restoreExtras,
+    restoreExercises, restorePlanDay, restoreExtras, acknowledgeStart,
     addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan,
     addExercise, updateExercise, removeExercise, addHabit, removeHabit, habitStreak,
     goals, activeGoals, goalById, goalEntry, goalTimeline, goalTarget, goalTargetOn,

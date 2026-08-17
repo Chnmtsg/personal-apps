@@ -555,13 +555,13 @@
         UI.openConfirm({
           title: done.complete ? `Archive ${run.name}?` : `End ${run.name} early?`,
           body: done.complete
-            ? `You kept ${done.kept} of ${done.days} days. It moves to your finished runs and the counter goes back to counting plain days.`
-            : `You are on day ${done.day} of ${done.days}, having kept ${done.kept}. Ending it now keeps the record — nothing you logged is lost — but the run stops here.`,
-          confirmLabel: done.complete ? 'Archive it' : 'End the run',
+            ? `You kept ${done.kept} of ${done.days} days. It moves to your finished countdowns and the counter goes back to counting plain days.`
+            : `You are on day ${done.day} of ${done.days}, having kept ${done.kept}. Ending it now keeps the record — nothing you logged is lost — but the countdown stops here.`,
+          confirmLabel: done.complete ? 'Archive it' : 'End the countdown',
           danger: !done.complete,
           onConfirm: () => {
             S.endChallenge(run.id);
-            UI.toast('🏁 <span>Run archived</span>');
+            UI.toast('🏁 <span>Countdown archived</span>');
           },
           onCancel: () => UI.openChallenge()
         });
@@ -778,6 +778,9 @@
       case 'toggle-hb':
         act(() => S.toggleHabit(date, id));
         break;
+      case 'starting-ack':
+        S.acknowledgeStart();
+        break;
       case 'undo-last': {
         const restore = pendingUndo;
         pendingUndo = null;              // one shot: a stale toast must not fire twice
@@ -962,9 +965,9 @@
         break;
       case 'run-end':
         UI.openConfirm({
-          title: 'End the run?',
-          body: 'The 66 days and everything recorded against them are erased, and that cannot be undone. Your goals, logs, streaks and journal are not touched.',
-          confirmLabel: 'End it',
+          title: 'End the 66-day run?',
+          body: 'The 66 days of habits and everything recorded against them are erased, and that cannot be undone. This is not your countdown — your goals, logs, streaks and journal are not touched.',
+          confirmLabel: 'End the 66-day run',
           danger: true,
           onConfirm: () => {
             S.endRun();

@@ -1443,6 +1443,75 @@ behaves('the ladder says when each habit joined, past ones included', () => {
   return html.indexOf('Still to come') < 0 ? '' : 'the future half is still listed twice';
 });
 
+/* Rule 1 of project.md: a goal runs from where the user actually is. A fresh
+   install seeds five and renders them as instructions, and until this banner
+   nothing said they were defaults. */
+behaves('a fresh install is told the seeded numbers are not its own', () => {
+  S.resetAll();
+  const html = renderRoute('today');
+  if (html.indexOf('starting numbers, not yours') < 0) return 'nothing says the numbers are defaults';
+  if (html.indexOf('data-nav="plan"') < 0) return 'it does not offer the screen that fixes it';
+  return html.indexOf('data-act="starting-ack"') > 0 ? '' : 'it cannot be dismissed';
+});
+
+behaves('and dismissing it is remembered, without a new flag', () => {
+  S.acknowledgeStart();
+  const html = renderRoute('today');
+  if (html.indexOf('starting numbers, not yours') >= 0) return 'it came back after being dismissed';
+  return S.get().meta.onboarded === true ? '' : 'it did not reuse the inert onboarded flag';
+});
+
+/* It must never bury the storage-failure banners, which are the only route back
+   to data the app could not read. */
+behaves('it stays out of the way when something is actually wrong', () => {
+  S.resetAll();
+  S.get().meta.storageError = 'unreadable';
+  S.commit({ type: 'fixture' });
+  const html = renderRoute('today');
+  S.get().meta.storageError = null;
+  S.commit({ type: 'fixture' });
+  if (html.indexOf('data-act="download-unreadable"') < 0) return 'the recovery banner is gone';
+  return html.indexOf('starting numbers, not yours') < 0
+    ? '' : 'it crowds the banner offering the user their data back';
+});
+
+behaves('and "Re-baseline" is not the word the user is given', () => {
+  S.resetAll();
+  sheetBody.innerHTML = '';
+  UI.openGoalDetail(S.activeGoals()[0].id);
+  const html = sheetBody.innerHTML;
+  if (/Re-baseline/.test(html)) return 'the goal detail still says Re-baseline';
+  return html.indexOf('Move the starting point') > 0 ? '' : 'no plain-language control at all';
+});
+
+/* Two features used to be called "the run": the fixed-length countdown and the
+   66-day habit run. Both printed a day count out of 66 and both had an "End the
+   run" that meant different, irreversible things — one archives a countdown,
+   the other erases 66 days of habit record. The countdown was renamed. */
+behaves('the countdown and the 66-day run are not both called "the run"', () => {
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'js', 'ui.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  // Strip comments: this file explains the collision it is guarding against.
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const src = strip(ui) + strip(app);
+  const bad = [];
+  // The countdown must not describe itself as a run anywhere the user can read.
+  [/Start a run/, /Start the run<\/button>/, /'End the run'/, /Finished runs/,
+   /No run in progress/, /End this run early/].forEach((re) => {
+    if (re.test(src)) bad.push(String(re));
+  });
+  if (bad.length) return 'the countdown still calls itself a run: ' + bad.join(', ');
+  // And the destructive confirm on the 66-day run must name which run it means.
+  return /End the 66-day run\?/.test(src) ? '' : 'the end confirm does not say which run it means';
+});
+
+behaves('and More offers them as two clearly different things', () => {
+  const html = renderRoute('more');
+  if (html.indexOf('>Countdown<') < 0) return 'no countdown section';
+  if (html.indexOf('The 66-day run') < 0) return 'no 66-day run entry';
+  return html.indexOf('>The run<') < 0 ? '' : 'something is still headed just "The run"';
+});
+
 /* Editing a run in progress. Adding is offered from the section that lists what
    is in it; removing is refused at the floor rather than offered and denied. */
 behaves('the run says what is in it, and offers to add to it', () => {
