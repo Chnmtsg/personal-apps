@@ -1138,6 +1138,106 @@ ok('fraction is what the app draws as a part-done bar',
    R.fractionOf(lived.floss) === 0, R.fractionOf(lived.floss));
 
 /* ------------------------------------------------------------------ */
+section('editing a run in progress');
+S.resetAll();
+S.startRun(['walk', 'stretch', 'vitamins', 'floss'], 90, true);
+S.run().startDate = A.addDays(S.today(), -9);           // day 10
+S.commit({ type: 'fixture' });
+const beforeIds = S.run().habits.map((p) => p.habitId).sort().join(',');
+
+/* A day already lived, recorded with the habits it actually asked for. */
+S.run().log[3] = A.Run.recordDay(S.run(), 3, ['walk', 'stretch']);
+const day3 = JSON.stringify(S.run().log[3]);
+S.commit({ type: 'fixture' });
+
+const added = S.runAddHabit('language');
+ok('a habit can be added to a run already going', !!added, added);
+ok('and it joins on a future day, never retroactively',
+   !!added && added.startDay > S.runToday(), added);
+ok('the run is still feasible on all 66 days',
+   A.Run.validate(S.run()).length === 0, A.Run.validate(S.run()).map((v) => v.kind));
+ok('adding does not touch a day already recorded',
+   JSON.stringify(S.run().log[3]) === day3, S.run().log[3]);
+ok('a habit already in the run is not added twice',
+   S.runAddHabit('walk') === null && S.run().habits.filter((p) => p.habitId === 'walk').length === 1);
+ok('and something that is not in the catalog is refused outright',
+   S.runAddHabit('moon_bathing') === null);
+
+const removed = S.runRemoveHabit('language');
+ok('a habit can be removed again', !!removed && !removed.refused, removed);
+ok('which leaves exactly what was there before',
+   S.run().habits.map((p) => p.habitId).sort().join(',') === beforeIds,
+   S.run().habits.map((p) => p.habitId));
+ok('and removing does not rewrite a day already recorded',
+   JSON.stringify(S.run().log[3]) === day3, S.run().log[3]);
+ok('a habit that is not in the run cannot be removed', S.runRemoveHabit('course') === null);
+
+/* The floor is a refusal, not a repair. A run of two is not a run, and
+   `validate` would start reporting a state the user asked for. */
+S.runRemoveHabit('floss');
+const atFloor = S.run().habits.length;
+ok('removal stops at the habit floor', atFloor === A.Run.MIN_HABITS, atFloor);
+ok('and says so rather than silently doing nothing',
+   (S.runRemoveHabit('walk') || {}).refused === 'floor', S.runRemoveHabit('walk'));
+ok('so the run is still valid at the floor',
+   A.Run.validate(S.run()).length === 0, A.Run.validate(S.run()).map((v) => v.kind));
+
+/* ------------------------------------------------------------------ */
+section('habits the user wrote');
+S.resetAll();
+S.startRun(['walk', 'stretch', 'vitamins', 'floss'], 90, true);
+S.run().startDate = A.addDays(S.today(), -9);
+S.commit({ type: 'fixture' });
+
+const sauna = S.runAddCustomHabit({ name: 'Sauna', unit: 'min', start: 10, target: 25, step: 5, friction: 2, min: 1 });
+ok('a habit the catalog does not have can be added', !!sauna && !sauna.refused, sauna);
+ok('and its id says it is a custom one', A.Run.isCustomId(sauna.habitId), sauna.habitId);
+ok('the catalog itself is untouched',
+   A.Run.HABITS.every((h) => h.id !== sauna.habitId) && A.Run.habit(sauna.habitId) === null);
+ok('the run is still feasible on all 66 days',
+   A.Run.validate(S.run()).length === 0, A.Run.validate(S.run()).map((v) => v.kind));
+ok('it is NOT reported as a habit this build has lost',
+   S.runUnknownHabits().indexOf(sauna.habitId) < 0, S.runUnknownHabits());
+
+/* The definition lives on the entry, which is what lets it ramp like anything
+   else without a per-run habit table to keep in step. */
+const sEntry = S.run().habits.filter((p) => p.habitId === sauna.habitId)[0];
+ok('it ramps from its own numbers',
+   A.Run.doseOn(sEntry, sEntry.startDay) === 10 &&
+   A.Run.doseOn(sEntry, sEntry.startDay + 7) === 15, [
+     A.Run.doseOn(sEntry, sEntry.startDay), A.Run.doseOn(sEntry, sEntry.startDay + 7)]);
+ok('and it never passes the target it was given',
+   A.Run.doseOn(sEntry, 66) <= 25, A.Run.doseOn(sEntry, 66));
+ok('a day asks for it by the name it was given',
+   A.Run.runDay(S.run(), 66).some((r) => r.name === 'Sauna'),
+   A.Run.runDay(S.run(), 66).map((r) => r.name));
+
+/* The guarantee the closed catalog bought, kept by validating the definition
+   rather than the id. Nonsense is refused when it is written. */
+ok('a habit with no name is refused', (S.runAddCustomHabit({ start: 1, target: 2, step: 1 }) || {}).refused === 'invalid');
+ok('a step of zero is refused — it would never move',
+   (S.runAddCustomHabit({ name: 'Stuck', start: 1, target: 9, step: 0 }) || {}).refused === 'invalid');
+ok('a target below the start is refused — a run habit ramps up or stays flat',
+   (S.runAddCustomHabit({ name: 'Backwards', start: 9, target: 1, step: 1 }) || {}).refused === 'invalid');
+ok('and numbers that are not numbers are refused',
+   (S.runAddCustomHabit({ name: 'Nonsense', start: 'a lot', target: 'more', step: 'some' }) || {}).refused === 'invalid');
+
+/* A stored custom habit whose definition has since been corrupted is treated
+   exactly like a retired catalog id: kept in storage, hidden from the day. */
+const corrupt = JSON.parse(JSON.stringify(S.run()));
+corrupt.habits.filter((p) => p.habitId === sauna.habitId)[0].custom.step = 'banana';
+ok('a corrupted custom definition is reported, not rendered',
+   A.Run.validate(corrupt).some((v) => v.kind === 'unknown_habit'),
+   A.Run.validate(corrupt).map((v) => v.kind));
+ok('and no day tries to draw it',
+   A.Run.runDay(corrupt, 66).every((r) => r.name !== 'Sauna'),
+   A.Run.runDay(corrupt, 66).map((r) => r.name));
+
+ok('a custom habit can be removed like any other',
+   !!S.runRemoveHabit(sauna.habitId) &&
+   S.run().habits.every((p) => p.habitId !== sauna.habitId));
+
+/* ------------------------------------------------------------------ */
 section('the run looked back on');
 
 /* Day 1 kept in full, day 2 half, day 3 opened and nothing done, day 4 never

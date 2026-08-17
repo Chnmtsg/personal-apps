@@ -1438,9 +1438,42 @@ behaves('the phases are named with their days, and the current one marked', () =
    above it, and it was the half the old "Still to come" list left out. */
 behaves('the ladder says when each habit joined, past ones included', () => {
   const html = renderRoute('run');
-  if (html.indexOf('How it was built') < 0) return 'no ladder';
+  if (html.indexOf('What is in it') < 0) return 'no ladder';
   if (html.indexOf('started day 1') < 0) return 'it does not say when a habit already running began';
   return html.indexOf('Still to come') < 0 ? '' : 'the future half is still listed twice';
+});
+
+/* Editing a run in progress. Adding is offered from the section that lists what
+   is in it; removing is refused at the floor rather than offered and denied. */
+behaves('the run says what is in it, and offers to add to it', () => {
+  S.resetAll();
+  S.startRun(['walk', 'stretch', 'vitamins', 'floss'], 90, true);
+  const html = renderRoute('run');
+  if (html.indexOf('data-act="run-add-open"') < 0) return 'no way to add a habit';
+  const removes = (html.match(/data-act="run-remove"/g) || []).length;
+  return removes === 4 ? '' : removes + ' remove controls for 4 habits';
+});
+
+behaves('the add sheet lists only habits not already in the run', () => {
+  sheetBody.innerHTML = '';
+  UI.openRunAdd();
+  const html = sheetBody.innerHTML;
+  const inRun = S.run().habits.map((p) => p.habitId);
+  const offered = (html.match(/data-act="run-add" data-id="([a-z_]+)"/g) || [])
+    .map((m) => m.slice(m.lastIndexOf('"', m.length - 2) + 1, -1));
+  const dupes = offered.filter((id) => inRun.indexOf(id) >= 0);
+  if (dupes.length) return 'offered something already in the run: ' + dupes.join(', ');
+  return offered.length ? '' : 'nothing offered at all';
+});
+
+/* A control that is going to say no is better not drawn. */
+behaves('at the habit floor, no removal is offered and the screen says why', () => {
+  S.resetAll();
+  S.startRun(['walk', 'stretch', 'vitamins'], 90, true);
+  const html = renderRoute('run');
+  if ((html.match(/data-act="run-remove"/g) || []).length) return 'it offers a removal it would refuse';
+  return html.indexOf('at least ' + A.Run.MIN_HABITS + ' habits') > 0
+    ? '' : 'it does not say why removal is unavailable';
 });
 
 behaves('a habit that has not joined yet says how long that is', () => {

@@ -822,13 +822,77 @@
            be the app deciding for them without saying so. */
         const got = S.run().habits.map((p) => p.habitId);
         const dropped = picks.filter((id) => got.indexOf(id) < 0)
-          .map((id) => (A.Run.habit(id) || { name: id }).name);
+          .map((id) => (A.Run.habitIn(S.run(), id) || { name: id }).name);
         if (dropped.length) {
           UI.toast('🗓 <span>Day 1 of 66. <b>' + esc(dropped.join(', ')) +
                    '</b> did not fit ' + budget + ' min a day and was left out.</span>', 'gold');
         } else {
           UI.toast('🗓 <span>Day 1 of 66. It starts now.</span>');
         }
+        break;
+      }
+      /* Editing a run in progress. Both refuse rather than repair: an addition
+         that does not fit is not made, and a removal at the habit floor is not
+         offered. Repairing either would let one tap sacrifice a habit the user
+         is three weeks into. */
+      case 'run-add-open':
+        UI.openRunAdd();
+        break;
+      case 'run-add': {
+        const added = S.runAddHabit(id);
+        const h = A.Run.habit(id);
+        if (added) {
+          UI.closeSheet();
+          UI.toast('➕ <span><b>' + esc(h ? h.name : id) + '</b> joins the run on day ' + added.startDay + '.</span>');
+        } else {
+          UI.toast('⚠️ <span>No room for <b>' + esc(h ? h.name : id) + '</b> — every legal start day is taken.</span>', 'bad');
+        }
+        break;
+      }
+      case 'run-custom-open':
+        UI.openRunCustom();
+        break;
+      case 'run-custom-save': {
+        const out = S.runAddCustomHabit({
+          name: ($('#rc_name') && $('#rc_name').value) || '',
+          unit: ($('#rc_unit') && $('#rc_unit').value) || 'min',
+          domain: ($('#rc_domain') && $('#rc_domain').value) || 'self_care',
+          start: numVal('rc_start', NaN),
+          target: numVal('rc_target', NaN),
+          step: numVal('rc_step', NaN),
+          friction: numVal('rc_friction', 2),
+          min: 1
+        });
+        /* Each refusal says which one it is. "It didn't work" on a form the user
+           just filled in is the least useful thing an app can say. */
+        if (!out || out.refused === 'invalid') {
+          UI.toast('⚠️ <span>Give it a name, and numbers that build upward.</span>', 'bad');
+        } else if (out.refused === 'full') {
+          UI.toast('⚠️ <span>This run already holds ' + A.Run.MAX_HABITS + ' habits.</span>', 'bad');
+        } else if (out.refused === 'no_room') {
+          UI.toast('⚠️ <span>It does not fit — every legal start day is taken, or it would make a day you could not do.</span>', 'bad');
+        } else {
+          UI.closeSheet();
+          UI.toast('➕ <span><b>' + esc(out.name) + '</b> joins the run on day ' + out.startDay + '.</span>');
+        }
+        break;
+      }
+      case 'run-remove': {
+        const h = A.Run.habitIn(S.run(), id);
+        UI.openConfirm({
+          title: 'Remove ' + (h ? h.name : 'this habit') + '?',
+          body: 'It stops being asked for from today. Every day you have already recorded keeps exactly what it asked for, and the days you earned do not change.',
+          confirmLabel: 'Remove it',
+          danger: true,
+          onConfirm: () => {
+            const out = S.runRemoveHabit(id);
+            if (out && out.refused === 'floor') {
+              UI.toast('⚠️ <span>A run needs at least ' + A.Run.MIN_HABITS + ' habits.</span>', 'bad');
+            } else if (out) {
+              UI.toast('<span><b>' + esc(h ? h.name : id) + '</b> is out of the run.</span>');
+            }
+          }
+        });
         break;
       }
       case 'run-together':

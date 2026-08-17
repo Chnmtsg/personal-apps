@@ -90,8 +90,83 @@
   HABITS.forEach((h) => { BY_ID[h.id] = h; });
 
   const habit = (id) => BY_ID[id] || null;
-  const isKnown = (id) => Object.prototype.hasOwnProperty.call(BY_ID, id);
+  const isCatalog = (id) => Object.prototype.hasOwnProperty.call(BY_ID, id);
   const isItemHabit = (id) => !!(habit(id) && habit(id).items);
+
+  /* ---------------- habits the user wrote ----------------
+
+     The catalog stays closed and stays the default. A custom habit is not an
+     entry in it — it is a run habit that carries its own definition inline, on
+     the entry itself:
+
+       { habitId: 'c_ab12', startDay: 8, scale: 1, custom: { name, unit, … } }
+
+     That shape is why this cost almost nothing. Every function here already
+     receives the run habit it is working on and only ever asked the catalog for
+     the definition behind it, so one resolver — `defOf` — serves both and the
+     twelve call sites stopped caring which kind they had. There is no per-run
+     habit table to keep in step, and nothing outside a run can ever reference a
+     habit that only exists inside it.
+
+     The guarantee the closed catalog bought is kept by validating the
+     definition instead of the id: a custom habit whose numbers are nonsense is
+     rejected the same way an unknown id is, so `doseOn` still cannot be handed
+     something it will produce NaN from on day 41. */
+
+  const CUSTOM_PREFIX = 'c_';
+  const isCustomId = (id) => String(id || '').indexOf(CUSTOM_PREFIX) === 0;
+
+  /**
+   * A usable habit definition from a user-written one, or null.
+   *
+   * Every field is checked because every field reaches the ramp maths. A NaN
+   * step or a zero `min` does not throw — it silently produces a habit that
+   * never moves or costs nothing, which `validate` would then call healthy.
+   */
+  function cleanCustom(def) {
+    if (!def || typeof def !== 'object') return null;
+    const name = String(def.name == null ? '' : def.name).trim().slice(0, 40);
+    if (!name) return null;
+    const unit = String(def.unit == null ? '' : def.unit).trim().slice(0, 12) || 'min';
+    const n = (v) => (typeof v === 'number' && isFinite(v) ? v : parseFloat(v));
+    const start = n(def.start), target = n(def.target), step = n(def.step);
+    if (![start, target, step].every((x) => typeof x === 'number' && isFinite(x))) return null;
+    if (start < 0 || target < 0 || step <= 0) return null;
+    if (target < start) return null;          // a run habit ramps up or stays flat
+    const min = n(def.min);
+    const friction = Math.round(n(def.friction));
+    return {
+      id: def.id, name: name, unit: unit,
+      domain: ['fitness', 'self_care', 'development'].indexOf(def.domain) >= 0 ? def.domain : 'self_care',
+      start: start, target: target, step: step,
+      min: typeof min === 'number' && isFinite(min) && min >= 0 ? min : 1,
+      friction: friction >= 1 && friction <= 5 ? friction : 3,
+      custom: true
+    };
+  }
+
+  /** The definition behind a run habit — catalog first, then its own. */
+  function defOf(p) {
+    if (!p) return null;
+    const fromCatalog = BY_ID[p.habitId];
+    if (fromCatalog) return fromCatalog;
+    return p.custom ? cleanCustom(Object.assign({ id: p.habitId }, p.custom)) : null;
+  }
+
+  /** The definition behind an id *within a given run* — the only lookup that
+      can see a custom habit, because a custom habit exists nowhere else. */
+  function habitIn(run, id) {
+    const p = ((run && run.habits) || []).filter((x) => x.habitId === id)[0];
+    return p ? defOf(p) : habit(id);
+  }
+
+  /** Whether this entry resolves to anything at all. Replaces the old id-only
+      test everywhere a run habit is in hand. */
+  const isKnownEntry = (p) => !!defOf(p);
+
+  /* Kept for callers that genuinely only have an id and only mean the catalog —
+     the picker, and the "this build lost a habit" banner. */
+  const isKnown = isCatalog;
 
   /**
    * The checklist this habit runs with, or null when it is not an item habit.
@@ -158,7 +233,7 @@
    */
   function doseOn(rh, day) {
     if (day < rh.startDay) return 0;
-    const h = habit(rh.habitId);
+    const h = defOf(rh);
     if (!h) return 0;
     /* A checklist does not ramp. Four supplements is four supplements on day
        one and on day 66, and a programme that added a fifth in week three would
@@ -172,7 +247,7 @@
     return Math.min(Math.max(h.start + ramp, h.start), h.target);
   }
 
-  const minutesOn = (rh, day) => doseOn(rh, day) * (habit(rh.habitId) || { min: 0 }).min;
+  const minutesOn = (rh, day) => doseOn(rh, day) * (defOf(rh) || { min: 0 }).min;
 
   /**
    * The habits live on a day — and only the ones this build still has.
@@ -190,7 +265,7 @@
    * the user asks for that.
    */
   const activeOn = (run, day) =>
-    (run.habits || []).filter((p) => p.startDay <= day && isKnown(p.habitId));
+    (run.habits || []).filter((p) => p.startDay <= day && isKnownEntry(p));
   const dayMinutes = (run, day) => activeOn(run, day).reduce((n, p) => n + minutesOn(p, day), 0);
 
   /** Calendar day key → 1-based run day. Outside the run, still honest. */
@@ -218,7 +293,7 @@
 
   function runDay(run, day) {
     return activeOn(run, day).map((p) => {
-      const h = habit(p.habitId);
+      const h = defOf(p);
       return {
         id: h.id,
         name: h.name,
@@ -372,7 +447,7 @@
     const habits = run.habits || [];
 
     habits.forEach((p) => {
-      if (!isKnown(p.habitId)) {
+      if (!isKnownEntry(p)) {
         v.push({ kind: 'unknown_habit', day: null, detail: p.habitId + ' is not in the catalog' });
         return;
       }
@@ -422,7 +497,7 @@
         v.push({ kind: 'daily_budget', day: day, detail: Math.round(minutes) + ' min against a ' + run.minutesBudget + ' min budget' });
       }
       for (const p of live) {
-        const h = habit(p.habitId);
+        const h = defOf(p);
         const d = doseOn(p, day);
         /* An item habit is bounded by its own checklist, which `doseOn` returns
            directly — there is no ramp to leave its rails. Measuring it against
@@ -506,7 +581,7 @@
     const seen = {};
 
     (run.habits || []).forEach((p) => {
-      if (!isKnown(p.habitId)) { notes.push('dropped unknown habit ' + p.habitId); return; }
+      if (!isKnownEntry(p)) { notes.push('dropped unknown habit ' + p.habitId); return; }
       if (seen[p.habitId]) { notes.push('dropped duplicate ' + p.habitId); return; }
       seen[p.habitId] = true;
       const day = Math.min(Math.max(Math.round(p.startDay) || 1, 1), LAST_INTRO_DAY);
@@ -545,7 +620,7 @@
       if (v.kind === 'phase_cap') {
         if (!movable.length || out.habits.length <= MIN_HABITS) break;
         const victim = movable.slice().sort((a, b) =>
-          a.startDay - b.startDay || habit(a.habitId).friction - habit(b.habitId).friction).pop();
+          a.startDay - b.startDay || defOf(a).friction - defOf(b).friction).pop();
         notes.push('dropped ' + victim.habitId + ' for the phase cap on day ' + day);
         out = Object.assign({}, out, { habits: out.habits.filter((p) => p !== victim) });
         continue;
@@ -695,7 +770,7 @@
        one most likely to fit: an anchor costs half a weighted minute, so it can
        be added to the opening week of almost any run. */
     const byCost = run.habits.slice().sort((a, b) => {
-      const ha = habit(a.habitId), hb = habit(b.habitId);
+      const ha = defOf(a), hb = defOf(b);
       return (ha ? topCost(ha) : 0) - (hb ? topCost(hb) : 0);
     });
     for (const p of byCost) {
@@ -912,7 +987,7 @@
   function domainCounts(run) {
     const counts = { fitness: 0, self_care: 0, development: 0 };
     (run.habits || []).forEach((p) => {
-      const h = habit(p.habitId);
+      const h = defOf(p);
       if (h) counts[h.domain]++;
     });
     return counts;
@@ -947,7 +1022,7 @@
 
     const next = Math.min(today + 1, RUN_DAYS);
     const gain = doseOn(now, next) - doseOn(was, next);
-    if (gain <= 1e-9 || gain > habit(habitId).step + 1e-9) return null;
+    if (gain <= 1e-9 || gain > defOf(now).step + 1e-9) return null;
     return after.run;
   }
 
@@ -977,7 +1052,7 @@
       const after = resumed(working, p.habitId, today);
       if (!after) return;
       const next = Math.min(today + 1, RUN_DAYS);
-      const h = habit(p.habitId);
+      const h = defOf(p);
       out.push({
         kind: 'advance',
         habitId: p.habitId,
@@ -1093,9 +1168,12 @@
     HABITS, PHASES, RUN_DAYS, LAST_INTRO_DAY, MAX_NEW_PER_WEEK, MIN_HABITS, MAX_HABITS,
     MAX_PATCH_HABITS, TRAILING_DAYS, INTERVENTION_RATE, INTERVENTION_MISSES, PROTECTED_RATE,
     ADD_READY_RATE, ADVANCE_READY_RATE, MIN_EVIDENCE_DAYS,
-    DEFAULT_PICKS, habit, isKnown, isItemHabit, itemsFor, toggleItem, phaseFor, doseOn, minutesOn, activeOn, dayMinutes, dayIndex,
+    DEFAULT_PICKS, habit, habitIn, isKnown, isCustomId, cleanCustom, defOf, isKnownEntry, isItemHabit, itemsFor, toggleItem, phaseFor, doseOn, minutesOn, activeOn, dayMinutes, dayIndex,
     where, runDay, recordDay, fractionOf, dayMark, journey, validate, repair, buildRun,
-    applyPatch, diagnose, adapt, recommend, applyRecommendation, checkIn
+    applyPatch, diagnose, adapt, recommend, applyRecommendation, checkIn,
+    /* Exported so the store can offer "add this habit" without duplicating the
+       rule for where a habit may legally start. */
+    legalStartDays, withAdded
   });
 
   A.Run = R;

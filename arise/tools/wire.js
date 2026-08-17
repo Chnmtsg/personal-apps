@@ -179,6 +179,50 @@ console.log('\nmuscle statistics through app.js');
 /* The picture handlers. The stub has no real file input, so a tap opens a
    picker that never fires — which is the point: it must not throw on the way
    there, and `app.js` is the only file these two live in. */
+console.log('\nediting a run in progress through app.js');
+{
+  S.endRun();
+  resolve('#run_budget').value = '90';
+  UI.resetRunPicks();
+  A.Run.DEFAULT_PICKS.forEach((id) => click({ act: 'run-pick', id: id }));   // clear the defaults
+  ['walk', 'stretch', 'vitamins', 'floss'].forEach((id) => click({ act: 'run-pick', id: id }));
+  click({ act: 'run-start' });
+  const before = S.run().habits.length;
+
+  click({ act: 'run-add-open' });          // opens the sheet; must not throw
+  click({ act: 'run-add', id: 'language' });
+  ok('the add tap reached the store', S.run().habits.length === before + 1,
+     S.run().habits.map((p) => p.habitId));
+  ok('and what came back is still feasible', A.Run.validate(S.run()).length === 0,
+     A.Run.validate(S.run()).map((v) => v.kind));
+
+  /* A habit the user writes. The stub returns empty inputs, so the save must
+     refuse rather than store a nameless habit with NaN numbers. */
+  click({ act: 'run-custom-open' });
+  const beforeCustom = S.run().habits.length;
+  click({ act: 'run-custom-save' });
+  ok('an empty custom-habit form is refused', S.run().habits.length === beforeCustom,
+     S.run().habits.map((p) => p.habitId));
+  /* Cheap on purpose. This run is already near its 90-minute budget, and a
+     25-minute habit is genuinely refused for `no_room` — which is the engine
+     being right, not the test failing. The claim here is that the handler
+     stores a valid definition, so the habit has to be one that fits. */
+  const made = S.runAddCustomHabit({ name: 'Sauna', unit: 'min', start: 5, target: 10, step: 1, friction: 2, min: 0.1 });
+  ok('and a filled-in one is accepted', !!made && !made.refused, made);
+  ok('the run is still feasible with it in', A.Run.validate(S.run()).length === 0,
+     A.Run.validate(S.run()).map((v) => v.kind));
+  click({ act: 'run-remove', id: made.habitId });
+  UI.resolveConfirm(true);
+  ok('and a custom habit removes through the same route',
+     S.run().habits.every((p) => p.habitId !== made.habitId));
+
+  // Removal is behind a confirm, so the tap alone must not remove anything.
+  click({ act: 'run-remove', id: 'language' });
+  ok('the tap alone does not remove it', S.run().habits.length === before + 1);
+  UI.resolveConfirm(true);
+  ok('confirming does', S.run().habits.length === before, S.run().habits.map((p) => p.habitId));
+}
+
 console.log('\nexercise picture handlers through app.js');
 {
   const ex = S.get().exercises[0];

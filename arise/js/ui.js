@@ -2312,25 +2312,141 @@
         })
         .join('')}</div>
 
-      <div class="section-head"><h2>How it was built</h2></div>
+      <div class="section-head"><h2>What is in it</h2>
+        <button class="link" data-act="run-add-open">＋ Add a habit</button></div>
       ${
         ladder.length
           ? `<div class="list">${ladder
               .map((p) => {
-                const h = RUN().habit(p.habitId);
+                const h = RUN().defOf(p);
                 const away = p.startDay - day;
                 const when = away <= 0
                   ? 'started day ' + p.startDay
                   : 'starts day ' + p.startDay + ' · in ' + away + (away === 1 ? ' day' : ' days');
+                /* Removing is refused at the floor rather than offered and then
+                   denied — a control that is going to say no is better not
+                   drawn. */
+                const canDrop = ladder.length > RUN().MIN_HABITS;
                 return `<div class="row ${away > 0 ? 'ahead' : ''}"><div class="body">
                   <div class="name">${esc(h.name)}</div>
                   <div class="sub">${esc(when)} · ${esc(
                   A.formatValue('count', h.start)
-                )} → ${esc(A.formatValue('count', h.target))} ${esc(h.unit)}</div></div></div>`;
+                )} → ${esc(A.formatValue('count', h.target))} ${esc(h.unit)}</div></div>${
+                  canDrop
+                    ? `<button type="button" class="icon-btn" data-act="run-remove" data-id="${esc(
+                        p.habitId
+                      )}" aria-label="Remove ${esc(h.name)} from the run">✕</button>`
+                    : ''
+                }</div>`;
               })
-              .join('')}</div>`
+              .join('')}</div>
+             ${
+               ladder.length <= RUN().MIN_HABITS
+                 ? `<p class="faint runnote">A run needs at least ${RUN().MIN_HABITS} habits, so
+                    these cannot be removed. Add another first.</p>`
+                 : ''
+             }`
           : `<div class="empty">This run has no habits left in it.</div>`
       }`;
+  }
+
+  /**
+   * Write a habit the catalog does not have.
+   *
+   * The numbers are asked for plainly because they are what the ramp is made
+   * of: it starts at one, ends at the other, and moves by the step once a week.
+   * Nothing here is guessed on the user's behalf — a habit whose numbers do not
+   * work is refused when it is written, which is far kinder than an impossible
+   * day 41.
+   */
+  function openRunCustom() {
+    openSheet('Write your own habit', `
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">It belongs to this run and
+        nothing else — the catalog is unchanged, and your goals and plan are untouched. It ramps
+        the same way every other habit does: from the first number to the second, one step a week.</p>
+      <label class="field"><span>Name</span>
+        <input type="text" id="rc_name" maxlength="40" placeholder="e.g. Sauna"></label>
+      <div class="grid-2">
+        <label class="field"><span>Measured in</span>
+          <input type="text" id="rc_unit" maxlength="12" value="min" placeholder="min"></label>
+        <label class="field"><span>Area</span><select id="rc_domain">
+          <option value="self_care">Self-care</option>
+          <option value="fitness">Fitness</option>
+          <option value="development">Development</option>
+        </select></label>
+      </div>
+      <div class="grid-2">
+        <label class="field"><span>Start at</span>
+          <input type="number" id="rc_start" min="0" step="any" value="10"></label>
+        <label class="field"><span>Build up to</span>
+          <input type="number" id="rc_target" min="0" step="any" value="25"></label>
+      </div>
+      <div class="grid-2">
+        <label class="field"><span>Step each week</span>
+          <input type="number" id="rc_step" min="0.1" step="any" value="5"></label>
+        <label class="field"><span>Effort</span><select id="rc_friction">
+          ${[1, 2, 3, 4, 5].map((n) => `<option value="${n}"${n === 2 ? ' selected' : ''}>${'•'.repeat(n)}</option>`).join('')}
+        </select></label>
+      </div>
+      <div class="btn-row"><button class="btn primary block" data-act="run-custom-save">Add it to the run</button></div>
+      <p class="faint" style="font-size:var(--fs-xs);margin:10px 2px 0">It joins on the first day the
+        run can take it. If the numbers make a day you could not actually do, it is refused rather
+        than squeezed in — that is the promise the run is built on.</p>
+    `);
+  }
+
+  /**
+   * The habits that could still be added to a run in progress.
+   *
+   * Everything not already in it, each with the first day the spacing and phase
+   * rules would actually allow — and anything with no legal day left is shown as
+   * refused rather than hidden, because "why is cold finish not on this list"
+   * has a real answer and it is better said than left to be guessed at.
+   */
+  function openRunAdd() {
+    const run = S.run();
+    const day = S.runToday();
+    if (!run || day == null) return;
+    const have = {};
+    (run.habits || []).forEach((p) => { have[p.habitId] = true; });
+    const rows = RUN().HABITS.filter((h) => !have[h.id]).map((h) => {
+      let start = null;
+      RUN().legalStartDays(run, day).some((d) => {
+        if (RUN().validate(RUN().withAdded(run, h.id, d)).length) return false;
+        start = d;
+        return true;
+      });
+      return { h: h, start: start };
+    });
+
+    openSheet('Add a habit', `
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">It joins on the first day the
+        run can take it — at most two new habits in any week, and never past day
+        ${RUN().LAST_INTRO_DAY}. Days you have already recorded do not change.</p>
+      <button type="button" class="how-photo-add" data-act="run-custom-open" style="min-height:64px">
+        <b>＋ Write your own</b>
+        <small>A habit that is not on this list. It lives in this run only — the
+          catalog stays as it is.</small>
+      </button>
+      ${
+        rows.length
+          ? `<div class="list">${rows
+              .map(
+                (r) => `<div class="row"><div class="body">
+                  <div class="name">${esc(r.h.name)}</div>
+                  <div class="sub">${esc(
+                    A.formatValue('count', r.h.start) + ' → ' + A.formatValue('count', r.h.target) + ' ' + r.h.unit
+                  )}${r.start ? ' · from day ' + r.start : ''}</div></div>
+                  ${
+                    r.start
+                      ? `<button class="btn" data-act="run-add" data-id="${esc(r.h.id)}">Add</button>`
+                      : `<span class="faint" style="font-size:var(--fs-xs);max-width:96px;text-align:right">no room left in this run</span>`
+                  }</div>`
+              )
+              .join('')}</div>`
+          : `<div class="empty">Every habit in the catalog is already in this run.</div>`
+      }
+    `);
   }
 
   /* A suggestion, carried in data attributes rather than by an index into a
@@ -2600,7 +2716,7 @@
    * count of them.
    */
   function openRunItems(habitId) {
-    const h = A.Run.habit(habitId);
+    const h = A.Run.habitIn(S.run(), habitId);
     if (!h) return;
     const run = S.run();
     /* Reachable from the picker too, where there is no run yet — the list is
@@ -2628,7 +2744,7 @@
     const run = S.run();
     const day = S.runToday();
     if (!run || day == null) return;
-    const h = A.Run.habit(habitId);
+    const h = A.Run.habitIn(run, habitId);
     const entry = ((run.log || {})[day] || {})[habitId];
     if (!h) return;
     // A checklist is ticked item by item on the row itself, so tapping its name
@@ -2862,6 +2978,8 @@
   UI.openReading = openReading;
   UI.openGoalLog = openGoalLog;
   UI.openRunValue = openRunValue;
+  UI.openRunAdd = openRunAdd;
+  UI.openRunCustom = openRunCustom;
   UI.openRunItems = openRunItems;
   UI.runPicks = currentRunPicks;
   UI.toggleRunPick = toggleRunPick;

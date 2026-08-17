@@ -110,6 +110,8 @@
           .then(() => new Promise((r) => setTimeout(r, 800)))   // let boot's sheet timer pass
           .then(() => UI.openExerciseHow(ex.id, null));
     }
+    if (open === 'runadd') setTimeout(() => UI.openRunAdd(), 300);
+    if (open === 'runcustom') setTimeout(() => UI.openRunCustom(), 300);
     if (open === 'picker') UI.openPicker(1);
     if (open === 'editor') UI.openPlanEditor(1, S.get().plan[1][0].id);
     if (open === 'library') UI.openExerciseEditor(null);

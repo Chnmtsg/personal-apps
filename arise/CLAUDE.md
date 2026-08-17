@@ -288,6 +288,24 @@ screens-off, walk, mobility, stretch, language, course, write. Shrinking it was 
 only because an unknown id is already a designed state — a stored run keeps the
 habit, hides it from the day, and the run screen says so.
 
+**A custom run habit carries its own definition, on its own entry.** The catalog
+is still closed and still the default; a habit the user writes is not added to
+it. It lives on the run habit entry as `custom: { name, unit, start, target,
+step, min, friction }`, with an id prefixed `c_`, so it exists inside that run
+and nowhere else and nothing outside can reference it. That shape is why it cost
+almost nothing: every function in `run.js` already received the entry it was
+working on and only ever asked the catalog for the definition behind it, so one
+resolver — `defOf(p)` — serves both. Use `defOf(entry)` when you have the entry
+and `habitIn(run, id)` when you only have an id; plain `habit(id)` is the
+catalog and cannot see a custom habit.
+
+**The guarantee is kept by validating the definition, not the id.** A closed
+catalog used to be what stopped `doseOn` producing NaN on day 41. A custom habit
+is checked when it is written — name, positive step, target not below start,
+finite numbers — and the whole 66 days are walked before it is stored. A
+definition that later becomes corrupt is reported as `unknown_habit` and hidden
+from the day, exactly like a retired catalog id, rather than rendered.
+
 **The run and the goals share nothing.** `js/run.js` is a port of the
 `life-reset` Python engine and sits beside `js/goals.js`: a goal ramps a target
 the user chose from a baseline they set and earns each step by performing; a run
@@ -310,7 +328,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v49`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v51`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

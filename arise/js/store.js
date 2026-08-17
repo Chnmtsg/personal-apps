@@ -993,7 +993,7 @@
    */
   function runUnknownHabits() {
     if (!state.run) return [];
-    return (state.run.habits || []).filter((p) => !A.Run.isKnown(p.habitId)).map((p) => p.habitId);
+    return (state.run.habits || []).filter((p) => !A.Run.isKnownEntry(p)).map((p) => p.habitId);
   }
 
   /**
@@ -1030,6 +1030,98 @@
   }
 
   /** Take up a recommendation. Refuses rather than repairs — see run.js. */
+  /**
+   * Put a habit into a run that is already going.
+   *
+   * Refuses rather than repairs, exactly as `applyRecommendation` does: it goes
+   * in on the first day the spacing and phase rules allow, and if no such day
+   * exists before the last intro day it does not go in at all. Forcing it
+   * through `repair` would let one addition silently sacrifice a habit the user
+   * is three weeks into.
+   *
+   * The day record is untouched. Days already lived asked what they asked.
+   */
+  function runAddHabit(habitId) {
+    const day = runToday();
+    if (!state.run || day == null || !A.Run.isKnown(habitId)) return null;
+    if ((state.run.habits || []).some((p) => p.habitId === habitId)) return null;
+    const days = A.Run.legalStartDays(state.run, day);
+    for (const start of days) {
+      const after = A.Run.withAdded(state.run, habitId, start);
+      if (!A.Run.validate(after).length) {
+        state.run = Object.assign({}, after, { log: state.run.log });
+        commit({ type: 'runAdd', habitId: habitId, startDay: start });
+        return { habitId: habitId, startDay: start };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Put a habit the user wrote themselves into a run.
+   *
+   * The catalog stays closed. This does not add to it — the definition lives on
+   * the run habit entry, so it exists inside this run and nowhere else, and
+   * nothing outside can ever reference an id that only means something here.
+   *
+   * It is validated before it is stored and the run is walked across all 66
+   * days before it is kept, so a habit whose numbers do not work is refused at
+   * the moment it is written rather than becoming an impossible day 41. That is
+   * the guarantee the closed catalog used to buy, kept by checking the
+   * definition instead of the id.
+   */
+  function runAddCustomHabit(def) {
+    const day = runToday();
+    if (!state.run || day == null) return null;
+    const clean = A.Run.cleanCustom(def);
+    if (!clean) return { refused: 'invalid' };
+    if ((state.run.habits || []).length >= A.Run.MAX_HABITS) return { refused: 'full' };
+
+    const id = 'c_' + A.uid('').replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase();
+    const payload = {
+      name: clean.name, unit: clean.unit, domain: clean.domain,
+      start: clean.start, target: clean.target, step: clean.step,
+      min: clean.min, friction: clean.friction
+    };
+    for (const start of A.Run.legalStartDays(state.run, day)) {
+      const after = Object.assign({}, state.run, {
+        habits: (state.run.habits || []).concat([
+          { habitId: id, startDay: start, scale: 1, frozenDay: null, custom: payload }
+        ])
+      });
+      if (!A.Run.validate(after).length) {
+        state.run = Object.assign({}, after, { log: state.run.log });
+        commit({ type: 'runAddCustom', habitId: id, startDay: start });
+        return { habitId: id, startDay: start, name: clean.name };
+      }
+    }
+    return { refused: 'no_room' };
+  }
+
+  /**
+   * Take a habit out of a run that is already going.
+   *
+   * Everything already recorded stays exactly as it is — `run.log` is not
+   * touched, so a day that asked for this habit still says so, and the streak
+   * that day earned does not move. Removing is about tomorrow, never about
+   * re-scoring yesterday.
+   *
+   * Refuses at the floor: a run of fewer than MIN_HABITS is not a run, and
+   * `validate` would start reporting a state the user asked for.
+   */
+  function runRemoveHabit(habitId) {
+    const day = runToday();
+    if (!state.run || day == null) return null;
+    const habits = state.run.habits || [];
+    if (!habits.some((p) => p.habitId === habitId)) return null;
+    if (habits.length <= A.Run.MIN_HABITS) return { refused: 'floor' };
+    state.run = Object.assign({}, state.run, {
+      habits: habits.filter((p) => p.habitId !== habitId)
+    });
+    commit({ type: 'runRemove', habitId: habitId });
+    return { habitId: habitId };
+  }
+
   function runApply(rec) {
     const day = runToday();
     if (!state.run || day == null) return null;
@@ -1907,6 +1999,7 @@
     addGoal, updateGoal, archiveGoal, removeGoal, restartGoal,
     readingEntry, setReading, readingDays, journalEntry, setJournal, journalDays,
     run, runStatus, runToday, startRun, endRun, recordRunDay, runCheckIn, runApply,
+    runAddHabit, runAddCustomHabit, runRemoveHabit,
     toggleRunHabit, setRunValue, toggleRunItem, setRunItems, runUnknownHabits,
     freezeStats, applyFreeze, clearFreeze,
     updateSettings, exportJson, inspectBackup, importJson, unreadableBackup, resetAll
