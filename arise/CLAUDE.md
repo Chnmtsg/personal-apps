@@ -32,7 +32,8 @@ All paths in this file are relative to `arise/`.
 - `manifest.webmanifest` — PWA manifest
 - `sw.js` — service worker, offline app shell
 - `js/` — the application, loaded in this order:
-  `data.js` → `program.js` → `goals.js` → `run.js` → `store.js` → `ui.js` → `app.js`
+  `data.js` → `program.js` → `goals.js` → `run.js` → `photos.js` → `store.js` →
+  `ui.js` → `app.js`
 - `icons/` — generated PNG and SVG icons
 - `knowledge/` — project references for this app
 - `tools/` — test and utility scripts
@@ -168,8 +169,10 @@ remember, and exits non-zero on either, so a broken package cannot deploy:
   missing precache entry makes `cache.add` fail silently for that one file, the
   app still installs, and the gap only shows up the first time the user is
   offline;
-- `index.html` still links six `js/` files and carries no inline script, which
-  is the 440KB self-extracting bundle caught by the one place that can see it.
+- `index.html` still links every `js/` file `sw.js` precaches, carries no inline
+  script, and still has its `Content-Security-Policy` meta above the first
+  `<link>` it governs — the 440KB self-extracting bundle caught by the one place
+  that can see it.
 
 ## GitHub Pages
 
@@ -316,8 +319,10 @@ catalog id it does not have.
 
 
 **`index.html` is a shell. Nothing is inlined into it.** It links
-`./styles.css` and the six `./js/*.js` in fixed order, plus the manifest and
-icon links. A tooling export once replaced it with a 440KB self-extracting
+`./styles.css` and the eight `./js/*.js` in fixed order, plus the manifest and
+icon links, and one `<meta http-equiv="Content-Security-Policy">`.
+
+A tooling export once replaced it with a 440KB self-extracting
 bundle that served `js/` and `styles.css` from `blob:` URLs decoded from a gzip
 payload — a snapshot taken mid-sprint. The app ran three fixes behind the tree
 for as long as it was there, and **both suites stayed green the whole time**,
@@ -328,7 +333,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v55`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v56`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

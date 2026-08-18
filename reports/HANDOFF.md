@@ -53,18 +53,22 @@ only bridge is More → Export on the old origin, Import on the new one.
 
 ```bash
 cd arise
-npm test          # smoke 403, render 180, wire 29 — all green
+npm test          # smoke 441, render 190, wire 50 — all green
 npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
-- `sw.js` VERSION → **`discipline-v55`**
+- `sw.js` VERSION → **`discipline-v56`**
 - `js/` is **eight** files, loaded in this order:
   `data.js` → `program.js` → `goals.js` → `run.js` → `photos.js` → `store.js` →
   `ui.js` → `app.js`
 - `tools/` is `smoke.js`, `render.js`, `wire.js`, `package.js`, `serve.py`,
   `make_icons.py`, `shot.html`
-- `STATE_VERSION` is **5** — v5 added `muscles` to every exercise
+- `STATE_VERSION` is **6** — v5 added `muscles`, v6 split them into nineteen
+  groups. The v6 re-derivation is guarded by `meta.musclesV6`, read BEFORE the
+  seed-defaults merge: the seed sets it true so a fresh install skips the
+  upgrade, and merging that over an incoming v5 account would have masked the
+  real value and skipped it there too.
 - Exercise pictures live OUTSIDE `arise.state.v1`, in their own IndexedDB store
   (`js/photos.js`), and ride in the backup as a `photos` key. That separation is
   the point: photos in the state blob would risk `QuotaExceededError` on every
@@ -137,12 +141,11 @@ the tree beside it.
    enforced on the live site — but `frame-ancestors` and `X-Frame-Options` are
    both ignored in meta, so the app can be framed by anyone. It needs a host
    that sends response headers. Pages does not.
-2. **Custom habits.** The user asked twice to "add and edit things in the
-   catalog". Checklist *items* are editable; the catalog of *habits* is closed,
-   and that closedness is what makes an unknown id a dropped habit rather than a
-   crash on day 41. User-defined habits need a per-run habit table and a story
-   for what `validate` does with something that has no catalog entry. It is a
-   design decision, not a toggle.
+2. **Carry the ledger across the other five screens.** Today was redrawn from
+   the design brief; Plan, Read, Stats, Rewards and More still use the old card
+   language. The brief describes them as "the system it implies, applied
+   everywhere" and has mockups for each. Its own next-step suggestions are in
+   the file, which is on disk and gitignored — read it, never merge it.
 3. **The exfoliation schedule.** Decided, not built. The user's Mon/Thu toner
    cadence is to be a *goal*, not a run habit — `goals.js` already does weekday
    schedules and `run.js` assumes every habit is daily. Nothing was created for

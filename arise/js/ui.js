@@ -296,7 +296,6 @@
     const hue = SECTION_HUE[g.section] != null ? SECTION_HUE[g.section] : SECTION_HUE.custom;
     const logged = entry.entry && entry.entry.value != null ? A.formatValue(g.unit, entry.entry.value) : null;
     const mode = A.MODES[A.Goals.modeOf(g, S.settings().mode)];
-    const stepPct = tl && !tl.atTarget ? (tl.windowHits / Math.max(1, tl.windowNeeded)) * 100 : 100;
 
     const meta = [
       `<span>${icon('repeat')}${esc(scheduleText(g))}</span>`,
@@ -2349,7 +2348,11 @@
   function runJourney(run, day) {
     const marks = RUN().journey(run, day);
     const ladder = (run.habits || [])
-      .filter((p) => RUN().isKnown(p.habitId))
+      /* `isKnownEntry`, not `isKnown`: the latter is catalogue-only and returns
+         false for every `c_…` id, so a habit the user wrote showed on Today,
+         ramped correctly and counted toward the day — while being invisible in
+         the one screen that carries a remove control. */
+      .filter((p) => RUN().isKnownEntry(p))
       .sort((a, b) => a.startDay - b.startDay || a.habitId.localeCompare(b.habitId));
 
     return `
@@ -2382,7 +2385,11 @@
                 /* Removing is refused at the floor rather than offered and then
                    denied — a control that is going to say no is better not
                    drawn. */
-                const canDrop = ladder.length > RUN().MIN_HABITS;
+                /* Counted from the run itself, which is what `runRemoveHabit`
+                   checks. Counting the FILTERED ladder made the two disagree
+                   the moment a custom habit existed, so the ✕ was withheld from
+                   removals the store would have allowed. */
+                const canDrop = (run.habits || []).length > RUN().MIN_HABITS;
                 return `<div class="row ${away > 0 ? 'ahead' : ''}"><div class="body">
                   <div class="name">${esc(h.name)}</div>
                   <div class="sub">${esc(when)} · ${esc(
@@ -2397,7 +2404,7 @@
               })
               .join('')}</div>
              ${
-               ladder.length <= RUN().MIN_HABITS
+               (run.habits || []).length <= RUN().MIN_HABITS
                  ? `<p class="faint runnote">A run needs at least ${RUN().MIN_HABITS} habits, so
                     these cannot be removed. Add another first.</p>`
                  : ''
@@ -2559,7 +2566,7 @@
   }
 
   function toggleRunPick(id) {
-    if (!A.Run.isKnown(id)) return;
+    if (!A.Run.isCatalogId(id)) return;
     const list = currentRunPicks();
     const at = list.indexOf(id);
     if (at >= 0) list.splice(at, 1);
@@ -2862,6 +2869,14 @@
     toast(`${msg}<button type="button" class="undo-btn" ${attrs}>${esc(action.label || 'UNDO')}</button>`, 'has-action', 5000);
   }
   UI.toastAction = toastAction;
+  /** Clear any action toast still on screen. One undo slot only ever made sense
+      with one UNDO button; toasts stack, so this is what keeps that true. */
+  UI.dismissActionToasts = () => {
+    const host = $('#toasts');
+    if (!host || !host.querySelectorAll) return;
+    const live = host.querySelectorAll('.toast.has-action');
+    if (live && live.forEach) live.forEach((t) => t.remove && t.remove());
+  };
 
   function confetti() {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;

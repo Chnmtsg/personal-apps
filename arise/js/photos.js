@@ -139,8 +139,12 @@
 
   function remove(id) {
     delete cache[id];
+    /* `tx` resolves null when the transaction aborts or errors, so mapping it
+       straight to `true` reported a delete that never landed — and the picture
+       came back on the next `load()` while the toast said it was gone. `put`
+       already gets this right; this now matches it. */
     return tx('readwrite', (s) => s.delete(id))
-      .then(() => true)
+      .then((ok) => ok !== null)
       .catch(() => false);
   }
 
@@ -151,14 +155,29 @@
     return out;
   }
 
-  /** Restore from a backup. Additive: a backup without pictures removes none. */
+  /**
+   * Restore from a backup. Additive: a backup without pictures removes none.
+   *
+   * The cache is filled synchronously, exactly as `put` does, so the very next
+   * render draws the restored pictures rather than waiting on a chain of
+   * database writes. It then resolves with how many actually PERSISTED — it
+   * used to resolve `ids.length` regardless, so a device that stored none still
+   * reported "restored, with 7 pictures", which is the one path where being
+   * wrong costs the user the pictures they came to recover.
+   */
   function restore(map) {
     if (!map || typeof map !== 'object') return Promise.resolve(0);
     const ids = Object.keys(map).filter((k) => typeof map[k] === 'string' && map[k]);
+    ids.forEach((id) => { cache[id] = map[id]; });
+    let stored = 0;
     return ids
-      .reduce((chain, id) => chain.then(() => put(id, map[id])), Promise.resolve())
-      .then(() => ids.length)
-      .catch(() => 0);
+      .reduce(
+        (chain, id) => chain.then(() =>
+          tx('readwrite', (s) => s.put(map[id], id)).then((ok) => { if (ok !== null) stored++; })),
+        Promise.resolve()
+      )
+      .then(() => stored)
+      .catch(() => stored);
   }
 
   /**

@@ -139,7 +139,12 @@
       id: def.id, name: name, unit: unit,
       domain: ['fitness', 'self_care', 'development'].indexOf(def.domain) >= 0 ? def.domain : 'self_care',
       start: start, target: target, step: step,
-      min: typeof min === 'number' && isFinite(min) && min >= 0 ? min : 1,
+      /* `> 0`, not `>= 0`. A zero-cost habit is invisible to the minutes budget
+         forever, so the phase and budget rules stop constraining it and `repair`
+         can never choose it as the victim — which is the exact failure the
+         comment above says this guard exists to prevent. Not reachable from the
+         form, which hardcodes 1; reachable from an imported backup. */
+      min: typeof min === 'number' && isFinite(min) && min > 0 ? min : 1,
       friction: friction >= 1 && friction <= 5 ? friction : 3,
       custom: true
     };
@@ -164,9 +169,12 @@
       test everywhere a run habit is in hand. */
   const isKnownEntry = (p) => !!defOf(p);
 
-  /* Kept for callers that genuinely only have an id and only mean the catalog —
-     the picker, and the "this build lost a habit" banner. */
-  const isKnown = isCatalog;
+  /* Named for exactly what it tests. It was `isKnown`, one keystroke from
+     `isKnownEntry` and meaning something different — a view reached for the
+     wrong one and made every user-written habit unremovable. The two legitimate
+     callers only ever have an id and only ever mean the catalogue: the picker,
+     and the "this build lost a habit" banner. */
+  const isCatalogId = isCatalog;
 
   /**
    * The checklist this habit runs with, or null when it is not an item habit.
@@ -709,7 +717,7 @@
        The Python original reads a sub-floor result as the signal to substitute
        its dull fallback; here the survivors are kept and the floor is topped up
        around them, so the user keeps whatever of their choice actually fits. */
-    let chosen = (picks && picks.length ? picks : DEFAULT_PICKS).filter(isKnown);
+    let chosen = (picks && picks.length ? picks : DEFAULT_PICKS).filter(isCatalogId);
     let out = null;
     for (let pass = 0; pass < 3; pass++) {
       out = repair(draft(toFloor(chosen)), 0).run;
@@ -1168,7 +1176,7 @@
     HABITS, PHASES, RUN_DAYS, LAST_INTRO_DAY, MAX_NEW_PER_WEEK, MIN_HABITS, MAX_HABITS,
     MAX_PATCH_HABITS, TRAILING_DAYS, INTERVENTION_RATE, INTERVENTION_MISSES, PROTECTED_RATE,
     ADD_READY_RATE, ADVANCE_READY_RATE, MIN_EVIDENCE_DAYS,
-    DEFAULT_PICKS, habit, habitIn, isKnown, isCustomId, cleanCustom, defOf, isKnownEntry, isItemHabit, itemsFor, toggleItem, phaseFor, doseOn, minutesOn, activeOn, dayMinutes, dayIndex,
+    DEFAULT_PICKS, habit, habitIn, isCatalogId, isCustomId, cleanCustom, defOf, isKnownEntry, isItemHabit, itemsFor, toggleItem, phaseFor, doseOn, minutesOn, activeOn, dayMinutes, dayIndex,
     where, runDay, recordDay, fractionOf, dayMark, journey, validate, repair, buildRun,
     applyPatch, diagnose, adapt, recommend, applyRecommendation, checkIn,
     /* Exported so the store can offer "add this habit" without duplicating the

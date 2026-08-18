@@ -592,7 +592,11 @@ behaves('pictures are collected for the backup, and restored from one', () => {
   if (backup[ex.id] !== SHOT) return 'the backup does not hold the picture';
   A.Photos.remove(ex.id);
   if (A.Photos.get(ex.id)) return 'remove did not clear it';
-  return A.Photos.restore(backup) ? '' : 'restore returned nothing';
+  /* `restore` returns a Promise, which is always truthy — the old assertion here
+     could not fail. It fills the cache synchronously now, so the thing worth
+     checking is observable straight away: the picture is back. */
+  A.Photos.restore(backup);
+  return A.Photos.get(ex.id) === SHOT ? '' : 'restore did not put the picture back';
 });
 
 behaves('and a backup with no pictures in it removes none', () => {

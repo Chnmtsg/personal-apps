@@ -76,10 +76,26 @@
      for it. Taking the undo clears the slot, so a stale toast cannot fire a
      restore a second time and overwrite work done since. */
   let pendingUndo = null;
+  let undoSeq = 0;
 
+  /**
+   * Offer an undo, and make sure the button that appears belongs to it.
+   *
+   * Toasts STACK — `toast()` appends and an action toast lives five seconds — so
+   * two of these inside five seconds put two UNDO buttons on screen against one
+   * slot. Tapping the older one ran the newer restore: remove extra A, remove
+   * extra B, tap "Removed A." and B came back while A stayed gone. It crossed
+   * action types too.
+   *
+   * The token rides the `data-id` channel `toastAction` already serialises, so
+   * a button only fires the restore it was created for. Any earlier action toast
+   * is dismissed as well, because one slot only ever made sense with one button.
+   */
   function offerUndo(msg, restore) {
-    pendingUndo = restore;
-    UI.toastAction(msg, { act: 'undo-last' });
+    const id = 'u' + ++undoSeq;
+    pendingUndo = { id: id, restore: restore };
+    UI.dismissActionToasts();
+    UI.toastAction(msg, { act: 'undo-last', id: id });
   }
 
   /** Run a mutation, then diff for anything worth celebrating. */
@@ -782,9 +798,15 @@
         S.acknowledgeStart();
         break;
       case 'undo-last': {
-        const restore = pendingUndo;
-        pendingUndo = null;              // one shot: a stale toast must not fire twice
-        if (restore) act(restore);
+        const slot = pendingUndo;
+        /* Only the button this restore was made for. A stale one says so rather
+           than silently doing nothing, which is what it used to do. */
+        if (!slot || slot.id !== id) {
+          UI.toast('<span>That undo has expired.</span>');
+          break;
+        }
+        pendingUndo = null;              // one shot
+        act(slot.restore);
         break;
       }
       case 'workout-more':

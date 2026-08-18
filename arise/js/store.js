@@ -100,7 +100,12 @@
         /* `onboarded` is inert since the starting-point sheet was removed. It
            stays in the shape so a backup written before that still migrates
            without losing a key. */
-        onboarded: false, programInstalled: true, storageError: null
+        /* `musclesV6` is seeded true for the same reason `programInstalled` is:
+           a fresh install already HAS the nineteen-group tags, so the one-time
+           v5→v6 re-derivation must not run against it. Without this the first
+           reload after a fresh install treated a seed as an upgrade and reverted
+           any muscle edit made before it. */
+        onboarded: false, programInstalled: true, musclesV6: true, storageError: null
       },
       settings: {
         name: 'Hunter',
@@ -269,6 +274,11 @@
     // (seedState lays it out itself), which would mask an old account that has
     // never seen it.
     const hadProgram = !!(s.meta && s.meta.programInstalled);
+    /* Read BEFORE the merge below, for the same reason and by the same rule:
+       `base.meta` seeds `musclesV6: true` so a fresh install skips the upgrade,
+       and merging that over an incoming v5 account would mask the real value and
+       skip it there too — which is the flag masking its own subject. */
+    const hadMusclesV6 = !!(s.meta && s.meta.musclesV6);
     s.meta = Object.assign({}, base.meta, s.meta || {});
 
     s.goals.forEach((g) => {
@@ -306,15 +316,27 @@
     const seedMuscles = {};
     A.SEED_EXERCISES.forEach((e) => { seedMuscles[e.name] = e.muscles || []; });
     (A.PROGRAM_EXERCISES || []).forEach((e) => { seedMuscles[e.name] = e.muscles || []; });
+    /* Guarded by its own flag, in the shape `programInstalled` established two
+       blocks above. Re-deriving from the catalogue is right ONCE, on the upgrade
+       from v5's nine coarse groups to v6's nineteen. It was running on every
+       single load, so editing an exercise's muscles saved, showed as saved, and
+       was silently reverted the next time the app opened — forever. That is the
+       coding standard's own rule: never overwrite user data in a migration, and
+       a one-time change is guarded by a flag rather than by the version. */
+    const upgradeMuscles = !hadMusclesV6;
     (s.exercises || []).forEach((e) => {
-      if (seedMuscles[e.name]) { e.muscles = A.cleanMuscles(seedMuscles[e.name]); return; }
-      if (!Array.isArray(e.muscles)) { e.muscles = []; return; }
+      if (upgradeMuscles && seedMuscles[e.name]) { e.muscles = A.cleanMuscles(seedMuscles[e.name]); return; }
+      if (!Array.isArray(e.muscles)) {
+        e.muscles = A.cleanMuscles(seedMuscles[e.name] || []);
+        return;
+      }
       const widened = [];
       e.muscles.forEach((id) => {
         (A.MUSCLE_UPGRADE[id] || [id]).forEach((n) => { if (widened.indexOf(n) < 0) widened.push(n); });
       });
       e.muscles = A.cleanMuscles(widened);
     });
+    s.meta.musclesV6 = true;
 
     // Old journals lived on the day log; lift them into the journal proper.
     for (const k in s.logs) {
@@ -1043,7 +1065,7 @@
    */
   function runAddHabit(habitId) {
     const day = runToday();
-    if (!state.run || day == null || !A.Run.isKnown(habitId)) return null;
+    if (!state.run || day == null || !A.Run.isCatalogId(habitId)) return null;
     if ((state.run.habits || []).some((p) => p.habitId === habitId)) return null;
     const days = A.Run.legalStartDays(state.run, day);
     for (const start of days) {
@@ -1118,6 +1140,22 @@
     state.run = Object.assign({}, state.run, {
       habits: habits.filter((p) => p.habitId !== habitId)
     });
+    /* TODAY'S ROW GOES WITH IT. Every earlier day keeps its own, which is the
+       frozen-history invariant — but today has not been lived yet, and leaving
+       its row behind broke the day permanently.
+
+       The mechanism is the seam this app has two answers for: the screen draws
+       from the PROGRAMME (`A.Run.runDay` → `activeOn`), and `computeDayStatus`
+       scores from the RECORD (`runEntriesOn`). `runCheckIn` opens today's record
+       at boot, so after a removal the record held four rows and the screen drew
+       three — the user ticked everything visible and the day sat at 3 of 4,
+       `partial`, forever. The streak broke, `completeDays` was short by one, and
+       nothing could put it right: `clearDay` does not touch `run.log`, and
+       re-adding the habit lands on `today + 1`. */
+    const openDay = runToday();
+    if (openDay != null && state.run.log && state.run.log[openDay]) {
+      delete state.run.log[openDay][habitId];
+    }
     commit({ type: 'runRemove', habitId: habitId });
     return { habitId: habitId };
   }

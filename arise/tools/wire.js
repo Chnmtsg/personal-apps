@@ -226,6 +226,13 @@ console.log('\nevery tap the views emit is actually handled');
 
 console.log('\nundo for the actions that destroy something');
 {
+  /* The UNDO button carries a token so it can only fire the restore it was made
+     for. The stub discards appended toasts, so the token is captured here the
+     way the real button receives it — through `toastAction`'s action object. */
+  let lastAction = null;
+  const realToastAction = UI.toastAction;
+  UI.toastAction = (msg, action) => { lastAction = action; return realToastAction(msg, action); };
+
   const day = A.weekday(S.today());
   S.get().plan[day] = [];
   delete S.get().logs[S.today()];
@@ -251,15 +258,29 @@ console.log('\nundo for the actions that destroy something');
      than the five that were ticked by hand. That is what "undo the last action"
      means, and it is the right semantics: the point is that the clear is
      recoverable, not that the app second-guesses which ticks the user valued. */
-  click({ act: 'undo-last' });
+  /* A token from a superseded offer must be refused rather than fire the newest
+     restore — which is exactly what a stacked toast used to do. */
+  click({ act: 'undo-last', id: 'u-stale' });
+  ok('a stale UNDO token is refused',
+     Object.keys(S.log(S.today()).ex).length === 0, S.log(S.today()).ex);
+
+  click({ act: 'undo-last', id: lastAction.id });
   const back = plan.filter((i) => S.log(S.today()).ex[i.id]).length;
   ok('UNDO puts the cleared day back', back === 6, back);
   ok('so nothing ticked by hand is lost', back >= 5, back);
 
-  click({ act: 'undo-last' });
-  ok('and the undo is one-shot, so a stale toast cannot fire it twice',
-     plan.filter((i) => S.log(S.today()).ex[i.id]).length === 6,
-     plan.filter((i) => S.log(S.today()).ex[i.id]).length);
+  /* The one-shot claim needs work done AFTER the undo, or it proves nothing:
+     firing the same restore twice lands on the same six ticks either way, which
+     is what the first version of this assertion measured. Untick one by hand and
+     a second undo would put it back — so if the untick survives, the slot really
+     was emptied. */
+  const victim = plan[0];
+  click({ act: 'toggle-ex', id: victim.id });
+  ok('one exercise unticked by hand after the undo',
+     !S.log(S.today()).ex[victim.id]);
+  click({ act: 'undo-last', id: lastAction.id });
+  ok('and the undo is one-shot: the same token does not fire twice',
+     !S.log(S.today()).ex[victim.id], S.log(S.today()).ex[victim.id]);
 }
 
 console.log('\nediting a run in progress through app.js');
@@ -317,7 +338,13 @@ console.log('\nexercise picture handlers through app.js');
     threw = err.message;
   }
   ok('picking and removing a picture route without throwing', !threw, threw);
-  ok('and the picture store is reachable from the app', !!A.Photos, typeof A.Photos);
+  /* `!!A.Photos` could not fail — photos.js is in the load list above, so a
+     missing global would have thrown before any test ran. Assert the thing that
+     can actually be wrong: the app degrades rather than throwing on a device
+     with no IndexedDB, which is exactly what this sandbox is. */
+  ok('the picture store degrades instead of throwing without IndexedDB',
+     A.Photos.supported() === false && A.Photos.get('nothing') === null,
+     [A.Photos.supported(), A.Photos.get('nothing')]);
 }
 
 console.log('\nand again with a selection the budget cannot hold');

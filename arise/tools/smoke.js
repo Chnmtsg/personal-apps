@@ -539,11 +539,30 @@ ok('tags are cleaned to the catalog, deduplicated and case-folded',
 S.updateExercise(pushup.id, { muscles: ['lats'] });
 const beforeWiden = JSON.parse(S.exportJson());
 beforeWiden.version = 5;
+/* A real v5 account predates the flag entirely. Leaving it on made this fixture
+   an already-upgraded account wearing a v5 label, which skipped the very
+   re-derivation the next two assertions are about. */
+delete beforeWiden.meta.musclesV6;
 beforeWiden.exercises.forEach((e) => { if (e.name === 'Sled push') e.muscles = ['arms', 'legs']; });
 S.importJson(JSON.stringify(beforeWiden));
 ok('a catalogue exercise is re-derived from the catalogue on migration',
    S.get().exercises.filter((e) => e.name === 'Push-ups')[0].muscles.indexOf('triceps') >= 0,
    S.get().exercises.filter((e) => e.name === 'Push-ups')[0].muscles);
+/* The v6 re-derivation is a ONE-TIME upgrade, guarded by its own flag. It used
+   to be guarded by nothing and ran on every load, so an edited exercise was
+   silently reverted the next time the app opened — forever. Both halves matter:
+   a real v5 account must still be upgraded, and an edit must survive a reload. */
+ok('a genuine v5 account is upgraded from the catalogue',
+   S.get().exercises.filter((e) => e.name === 'Push-ups')[0].muscles.indexOf('triceps') >= 0,
+   S.get().exercises.filter((e) => e.name === 'Push-ups')[0].muscles);
+const editMe = S.get().exercises.filter((e) => e.name === 'Squats')[0];
+S.updateExercise(editMe.id, { muscles: ['lats'] });
+S.importJson(S.exportJson());                    // a reload, at the current version
+ok('and an edit made after the upgrade survives the next load',
+   S.get().exercises.filter((e) => e.name === 'Squats')[0].muscles.join(',') === 'lats',
+   S.get().exercises.filter((e) => e.name === 'Squats')[0].muscles);
+ok('the flag that makes it one-time is recorded', S.get().meta.musclesV6 === true);
+
 const widened = S.get().exercises.filter((e) => e.name === 'Sled push')[0].muscles;
 ok("a user's own exercise has its old coarse tags widened, not dropped",
    widened.indexOf('biceps') >= 0 && widened.indexOf('triceps') >= 0 && widened.indexOf('quads') >= 0,
@@ -1172,13 +1191,45 @@ ok('and removing does not rewrite a day already recorded',
    JSON.stringify(S.run().log[3]) === day3, S.run().log[3]);
 ok('a habit that is not in the run cannot be removed', S.runRemoveHabit('course') === null);
 
+/* The seam this app has two answers for: the screen draws today from the
+   PROGRAMME and `computeDayStatus` scores it from the RECORD. `runCheckIn`
+   opens today's record at boot, so a removal used to leave a row nothing could
+   tick — the day sat one short of complete forever, and the streak with it. */
+S.runCheckIn();
+const openDay = S.runToday();
+const rowsBefore = Object.keys(S.run().log[openDay]).length;
+S.runAddHabit('language');
+S.runRemoveHabit('stretch');
+ok('removing drops the habit from TODAY record too',
+   Object.keys(S.run().log[openDay]).indexOf('stretch') < 0,
+   Object.keys(S.run().log[openDay]));
+ok('so the record and the screen agree about today',
+   Object.keys(S.run().log[openDay]).sort().join(',') ===
+   A.Run.runDay(S.run(), openDay).map((r) => r.id).sort().join(','),
+   [Object.keys(S.run().log[openDay]), A.Run.runDay(S.run(), openDay).map((r) => r.id)]);
+A.Run.runDay(S.run(), openDay).forEach((r) => S.toggleRunHabit(r.id));
+const dayNow = S.dayStatus(S.today());
+ok('and ticking everything the screen shows completes the run part of the day',
+   dayNow.rnDone === dayNow.rnTotal, dayNow.rnDone + ' of ' + dayNow.rnTotal);
+ok('while the day already lived is byte-identical',
+   JSON.stringify(S.run().log[3]) === day3, S.run().log[3]);
+/* One row fewer, not none and not all: the removal took `stretch` out of today,
+   and the habit ADDED in between is correctly absent because a new habit starts
+   on a future day and today's record was frozen before it existed. */
+ok('today lost exactly the one row, and gained none',
+   Object.keys(S.run().log[openDay]).length === rowsBefore - 1,
+   [rowsBefore, Object.keys(S.run().log[openDay])]);
+
 /* The floor is a refusal, not a repair. A run of two is not a run, and
    `validate` would start reporting a state the user asked for. */
 S.runRemoveHabit('floss');
 const atFloor = S.run().habits.length;
 ok('removal stops at the habit floor', atFloor === A.Run.MIN_HABITS, atFloor);
+/* Computed once. The diagnostic argument used to call this a SECOND time, so a
+   failing assertion mutated the store while reporting itself. */
+const refusedAtFloor = S.runRemoveHabit('walk') || {};
 ok('and says so rather than silently doing nothing',
-   (S.runRemoveHabit('walk') || {}).refused === 'floor', S.runRemoveHabit('walk'));
+   refusedAtFloor.refused === 'floor', refusedAtFloor);
 ok('so the run is still valid at the floor',
    A.Run.validate(S.run()).length === 0, A.Run.validate(S.run()).map((v) => v.kind));
 
@@ -1323,7 +1374,7 @@ const good = R.checkIn(keeping, 30);
 ok('a user keeping everything is not patched', good.patched === false, good.notes);
 ok('and may be offered something', good.recommendations.length > 0);
 ok('every suggestion names a habit the catalog has',
-   good.recommendations.every((r) => R.isKnown(r.habitId)), good.recommendations.map((r) => r.habitId));
+   good.recommendations.every((r) => R.isCatalogId(r.habitId)), good.recommendations.map((r) => r.habitId));
 
 let cur = keeping;
 const refused = [];
