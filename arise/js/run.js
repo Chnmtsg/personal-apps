@@ -975,10 +975,13 @@
 
   const isEased = (p) => p.frozenDay != null || (p.scale == null ? 1 : p.scale) < 1;
 
+  /** The run with one more entry on it. `withAdded` is the catalog-shaped case;
+      a custom habit carries its own definition, so it needs the whole entry. */
+  const withEntry = (run, entry) =>
+    Object.assign({}, run, { habits: (run.habits || []).concat([entry]) });
+
   function withAdded(run, habitId, startDay) {
-    return Object.assign({}, run, {
-      habits: (run.habits || []).concat([{ habitId: habitId, startDay: startDay, scale: 1, frozenDay: null }])
-    });
+    return withEntry(run, { habitId: habitId, startDay: startDay, scale: 1, frozenDay: null });
   }
 
   function legalStartDays(run, today) {
@@ -990,6 +993,58 @@
       if (days.every((x) => days.filter((y) => y >= x - 6 && y <= x).length <= MAX_NEW_PER_WEEK)) out.push(day);
     }
     return out;
+  }
+
+  /**
+   * The earliest day this run can take one more habit, or null if it cannot.
+   *
+   * Three places asked this question and all three answered it the same slow
+   * way: walk every legal start day in order, calling `validate` on each. That
+   * is up to 56 full validations, and a validation walks all 66 days against
+   * every live habit. The add-habit sheet does it once per candidate habit, so
+   * opening it cost 220-390 validations — 160-270ms in desktop Node, several
+   * times that on a phone, for a sheet that looks static.
+   *
+   * It is a binary search instead, because feasibility is monotone in the start
+   * day: if a habit fits starting on day d, it fits starting on any later legal
+   * day. Every rule `validate` can fail on is either indifferent to the start
+   * day or improved by moving it later.
+   *
+   *   `dose_in_bounds`, `dose_monotonic` — `doseOn` clamps into [start, target]
+   *     and its week count only ever rises, so both hold for every start day.
+   *   `unknown_habit`, `duplicate_habit`, `min_habits` — about the entry, not
+   *     its day. `start_day_range` — `legalStartDays` never returns a day
+   *     outside it.
+   *   `new_per_week` — `legalStartDays` applies exactly that predicate already,
+   *     so it cannot fire on a day this search considers.
+   *   `phase_cap` — `activeOn` is `startDay <= day`, so a later start is live on
+   *     a subset of the days and the count on each is no higher.
+   *   `daily_budget` — `doseOn` returns 0 before the start day and `weeks` is
+   *     `floor((day - startDay) / 7)`, so a later start asks for no more on any
+   *     day than an earlier one.
+   *
+   * The last legal day is therefore the most forgiving one. Testing it first is
+   * what makes "no room left in this run" cost one validation rather than 56 —
+   * and that was the slowest case, because nothing short-circuited it.
+   *
+   * `tools/smoke.js` asserts this agrees with the linear scan for every catalog
+   * habit against runs at four budgets. The monotonicity argument above is the
+   * reason the search is correct; that test is what keeps it true.
+   */
+  function firstLegalStart(run, entry, today) {
+    const legal = legalStartDays(run, today);
+    if (!legal.length) return null;
+    const fits = (i) =>
+      validate(withEntry(run, Object.assign({}, entry, { startDay: legal[i] }))).length === 0;
+    let hi = legal.length - 1;
+    if (!fits(hi)) return null;
+    let lo = 0;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;      // hi always fits, so this terminates on the earliest that does
+      if (fits(mid)) hi = mid;
+      else lo = mid + 1;
+    }
+    return legal[lo];
   }
 
   function domainCounts(run) {
@@ -1181,7 +1236,7 @@
     applyPatch, diagnose, adapt, recommend, applyRecommendation, checkIn,
     /* Exported so the store can offer "add this habit" without duplicating the
        rule for where a habit may legally start. */
-    legalStartDays, withAdded
+    legalStartDays, withAdded, withEntry, firstLegalStart
   });
 
   A.Run = R;

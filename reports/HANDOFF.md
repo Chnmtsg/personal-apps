@@ -53,12 +53,12 @@ only bridge is More → Export on the old origin, Import on the new one.
 
 ```bash
 cd arise
-npm test          # smoke 445, render 190, wire 50 — all green
+npm test          # smoke 450, render 193, wire 54 — all green
 npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
-- `sw.js` VERSION → **`discipline-v57`**
+- `sw.js` VERSION → **`discipline-v58`**
 - `js/` is **eight** files, loaded in this order:
   `data.js` → `program.js` → `goals.js` → `run.js` → `photos.js` → `store.js` →
   `ui.js` → `app.js`
@@ -141,11 +141,15 @@ the tree beside it.
    enforced on the live site — but `frame-ancestors` and `X-Frame-Options` are
    both ignored in meta, so the app can be framed by anyone. It needs a host
    that sends response headers. Pages does not.
-2. **Carry the ledger across the other five screens.** Today was redrawn from
-   the design brief; Plan, Read, Stats, Rewards and More still use the old card
-   language. The brief describes them as "the system it implies, applied
-   everywhere" and has mockups for each. Its own next-step suggestions are in
-   the file, which is on disk and gitignored — read it, never merge it.
+2. ~~**Carry the ledger across the other five screens.**~~ **Done, and it is not
+   the ledger any more.** The brief's own round-2 note opens "Today stays exactly
+   as 1c", and 1c is the *card* direction — the previous session had drawn Today
+   from 1a, the hairline one, so the five artboards and the shipped Today were in
+   two different languages. Asked, the user chose the drawn system: all six
+   screens are 1c + 2a-2e now, in the artboards' cool teal/amber palette rather
+   than the warm ember one. What that cost and what it bought is in
+   `arise/CLAUDE.md` under the design-brief invariant. Two artboard decisions
+   were deliberately not taken and both say so in the code.
 3. **The exfoliation schedule.** Decided, not built. The user's Mon/Thu toner
    cadence is to be a *goal*, not a run habit — `goals.js` already does weekday
    schedules and `run.js` assumes every habit is daily. Nothing was created for

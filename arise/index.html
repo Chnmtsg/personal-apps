@@ -17,16 +17,16 @@
      real thing lost in the move to Pages and needs a host that sends headers.
 
      Every value below is load-bearing. `style-src` needs 'unsafe-inline' for
-     style *attributes* only (`style="--hue:32"` on a goal card) — there is no
-     inline <style> anywhere. `img-src` needs `data:` for exercise pictures,
+     style *attributes* only (`style="width:36%"` on every progress bar the app
+     draws) — there is no inline <style> anywhere. `img-src` needs `data:` for exercise pictures,
      which are stored and drawn as data URLs. Dropping either breaks a screen
      that works today. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Discipline — Personal Development Tracker</title>
 <meta name="description" content="Set goals that progress from where you actually are to a target you choose, keep the streak, and write before you can call the reading done.">
-<meta name="theme-color" content="#100e0c" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f7f2ea" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0f12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f6f9" media="(prefers-color-scheme: light)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Discipline">
@@ -40,25 +40,14 @@
 
 <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
 
-<header class="topbar" id="topbar">
-  <div class="brand">
-    <span class="brand-mark" aria-hidden="true">↑</span>
-    <span class="brand-text">Discipline</span>
-  </div>
-  <div class="topbar-right">
-    <!-- The label lives on the button, not the contents: render() rewrites the
-         innerHTML of both chips, so a name inside them would not survive. -->
-    <button class="chip streak-chip" id="streakChip" type="button" data-nav="progress" aria-label="Current streak">
-      <i aria-hidden="true">STREAK</i><b>0</b>
-    </button>
-    <!-- Days kept, not a rank. The top bar is permanent view, so it carries a
-         fact about the user's life rather than a number the app invented —
-         see "This Is Not A Game" in knowledge/project.md. -->
-    <button class="chip kept-chip" id="keptChip" type="button" data-nav="progress" aria-label="Days kept">
-      <i aria-hidden="true">KEPT</i><b>0</b>
-    </button>
-  </div>
-</header>
+<!-- There is no top bar. Every artboard in the redesign brief gives its screen
+     its own header — a charcoal slab with a 26px-radius base, the title in it —
+     and a persistent brand bar above that would put two headers on every screen.
+
+     What the bar carried is not lost. The streak and days kept are in Today's
+     own header, and both are on Stats, which is where its two chips linked to.
+     The brand mark is on the install icon and the splash screen, which is where
+     an app's name belongs on a phone. -->
 
 <main id="view" class="view" tabindex="-1"></main>
 

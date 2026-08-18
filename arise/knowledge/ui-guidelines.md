@@ -26,9 +26,26 @@ Avoid excessive colors. Everything comes from the tokens at the top of
 
 High contrast.
 
-Semantic colours have fixed jobs: `--good` for done, `--bad` for destructive,
-`--flame` for streaks, `--gold` for rewards and level-ups. Do not add a fifth
-without a reason.
+Semantic colours have fixed jobs, and since the 2026-08 redesign there are only
+three that carry an argument:
+
+- `--accent` (teal) is **the live action, and anything done**. `--good` is the
+  same teal on purpose: a thing you can do now and a thing you have done are the
+  two ends of one idea, and giving them separate colours was what made a screen
+  of ticks read as a fairground.
+- `--gold` (amber) is **anything that pays out or is waiting on you** — an earned
+  reward, a summary not yet written, a freeze you still hold.
+- `--ember` is **only a block whose subject is progress through a fixed length of
+  time**. It is on exactly three things: the two ends of Today, and the run
+  screen's header. A fourth use takes the meaning back off it.
+
+`--bad` stays destructive-only and `--flame` stays the streak's own hue. Do not
+add a sixth.
+
+The palette itself is **cool near-black with a light surface** — `#0d0f12` under
+`#171a1f` cards, one `--cream` panel per screen at most. It replaced a warm
+paper-on-charcoal palette; if you find a warm hex anywhere outside `--ember`, it
+is a leftover.
 
 Never carry meaning in colour alone — pair it with a label, an icon or a shape.
 
@@ -135,8 +152,9 @@ card, `--r-xs` is every control (buttons, inputs, small chrome), `--r-sm` and
 Consistent shadows: `--shadow` for a raised surface, `--shadow-sm` for the accent
 glows. Nothing else defines its own.
 
-Text on a filled background uses `--on-accent` or `--on-good`, never a hex — a
-repainted accent must not strand black text on it.
+Text on a filled background uses `--on-accent`, `--on-good`, `--on-gold`,
+`--on-ember` or `--on-cream`, never a hex — a repainted accent must not strand
+black text on it. Every fixed surface owes one of these.
 
 ---
 
@@ -146,6 +164,13 @@ Most important information first.
 
 On Today that order is: what today asks, then the tick to record it, then progress
 toward the next step. A streak is context, never the headline.
+
+**Every screen carries its own header** — a charcoal slab with a 26px-radius
+base, the screen's name in it, and one line under that saying what the screen is
+for. There is no persistent top bar; a brand bar above a screen header is two
+headers, and the app's name belongs on the install icon rather than on every
+screen. A section inside a screen is announced by an 11px letterspaced `.label`,
+not by a card.
 
 Five tabs: Today, Plan, Read, Stats, More. Rewards is reached from the top of
 More — it is the one screen you open after the fact rather than to do something,

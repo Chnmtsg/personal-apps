@@ -314,6 +314,23 @@ resolver — `defOf(p)` — serves both. Use `defOf(entry)` when you have the en
 and `habitIn(run, id)` when you only have an id; plain `habit(id)` is the
 catalog and cannot see a custom habit.
 
+**Asking where one more habit fits is a binary search, not a scan.**
+`firstLegalStart` answers "the earliest day this run could take this habit", and
+three callers use it — the add-habit sheet, `runAddHabit` and
+`runAddCustomHabit`. It binary-searches the legal start days because feasibility
+is *monotone* in the start day: every rule `validate` can fail on is either
+indifferent to the start day or improved by moving it later. The argument is
+written out in full above the function, and `tools/smoke.js` asserts the search
+agrees with a linear scan for every catalog habit at four budgets — the argument
+is why it is correct, the test is what keeps it true. If you add a rule to
+`validate` that a *later* start day can make worse, that test is the one that
+will catch you, and the search has to go.
+
+It replaced a linear scan in all three places. The sheet ran one per candidate
+habit, so opening it cost 220-390 full validations — 160-270ms in desktop Node
+and several times that on a phone — and the slowest case was "no room left in
+this run", because nothing short-circuited it. That case is one validation now.
+
 **The guarantee is kept by validating the definition, not the id.** A closed
 catalog used to be what stopped `doseOn` producing NaN on day 41. A custom habit
 is checked when it is written — name, positive step, target not below start,
@@ -330,6 +347,37 @@ may have both, and merging them would mean migrating every custom goal onto a
 catalog id it does not have.
 
 
+**The six screens are drawn from one design brief, and it is on disk.**
+`Arise Redesign (standalone).html` is a design-canvas export, gitignored, in this
+folder. It unpacks to eight artboards: `1a`/`1b`/`1c` are three directions for
+Today and `2a`–`2e` are Plan, Read, Stats, Rewards and More. The app is `1c` plus
+`2a`–`2e`. **Read it, never merge it** — it is a 1.3MB React bundle referencing
+three external origins, which is the artefact the inlining rule below is about.
+Decode it with:
+
+```js
+JSON.parse(fs.readFileSync('Arise Redesign (standalone).html','utf8').split('\n')[388])
+```
+
+The system it draws: a charcoal header with a 26px-radius base on every screen,
+11px letterspaced section labels, cards with a 38px icon plate, and three colours
+with fixed jobs — teal for the live action and for anything done, amber for
+anything that pays out or is waiting on you, and **ember for a block whose
+subject is progress through a fixed length of time, and for nothing else**. Ember
+is on exactly three things: Today's header while a countdown runs, the strip
+carrying today's next ask, and the run screen's header. See
+`knowledge/ui-guidelines.md`.
+
+An artboard is a picture, not an authority. Two of its decisions were not taken,
+and both are written down where they were made: the value column keeps its
+direction in words (`targetPhrase`), because a bare "4 h" does not say which side
+of four hours you want; and More's header does not claim a last-export date,
+because no such timestamp exists in the state and inventing one is a migration.
+
+**There is no top bar.** Every screen carries its own header, so a persistent
+brand bar would be a second one. The streak and days-kept chips it held are in
+Today's header and on Stats, which is where they linked to.
+
 **`index.html` is a shell. Nothing is inlined into it.** It links
 `./styles.css` and the eight `./js/*.js` in fixed order, plus the manifest and
 icon links, and one `<meta http-equiv="Content-Security-Policy">`.
@@ -345,7 +393,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v57`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v58`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

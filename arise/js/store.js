@@ -1136,17 +1136,13 @@
     const day = runToday();
     if (!state.run || day == null || !A.Run.isCatalogId(habitId)) return null;
     if ((state.run.habits || []).some((p) => p.habitId === habitId)) return null;
-    const days = A.Run.legalStartDays(state.run, day);
-    for (const start of days) {
-      const after = A.Run.withAdded(state.run, habitId, start);
-      if (!A.Run.validate(after).length) {
-        state.run = Object.assign({}, after, { log: state.run.log });
-        reconcileToday();
-        commit({ type: 'runAdd', habitId: habitId, startDay: start });
-        return { habitId: habitId, startDay: start };
-      }
-    }
-    return null;
+    const start = A.Run.firstLegalStart(state.run, { habitId: habitId, startDay: 1, scale: 1, frozenDay: null }, day);
+    if (start == null) return null;
+    const after = A.Run.withAdded(state.run, habitId, start);
+    state.run = Object.assign({}, after, { log: state.run.log });
+    reconcileToday();
+    commit({ type: 'runAdd', habitId: habitId, startDay: start });
+    return { habitId: habitId, startDay: start };
   }
 
   /**
@@ -1175,20 +1171,14 @@
       start: clean.start, target: clean.target, step: clean.step,
       min: clean.min, friction: clean.friction
     };
-    for (const start of A.Run.legalStartDays(state.run, day)) {
-      const after = Object.assign({}, state.run, {
-        habits: (state.run.habits || []).concat([
-          { habitId: id, startDay: start, scale: 1, frozenDay: null, custom: payload }
-        ])
-      });
-      if (!A.Run.validate(after).length) {
-        state.run = Object.assign({}, after, { log: state.run.log });
-        reconcileToday();
-        commit({ type: 'runAddCustom', habitId: id, startDay: start });
-        return { habitId: id, startDay: start, name: clean.name };
-      }
-    }
-    return { refused: 'no_room' };
+    const entry = { habitId: id, startDay: 1, scale: 1, frozenDay: null, custom: payload };
+    const start = A.Run.firstLegalStart(state.run, entry, day);
+    if (start == null) return { refused: 'no_room' };
+    const after = A.Run.withEntry(state.run, Object.assign({}, entry, { startDay: start }));
+    state.run = Object.assign({}, after, { log: state.run.log });
+    reconcileToday();
+    commit({ type: 'runAddCustom', habitId: id, startDay: start });
+    return { habitId: id, startDay: start, name: clean.name };
   }
 
   /**

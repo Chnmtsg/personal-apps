@@ -1246,6 +1246,67 @@ ok('so the run is still valid at the floor',
    A.Run.validate(S.run()).length === 0, A.Run.validate(S.run()).map((v) => v.kind));
 
 /* ------------------------------------------------------------------ */
+section('the earliest day a run can take one more habit');
+
+/* `firstLegalStart` binary-searches the legal start days instead of walking
+   them, which is only correct because feasibility is monotone in the start day
+   — the argument is written out in run.js. This is what keeps that argument
+   true: for every catalog habit not already in the run, at four budgets, the
+   search has to return exactly what walking the days in order returns.
+   Including null, which is the case the search answers in one validation and
+   the scan answered in fifty-six. */
+function scanFirstLegalStart(run, habitId, today) {
+  const days = A.Run.legalStartDays(run, today);
+  for (const start of days) {
+    if (!A.Run.validate(A.Run.withAdded(run, habitId, start)).length) return start;
+  }
+  return null;
+}
+
+let searchAgrees = true;
+let disagreement = null;
+let comparisons = 0;
+let nullsSeen = 0;
+let daysSeen = 0;
+[30, 45, 60, 90].forEach((budget) => {
+  S.resetAll();
+  /* Deliberately overloaded: everything the catalog has, against a budget that
+     cannot hold it. `buildRun` repairs down to what fits, which is what leaves
+     a set of candidates that genuinely do not have room. */
+  S.startRun(A.Run.HABITS.map((h) => h.id), budget, true);
+  const run = S.run();
+  const today = S.runToday();
+  A.Run.HABITS.filter((h) => !run.habits.some((p) => p.habitId === h.id)).forEach((h) => {
+    const searched = A.Run.firstLegalStart(run, { habitId: h.id, startDay: 1, scale: 1, frozenDay: null }, today);
+    const scanned = scanFirstLegalStart(run, h.id, today);
+    comparisons++;
+    if (searched == null) nullsSeen++; else daysSeen++;
+    if (searched !== scanned && !disagreement) {
+      searchAgrees = false;
+      disagreement = h.id + ' at budget ' + budget + ': searched ' + searched + ', scanned ' + scanned;
+    }
+  });
+});
+ok('the binary search agrees with walking every legal day', searchAgrees, disagreement);
+ok('and the comparison was not vacuous', comparisons >= 20 && daysSeen > 0 && nullsSeen > 0,
+   comparisons + ' compared, ' + daysSeen + ' fitted, ' + nullsSeen + ' had no room');
+
+/* The day it returns is a day the run can actually take, and the one before it
+   in the legal list is not — "earliest" is the whole contract, because the sheet
+   prints it as "from day N" and the store commits it. */
+S.resetAll();
+S.startRun(['walk', 'stretch', 'vitamins', 'floss'], 45, false);
+const legalNow = A.Run.legalStartDays(S.run(), S.runToday());
+const entryNow = { habitId: 'language', startDay: 1, scale: 1, frozenDay: null };
+const firstNow = A.Run.firstLegalStart(S.run(), entryNow, S.runToday());
+ok('the day it returns is legal', firstNow == null || legalNow.indexOf(firstNow) >= 0, [firstNow, legalNow.slice(0, 6)]);
+ok('and validates', firstNow != null &&
+   A.Run.validate(A.Run.withAdded(S.run(), 'language', firstNow)).length === 0, firstNow);
+const beforeIt = legalNow[legalNow.indexOf(firstNow) - 1];
+ok('while every legal day before it does not',
+   beforeIt == null || A.Run.validate(A.Run.withAdded(S.run(), 'language', beforeIt)).length > 0,
+   beforeIt);
+/* ------------------------------------------------------------------ */
 section('habits the user wrote');
 S.resetAll();
 S.startRun(['walk', 'stretch', 'vitamins', 'floss'], 90, true);

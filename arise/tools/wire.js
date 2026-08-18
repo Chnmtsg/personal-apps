@@ -117,6 +117,27 @@ if (run) {
   ok('the budget from the select was used', run.minutesBudget === 45, run.minutesBudget);
 }
 
+console.log('\nthe seven-day rail moves the view date');
+{
+  /* The rail replaced the arrow stepper as the way to reach another day, so
+     which date a cell opens is now load-bearing. The first version of the
+     handler read `date` — the day already on screen — instead of the cell's own
+     `data-date`, which makes every cell a no-op that still looks wired. Nothing
+     failed: render.js sees the markup, smoke.js never loads app.js, and this
+     file had no test for date navigation at all. */
+  const UIr = sandbox.UI;
+  UIr.setViewDate(S.today());
+  const back = A.addDays(S.today(), -3);
+  click({ act: 'date-set', date: back });
+  ok('tapping a rail cell opens that day', UIr.viewDate() === back, [UIr.viewDate(), back]);
+  click({ act: 'date-set', date: S.today() });
+  ok('and tapping today comes back to it', UIr.viewDate() === S.today(), UIr.viewDate());
+  click({ act: 'date-prev' });
+  ok('the stepper still steps a day back', UIr.viewDate() === A.addDays(S.today(), -1), UIr.viewDate());
+  click({ act: 'date-today' });
+  ok('and back-to-today still lands on the logical day', UIr.viewDate() === S.today(), UIr.viewDate());
+}
+
 console.log('\nexpanding a long workout through app.js');
 {
   const day = A.weekday(S.today());

@@ -22,6 +22,11 @@
   // Same again for the exercise library on More: a reference list you open to
   // change something, not one you read on the way past.
   let libOpen = false;
+  /* Which half of Plan is on screen: 'goals' | 'week'. Artboard 2a splits the
+     two subjects that used to share one scroll, and a tab is view state, not a
+     setting — it opens on the goals every time, because that is the half a
+     person comes to Plan to change. */
+  let planTab = 'goals';
   /* Which window the muscle breakdown on Stats is showing. View state, like the
      folds — a look at the last week is not a setting anybody wants remembered
      across devices. */
@@ -79,7 +84,16 @@
     bulb: '<path d="M9.5 17.5h5M10 20.5h4"/><path d="M12 3.2a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2h5c0-.8.4-1.5 1-2A6 6 0 0 0 12 3.2Z"/>',
     heart: '<path d="M12 20.4S4.5 15.8 4.5 10.7A4.3 4.3 0 0 1 12 7.9a4.3 4.3 0 0 1 7.5 2.8c0 5.1-7.5 9.7-7.5 9.7Z"/>',
     pen: '<path d="M14.6 4.4a4.5 4.5 0 0 0 5.6 5.6L9.9 20.3a2.6 2.6 0 0 1-3.7-3.7L14.6 4.4Z"/>',
-    star: '<path d="m12 3.6 2.6 5.5 6 .8-4.4 4.1 1.1 5.9-5.3-2.9-5.3 2.9 1.1-5.9L3.4 9.9l6-.8z"/>'
+    star: '<path d="m12 3.6 2.6 5.5 6 .8-4.4 4.1 1.1 5.9-5.3-2.9-5.3 2.9 1.1-5.9L3.4 9.9l6-.8z"/>',
+    /* The affordance on a row that leads somewhere. Drawn rather than the "›"
+       character the folds use, because at 18px a glyph inherits the font's own
+       weight and sits a pixel high next to a 2px-stroke icon set. */
+    chev: '<path d="M9 6l6 6-6 6"/>',
+    /* The plus on a header pill. The fullwidth "＋" the buttons used sits on the
+       text baseline and is a different weight from every drawn icon beside it. */
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    /* A gift, for the one control that pays something out. */
+    gift: '<rect x="3.5" y="8.5" width="17" height="12" rx="2"/><path d="M3.5 12.5h17M12 8.5V20.5"/><path d="M12 8.5S10.5 4 8 4a2.2 2.2 0 0 0 0 4.5m4 0S13.5 4 16 4a2.2 2.2 0 0 1 0 4.5"/>'
   };
 
   /* An exercise category and a goal area each stand for one drawn icon. */
@@ -228,13 +242,22 @@
     return `<div class="bar ${cls || ''}"><i style="width:${Math.min(100, Math.max(0, pct))}%"></i></div>`;
   }
 
+  /**
+   * The seven-day rail, from the redesign brief: "a seven-day rail you can
+   * scrub". It is the same strip that used to sit near the bottom of Today as a
+   * read-only scoreboard — the brief moves it directly under the header and
+   * makes every cell a day you can open, which is what let the ‹ › stepper stop
+   * being the only way to reach yesterday.
+   *
+   */
   function weekStrip(anchor) {
     const w = S.weekStats(anchor);
     // The logical day, not the calendar date: inside the grace window (00:00 until
     // the rollover hour) they differ, and every other surface treats the logical
     // day as "today". Marking the calendar date here would ring tomorrow's dot.
     const today = S.today();
-    return `<div class="week-strip">${w.days
+    const first = S.historyStart();
+    return `<div class="week-strip rail">${w.days
       .map((d) => {
         const wd = A.weekday(d.key);
         // A missed day and a day that has not happened must not differ by colour
@@ -244,8 +267,19 @@
           : d.status === 'rest' ? '·'
           : d.status === 'partial' ? d.pct + '%'
           : future ? '' : '✕';
-        return `<div class="wd"><div class="dot ${d.status}${d.key === today ? ' today' : ''}">${mark}</div>
-          <small>${A.DAY_SHORT[wd][0]}</small></div>`;
+        /* The date number joins the weekday letter rather than replacing the
+           mark: the mark is the one thing here that is not colour, and the rail
+           is a control now, so it has to say which date each cell opens. */
+        const label = `<small>${A.DAY_SHORT[wd]} ${A.fromKey(d.key).getDate()}</small>`;
+        const body = `<div class="dot ${d.status}${d.key === today ? ' today' : ''}">${mark}</div>${label}`;
+        /* Out of range in either direction: before the account existed, or more
+           than a week out. Both are days the ‹ › stepper also refuses. */
+        const reach = A.daysBetween(today, d.key);
+        const off = A.daysBetween(first, d.key) < 0 || reach > 6;
+        return `<button type="button" class="wd${d.key === viewDate ? ' on' : ''}" data-act="date-set"
+          data-date="${d.key}" ${off ? 'disabled' : ''}
+          aria-current="${d.key === viewDate ? 'date' : 'false'}"
+          aria-label="${esc(A.prettyDate(d.key))}">${body}</button>`;
       })
       .join('')}</div>`;
   }
@@ -278,22 +312,22 @@
     return `${n} more good day${n === 1 ? '' : 's'} → ${nxt}`;
   }
 
-  /* Each area gets its own hue so a card is recognisable before you read it —
-     the reference app uses a photograph for this; the app is offline and ships
-     no artwork, so the art is generated from the goal's own icon and area. */
-  const SECTION_HUE = { sleep: 245, fitness: 8, mind: 285, reading: 205, health: 150, craft: 32, custom: 320 };
+  /* An area used to give its card a generated tinted "artwork" through a --hue
+     custom property. Artboard 1c has no artwork: the plate carries the area's
+     drawn icon and every card is the same charcoal, so seven hues would be seven
+     colours competing with the three the system actually assigns a meaning to.
+     `SECTION_ICON` is what tells the areas apart now. */
 
   /**
-   * A goal as a full-width card: title, the ask, how it repeats, its streak, and
-   * a progress line along the bottom edge. This is the primary surface of the
-   * app — what today asks and one tap to record it — so it gets the room.
+   * A goal as a card on Today: an icon plate, the name, one line of context, and
+   * either the ask or a tick. This is the primary surface of the app — what
+   * today asks, and one tap to record it.
    */
   function goalCard(entry, dateKey) {
     const g = entry.goal;
     const tl = entry.tl;
     const locked = S.isFuture(dateKey);
     const gated = g.gate === 'summary';
-    const hue = SECTION_HUE[g.section] != null ? SECTION_HUE[g.section] : SECTION_HUE.custom;
     const logged = entry.entry && entry.entry.value != null ? A.formatValue(g.unit, entry.entry.value) : null;
     const mode = A.MODES[A.Goals.modeOf(g, S.settings().mode)];
 
@@ -310,35 +344,39 @@
        work. Derived here from the entry, never guessed from the rendered text. */
     const part = !!logged && !entry.done && !entry.skipped;
 
-    /* The ledger row. Same element, same classes, same data-act and the same
-       `data-goal` the swipe and press-and-hold handlers close on — this is a
-       restyle, not a new component, so every gesture keeps working and nothing
-       has to learn a second name for a goal row.
+    /* The card from artboard 1c. Same element, same classes, same data-act and
+       the same `data-goal` the swipe and press-and-hold handlers close on — this
+       is a restyle, not a new component, so every gesture keeps working and
+       nothing has to learn a second name for a goal row.
 
-       What changes is what carries the hierarchy. The card, the monogram tile
-       and the step bar go; the name is the only bold thing, the ask sits right
-       on the same line as a number, and everything else is one quiet line of
-       12px underneath. The design brief's own summary: "numerals do the
-       hierarchy; ember appears exactly once, on the live action". */
-    /* The brief's mockup puts a bare number here — "06:15", "75 min". That works
-       for a wake time and fails for anything counting DOWN: "Screen time 4 h"
-       does not say which side of four hours you want. `targetPhrase` keeps the
-       direction in words, which is the app's own rule and a test by name. The
-       number still does the visual work; it just is not alone. */
+       Its shape: a 38px icon plate, the name, one 12px line of context, and
+       either the ask or a tick on the right. A gated goal — reading — takes the
+       amber border and a Write pill instead of the tick, because amber is
+       "waiting on you" and a tick it cannot honour is a lie: the summary is what
+       closes that goal, not this control.
+
+       The brief's mockup puts a bare number in the value column — "06:15",
+       "75 min". That reads correctly for a wake time and fails for anything
+       counting DOWN: "Screen time 4 h" does not say which side of four hours you
+       want. `targetPhrase` keeps the direction in words, which is the app's own
+       rule and a test by name. The number still does the visual work; it is just
+       not alone. */
     const ask = entry.target != null ? targetPhrase(g, entry.target) : '';
-    return `<article class="gcard ledger ${entry.done ? 'is-done' : ''} ${entry.skipped ? 'is-skipped' : ''} ${
+    /* What the gated card says instead of the ask, so the summary Today used to
+       carry in its own card is not lost with it. */
+    const gateLine = !gated
+      ? ''
+      : entry.done
+      ? previewOf(S.readingEntry(dateKey))
+      : 'Write the summary to close it';
+    return `<article class="gcard ${entry.done ? 'is-done' : ''} ${entry.skipped ? 'is-skipped' : ''} ${
       part ? 'is-part' : ''
-    } ${locked ? 'locked' : ''}" style="--hue:${hue}" data-goal="${g.id}">
-      <button type="button" class="gcard-tick" data-act="${gated ? 'open-read' : 'goal-hit'}" data-id="${g.id}"
-              data-date="${dateKey}" aria-label="${entry.done ? 'Undo' : 'Complete'} ${esc(g.name)}"
-              ${locked ? 'disabled' : ''}>✓</button>
+    } ${gated && !entry.done ? 'is-gated' : ''} ${locked ? 'locked' : ''}" data-goal="${g.id}">
+      <span class="gcard-plate" aria-hidden="true">${icon(SECTION_ICON[g.section] || 'star')}</span>
       <button type="button" class="gcard-open" data-act="goal-detail" data-id="${g.id}">
-        <span class="gcard-title">${esc(g.name)}${
-          gated ? ' <i class="gcard-gate">· write to close</i>' : ''
-        }</span>
-        <span class="gcard-meta">${meta}</span>
+        <span class="gcard-title">${esc(g.name)}</span>
+        <span class="gcard-meta">${gateLine ? `<span class="gcard-gate">${esc(gateLine)}</span>` : meta}</span>
       </button>
-      <span class="gcard-value">${esc(ask)}</span>
       ${
         entry.streak > 0 || entry.skipped
           ? `<span class="gcard-badges">
@@ -347,8 +385,19 @@
             </span>`
           : ''
       }
+      ${ask && !gated ? `<span class="gcard-value">${esc(ask)}</span>` : ''}
+      <button type="button" class="gcard-tick${gated ? ' is-write' : ''}" data-act="${gated ? 'open-read' : 'goal-hit'}"
+              data-id="${g.id}" data-date="${dateKey}"
+              aria-label="${gated ? 'Write the summary for' : entry.done ? 'Undo' : 'Complete'} ${esc(g.name)}"
+              ${locked ? 'disabled' : ''}>${gated ? (entry.done ? 'Edit' : 'Write') : '✓'}</button>
     </article>`;
   }
+
+  /** The first line of a summary, for a card that has to show it was written. */
+  const previewOf = (r) => {
+    const t = ((r && r.summary) || '').trim();
+    return t ? (t.length > 64 ? t.slice(0, 64) + '…' : t) : 'Summary written';
+  };
 
   /* ================= TODAY ================= */
 
@@ -520,11 +569,10 @@
           .map((h) => {
             const done = !!(l && l.hb && l.hb[h.id]);
             const hs = S.habitStreak(h.id);
-            /* A habit is a thing you tick today, exactly like a goal, so on the
-               ledger it is the same row rather than a third visual language on
-               one screen. Same classes and the same data-act — only the shape
-               changes. */
-            return `<button type="button" class="item ledger-row ${done ? 'done' : ''} ${future ? 'locked' : ''}" data-act="toggle-hb" data-id="${h.id}" aria-pressed="${done}" ${
+            /* A habit is a thing you tick today, exactly like a goal, so it is
+               the same card rather than a third visual language on one screen.
+               Same data-act — only the shape changes. */
+            return `<button type="button" class="item habit-row ${done ? 'done' : ''} ${future ? 'locked' : ''}" data-act="toggle-hb" data-id="${h.id}" aria-pressed="${done}" ${
               future ? 'disabled' : ''
             }>
               <span class="tick" aria-hidden="true">✓</span>
@@ -537,32 +585,15 @@
           .join('')
       : `<div class="empty">No habits yet.<br><button class="link" data-nav="more">Add one →</button></div>`;
 
-    const readGoal = S.activeGoals().find((g) => g.gate === 'summary');
-    const reading = S.readingEntry(k);
-    const readDone = readGoal ? S.goalDone(k, readGoal.id) : false;
     const journal = S.journalEntry(k);
     const mLeft = A.minutesLeftToday(S.settings().dayBoundaryHour);
     const frozen = !!S.get().freezes[k];
     const fz = S.freezeStats();
 
-    const readCard = readGoal
-      ? `<div class="card read-card ${readDone ? 'done' : ''}">
-          <div class="read-top">
-            <span class="emoji" aria-hidden="true">📖</span>
-            <div class="body">
-              <div class="name">${readDone ? 'Summary written' : 'Reading is locked until you write'}</div>
-              <div class="sub">${
-                readDone
-                  ? esc(((reading && reading.summary) || '').slice(0, 90) + (((reading && reading.summary) || '').length > 90 ? '…' : ''))
-                  : esc(A.promptForDay(k))
-              }</div>
-            </div>
-          </div>
-          <button class="btn ${readDone ? 'ghost' : 'primary'} block" data-act="open-read" data-date="${k}">
-            ${readDone ? 'Edit today’s summary' : 'Write today’s summary'}
-          </button>
-        </div>`
-      : '';
+    /* The reading card that used to sit under the goal list is gone: in 1c the
+       gated goal IS that card — amber border, the prompt on its meta line, and a
+       Write pill where every other row has a tick. Two cards for one commitment
+       was the duplication the brief opened by naming. */
 
     /* The day counter is the headline. "DAY 12" says where you are in a way a
        date never does. With a challenge running it counts against its length —
@@ -580,9 +611,11 @@
       skipped: entries.filter((e) => e.skipped)
     };
     const shown = buckets[todayFilter] || buckets.todo;
+    /* The label carries its own count now — "3 left to go", "2 kept" — so the
+       separate <b> that used to hold the number is gone rather than doubled. */
     const seg = (id, label) =>
       `<button type="button" class="seg ${todayFilter === id ? 'on' : ''}" data-act="today-filter" data-filter="${id}"
-         aria-pressed="${todayFilter === id}">${label} <b>${buckets[id].length}</b></button>`;
+         aria-pressed="${todayFilter === id}">${label}</button>`;
 
     const cards = entries.length
       ? shown.length
@@ -624,59 +657,90 @@
           </aside>`;
 
     return `
-      ${offset === 0 ? banners() : ''}
+      <!-- Artboard 1c's header. It is the one block on any screen painted in
+           ember, and the rule the brief gives for that is "only where the
+           screen's own subject is progress through time" — so it goes ember
+           while a challenge is running, and charcoal when there is no length to
+           count against. The two-layer bar is elapsed under kept: the day
+           number says how long it has been, which is not the same thing as how
+           much of it you kept and must not be dressed up as if it were.
 
-      <section class="dayline">
-        <div>
-          <h1 class="daynum">DAY <b>${dayNum}</b>${
-            inChallenge ? `<i>/ ${chal.days}</i>` : ''
-          }</h1>
-          <div class="daydate">${esc(offset === 0 ? A.prettyDate(k) : relative + ' · ' + A.prettyDate(k))}${
-            st.total ? ` · ${st.done}/${st.total} done` : ''
-          }</div>
-          <!-- The headline was computed on every render and never inserted, so
-               the day's state was said only by the 3/7 suffix above and by the
-               fixed strip. This is where it was plainly meant to go. -->
-          <div class="dayline-headline">${esc(headline)}</div>
+           The whole ‹ › stepper, the day counter and the challenge bar used to
+           be three separate blocks stacked down the screen. -->
+      <section class="dayhead ${inChallenge ? 'ember' : ''} ${
+        run && run.complete ? 'is-complete' : ''
+      }">
+        <div class="dayhead-top">
+          <div class="dayhead-id">
+            <div class="dayhead-label">${esc(inChallenge ? chal.name : relative)}</div>
+            <h1 class="daynum">DAY <b>${dayNum}</b>${
+              inChallenge ? `<i>/ ${chal.days}</i>` : ''
+            }</h1>
+          </div>
+          <div class="dayhead-side">
+            ${
+              streak > 0
+                ? `<div class="dayhead-streak"><b>${streak}</b><span>day streak</span></div>`
+                : ''
+            }
+            <div class="dayline-nav">
+              <button class="icon-btn" data-act="date-prev" aria-label="Previous day" ${
+                A.daysBetween(S.historyStart(), k) <= 0 ? 'disabled' : ''
+              }>‹</button>
+              <button class="icon-btn" data-act="date-next" aria-label="Next day" ${offset >= 6 ? 'disabled' : ''}>›</button>
+            </div>
+          </div>
         </div>
-        <div class="dayline-nav">
-          <button class="icon-btn" data-act="date-prev" aria-label="Previous day" ${
-            A.daysBetween(S.historyStart(), k) <= 0 ? 'disabled' : ''
-          }>‹</button>
-          <button class="icon-btn" data-act="date-next" aria-label="Next day" ${offset >= 6 ? 'disabled' : ''}>›</button>
-        </div>
-      </section>
-
-      ${
-        run
-          ? `<button type="button" class="chalbar ${run.complete ? 'is-complete' : ''}" data-act="challenge-open"
-               aria-label="${esc(run.challenge.name)} — day ${run.day} of ${run.days}">
-              <span class="chalbar-top">
-                <span>${esc(run.challenge.name)}</span>
-                <span>${
-                  run.complete
-                    ? `Finished · ${run.kept}/${run.days} days kept`
-                    : `${run.kept}/${run.day} kept · ${run.days - run.day} to go`
-                }</span>
-              </span>
-              <span class="chalbar-track">
+        ${
+          inChallenge
+            ? `<button type="button" class="dayhead-track" data-act="challenge-open"
+                 aria-label="${esc(chal.name)} — day ${run.day} of ${run.days}, ${run.kept} days kept">
                 <i class="elapsed" style="width:${run.pct}%"></i>
                 <i class="kept" style="width:${run.keptPct}%"></i>
-              </span>
-            </button>`
-          : ''
-      }
+              </button>`
+            : ''
+        }
+        <div class="dayhead-foot">
+          <span>${esc(A.prettyDate(k))}${st.total ? ` · ${st.done}/${st.total} done` : ''}</span>
+          <span>${
+            inChallenge
+              ? `${run.elapsed} elapsed · ${run.kept} days kept`
+              : `${hist.completeDays} days kept`
+          }</span>
+        </div>
+        <!-- The headline was computed on every render and never inserted, so
+             the day's state was said only by the fraction above and by the
+             fixed strip. This is where it was plainly meant to go. -->
+        <div class="dayline-headline">${esc(headline)}</div>
+      </section>
+
+      <!-- Banners sit UNDER the header, not above it. Every screen now begins
+           with a header that supplies the status-bar inset, so a banner rendered
+           first would be the one block on any screen with nothing between it and
+           the clock. -->
+      ${offset === 0 ? banners() : ''}
+
+      <!-- The rail: seven days you can scrub, directly under the header, which
+           is the brief's answer to a date stepper hidden in the corner. -->
+      ${weekStrip(k)}
 
       ${offset !== 0 ? `<button class="btn ghost block" data-act="date-today" style="margin-bottom:12px">Back to today</button>` : ''}
 
-      <div class="segbar ledger">
-        ${seg('todo', 'To-dos')}${seg('done', 'Done')}${seg('skipped', 'Skipped')}
+      <!-- The filter, drawn as 1c's count line rather than as three tabs. The
+           counts ARE the control: what is left reads as the heading it already
+           looked like, and the two quiet figures beside it still switch the list.
+           Nothing was made unreachable to get there. -->
+      <div class="segbar countline">
+        ${seg('todo', buckets.todo.length ? `${buckets.todo.length} left to go` : 'Nothing left')}
+        <span class="countline-rest">${seg('done', `${buckets.done.length} kept`)}<i>·</i>${seg(
+          'skipped',
+          `${buckets.skipped.length} skipped`
+        )}</span>
         <button class="icon-btn seg-add" data-act="goal-new" aria-label="New goal">＋</button>
       </div>
 
       ${cards}
       ${gestureHint}
-      ${readCard}
 
       ${offset === 0 ? runSection() : ''}
 
@@ -725,32 +789,39 @@
         }`
       }</div>
 
-      <div class="section-head"><h2>Daily habits</h2><button class="link" data-nav="more">Manage</button></div>
+      <div class="label">Daily habits</div>
       <div class="list">${habitHtml}</div>
 
-      <!-- Facts, not the app's own currency. XP, levels and ranks live on Stats,
-           below the real ledger — see "This Is Not A Game" in knowledge/project.md.
-           The streak stays because it is true: days in a row you actually kept. -->
-      <div class="section-head"><h2>Where you are</h2><button class="link" data-nav="progress">All of it</button></div>
-      <section class="hero">
-        <div class="hero-stats">
-          <div class="hero-stat"><b class="fire">🔥 ${streak}</b><span>day streak</span></div>
-          <div class="hero-stat"><b>${hist.completeDays}</b><span>days kept</span></div>
-          <div class="hero-stat"><b>${wk.complete}/${wk.goal}</b><span>this week</span></div>
-        </div>
-      </section>
+      <!-- What used to sit here: a three-figure scoreboard hero, the week strip
+           a second time inside its own card, and a journal textarea. 1c has none
+           of them, and each was a duplicate — the streak and days kept are in
+           the header, the strip is the rail, the real totals are the first thing
+           on Stats, and the journal box was the same box Read already carries
+           for the same day. The brief's opening complaint was that Today is one
+           long scroll of near-identical cards, and this was three quarters of
+           the scroll.
 
-      <div class="card">
-        <div class="xpbar-top"><span>This week · ${wk.complete}/${wk.goal} days</span><span>${wk.hit ? (wk.claimed ? 'Reward claimed' : 'Reward ready!') : `${Math.max(0, wk.goal - wk.complete)} to go`}</span></div>
-        ${weekStrip(k)}
-        ${wk.hit && !wk.claimed ? `<button class="btn primary block" data-act="claim-weekly" style="margin-top:12px">🎁 Open weekly chest · +${fmtXp(A.XP.weeklyGoal)} XP</button>` : ''}
-      </div>
+           Neither of the two things that were reachable ONLY from here goes with
+           them: the weekly reward, which is a payout and takes the amber, and
+           the journal, which keeps a row that says whether it is written. -->
+      ${
+        wk.hit && !wk.claimed
+          ? `<button type="button" class="paycard" data-act="claim-weekly">
+              <span class="body"><b>This week is kept · ${wk.complete}/${wk.goal} days</b>
+                <span>The weekly reward is waiting on you</span></span>
+              <span class="paycard-go">Open · +${fmtXp(A.XP.weeklyGoal)} XP</span>
+            </button>`
+          : ''
+      }
 
-      <div class="section-head"><h2>Journal</h2><button class="link" data-nav="read">All entries</button></div>
-      <div class="card"><textarea id="dayNote" data-date="${k}" aria-label="Journal for this day"
-        placeholder="How did the day actually go? Energy, mood, anything worth remembering…">${esc(
-        (journal && journal.text) || ''
-      )}</textarea></div>
+      <button type="button" class="linkrow" data-nav="read">
+        <span class="body"><b>Journal</b><span>${
+          journal && (journal.text || '').trim()
+            ? esc(previewOf({ summary: journal.text }))
+            : 'Nothing written for this day yet'
+        }</span></span>
+        ${icon('chev')}
+      </button>
 
       ${
         offset === 0 && mLeft < 240
@@ -780,26 +851,45 @@
     return 'Every day';
   }
 
+  /**
+   * A goal, as artboard 2a draws it: the 38px icon plate, the name with its
+   * level beside it in amber, and then the one line the brief asks for —
+   * "every goal states its ladder in one line: baseline, today's ask, target"
+   * — with what earns the next step underneath.
+   *
+   * The middle figure is emphasised because it is the only one of the three that
+   * is a question being asked of you today; the other two are where you started
+   * and where you are going. That is also why the row keeps `advanceHint`
+   * verbatim: "2 more good days steps you to 06:00" is the app's core promise
+   * that a level is earned by performing and never by the calendar, and the
+   * mockup prints it in full.
+   */
   function goalManageRow(g) {
     const tl = S.goalTimeline(g.id);
-    const mode = A.MODES[A.Goals.modeOf(g, S.settings().mode)];
     const from = A.formatValue(g.unit, g.baseline);
     const to = A.formatValue(g.unit, g.target);
+    const askOn = S.goalTargetOn(g.id, S.today());
+    const ask = askOn != null ? A.formatValue(g.unit, askOn) : from;
     const pct = tl.maxLevel ? (tl.level / tl.maxLevel) * 100 : 100;
-    return `<div class="row goal-manage ${g.archived ? 'is-archived' : ''}">
-      <span class="emoji" style="font-size:20px">${goalGlyph(g)}</span>
-      <div class="body">
-        <div class="name">${esc(g.name)} ${levelChip(tl)}</div>
-        <div class="sub">${esc(from)} → ${esc(to)} · ${mode.icon} ${esc(mode.name)} · ${esc(scheduleText(g))}${
-      g.gate === 'summary' ? ' · ✍️ summary required' : ''
-    }</div>
-        <div class="mini-track">${bar(pct)}</div>
-        <div class="sub">${esc(advanceHint(g, tl))}</div>
+    return `<article class="goalcard ${g.archived ? 'is-archived' : ''}">
+      <div class="goalcard-top">
+        <span class="gcard-plate" aria-hidden="true">${icon(SECTION_ICON[g.section] || 'star')}</span>
+        <div class="goalcard-body">
+          <div class="goalcard-name">
+            <b>${esc(g.name)}</b>${levelChip(tl)}
+          </div>
+          <div class="goalcard-ladder">${esc(from)} → <b>${esc(ask)}</b> → ${esc(to)} · ${esc(
+      scheduleText(g)
+    )}${g.gate === 'summary' ? ' · summary required' : ''}</div>
+        </div>
+        <button class="icon-btn" data-act="goal-edit" data-id="${g.id}" aria-label="Edit ${esc(g.name)}">✎</button>
       </div>
-      <button class="icon-btn" data-act="goal-edit" data-id="${g.id}" aria-label="Edit ${esc(g.name)}">✎</button>
-    </div>`;
+      <div class="goalcard-bar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div>
+      <div class="goalcard-hint">${esc(advanceHint(g, tl))}</div>
+    </article>`;
   }
 
+  /** The goals half of Plan: a section label per area, then the cards. */
   function goalManageBlock() {
     const all = S.goals();
     const active = all.filter((g) => !g.archived);
@@ -809,30 +899,28 @@
 
     const body = A.SECTIONS.filter((s) => groups[s.id])
       .map(
-        (s) => `<div class="card flush">
-          <div class="plan-day-head"><h3>${sectionGlyph(s.id)} ${esc(s.name)}</h3><span class="count">${groups[s.id].length}</span></div>
-          <div>${groups[s.id].map(goalManageRow).join('')}</div>
-        </div>`
+        (s) => `<div class="label">${esc(s.name)}</div>
+          ${groups[s.id].map(goalManageRow).join('')}`
       )
       .join('');
 
     return `
-      <div class="section-head"><h2>Goals</h2><button class="link" data-act="goal-new">＋ New goal</button></div>
-      <div class="card" style="display:flex;gap:10px;align-items:center">
-        <span style="font-size:22px">🎯</span>
-        <div class="muted" style="font-size:var(--fs-md);flex:1">Each goal moves from where you are now to a target you set — and stops there.
-          You step up by <b>performing</b>, never because a week passed.</div>
-      </div>
-      ${body || `<div class="empty">No goals yet.</div>`}
+      ${body || `<div class="empty">No goals yet.<br><button class="link" data-act="goal-new">Add the first one →</button></div>`}
       ${
         archived.length
-          ? `<div class="section-head"><h2>Paused</h2></div><div class="card flush">${archived.map(goalManageRow).join('')}</div>`
+          ? `<div class="label">Paused</div>${archived.map(goalManageRow).join('')}`
           : ''
       }
+      <!-- The invariant, printed where the screen that can break it lives. It is
+           the verbatim line from the artboard. -->
+      <p class="footnote">Editing a goal never reaches back: every day you have
+        logged keeps the target it was judged against. A goal moves from where
+        you are now to a target you set, and stops there — and you step up by
+        performing, never because a week passed.</p>
     `;
   }
 
-  function renderPlan() {
+  function planWeekBlock() {
     const todayWd = A.weekday(S.today());
     const days = dayOrder
       .map((d) => {
@@ -871,18 +959,54 @@
       })
       .join('');
 
+    return days + `<p class="footnote">Today's list shows up on the Today tab by
+      itself, and changing a day here never rewrites one you have already
+      logged — every day's log freezes its own exercise list.</p>`;
+  }
+
+  /**
+   * Plan, from artboard 2a.
+   *
+   * "Two things lived on one scroll before. A segmented header splits them."
+   * That is exactly what was wrong: the goals and the seven training days were
+   * one continuous column, so the screen had two subjects and no way to say
+   * which one you had come for. The segment is a view switch and stores nothing
+   * — a tab is not user data.
+   */
+  function renderPlan() {
+    const goals = S.goals().filter((g) => !g.archived).length;
     const total = dayOrder.reduce((n, d) => n + (S.get().plan[d] || []).length, 0);
-    const active = dayOrder.filter((d) => (S.get().plan[d] || []).length).length;
+    const trainingDays = dayOrder.filter((d) => (S.get().plan[d] || []).length).length;
+    const onGoals = planTab === 'goals';
 
     return `
-      ${goalManageBlock()}
+      <header class="screenhead">
+        <div class="screenhead-top">
+          <h1>Plan</h1>
+          ${
+            onGoals
+              ? `<button class="headpill" data-act="goal-new">${icon('plus')}New goal</button>`
+              : `<button class="headpill" data-act="plan-add" data-day="${A.weekday(S.today())}">${icon(
+                  'plus'
+                )}Add today</button>`
+          }
+        </div>
+        <div class="segbar tabs">
+          <button type="button" class="seg ${onGoals ? 'on' : ''}" data-act="plan-tab" data-tab="goals"
+            aria-pressed="${onGoals}">Goals · ${goals}</button>
+          <button type="button" class="seg ${onGoals ? '' : 'on'}" data-act="plan-tab" data-tab="week"
+            aria-pressed="${!onGoals}">Training week</button>
+        </div>
+        <div class="screenhead-sub">${
+          onGoals
+            ? 'A ladder each, from where you are to where you chose to be.'
+            : `${trainingDays} training day${trainingDays === 1 ? '' : 's'} · ${total} exercise${
+                total === 1 ? '' : 's'
+              }`
+        }</div>
+      </header>
 
-      <div class="section-head"><h2>Weekly plan</h2><span class="faint" style="font-size:var(--fs-sm)">${active} training days · ${total} exercises</span></div>
-      <div class="card" style="display:flex;gap:10px;align-items:center">
-        <span style="font-size:22px">🗓️</span>
-        <div class="muted" style="font-size:var(--fs-md);flex:1">Set what you'll do on each weekday. Today's list shows up automatically on the Today tab, and changes never rewrite days you've already logged.</div>
-      </div>
-      ${days}
+      ${onGoals ? goalManageBlock() : planWeekBlock()}
     `;
   }
 
@@ -908,7 +1032,18 @@
 
   const moodIcon = (i) => (MOODS[i] ? MOODS[i].icon : '');
 
-  /** One form, used inline on the Read tab and inside the sheet from Today. */
+  /** How many words are in it. The one number on this screen that has to be
+      live, because it is next to the button that closes the day. */
+  const wordCount = (text) => String(text || '').trim().split(/\s+/).filter(Boolean).length;
+
+  /**
+   * One form, used inline on the Read tab and inside the sheet from Today.
+   *
+   * Artboard 2b's order: the two facts of the entry as small cards, then the
+   * prompt, then the box, then the word count beside the one button that closes
+   * the day. The prompt used to be a field label three rows down — it is the
+   * question being asked, so it sits above the box it is asked into.
+   */
   function readingForm(dateKey) {
     const g = S.activeGoals().find((x) => x.gate === 'summary');
     const r = S.readingEntry(dateKey) || {};
@@ -917,31 +1052,52 @@
     const mins = r.minutes != null ? r.minutes : target != null && g && g.unit === 'minutes' ? target : '';
 
     return `
-      <div class="grid-2">
-        <label class="field"><span>Book / source</span>
+      <div class="minifields">
+        <label class="minifield wide"><span>Book</span>
           <input type="text" id="r_book" maxlength="60" value="${esc(r.book || '')}" placeholder="Deep Work, ch. 3"></label>
-        <label class="field"><span>Minutes read</span>
+        <label class="minifield"><span>Minutes</span>
           <input type="number" id="r_min" min="0" max="600" value="${esc(mins)}"></label>
       </div>
-      <label class="field"><span>Summary — ${esc(A.promptForDay(dateKey))}</span>
-        <textarea id="r_summary" rows="6" placeholder="A few honest sentences in your own words…">${esc(r.summary || '')}</textarea></label>
-      <p class="faint" style="font-size:var(--fs-sm);margin:-4px 0 12px">
-        Writing it is what marks the day done — there is no separate tick. Any length counts;
-        a real sentence beats a long one you didn't mean.
-      </p>
-      <div class="btn-row">
-        <button class="btn primary" data-act="read-save" data-date="${dateKey}" style="flex:1">${done ? 'Update summary' : 'Save & complete'}</button>
-        ${done ? `<button class="btn ghost danger" data-act="read-clear" data-date="${dateKey}">Clear</button>` : ''}
+      <p class="readprompt">${esc(A.promptForDay(dateKey))}</p>
+      <textarea id="r_summary" rows="5" aria-label="Today's summary"
+        placeholder="A few honest sentences in your own words…">${esc(r.summary || '')}</textarea>
+      <div class="readfoot">
+        <span class="readwords" id="r_words">${wordCount(r.summary)} words · any length counts</span>
+        <button class="btn primary" data-act="read-save" data-date="${dateKey}">${
+      done ? 'Update summary' : 'Save & complete'
+    }</button>
       </div>
+      <p class="footnote">Writing it is what marks the day done — there is no
+        separate tick, and a real sentence beats a long one you didn't mean.${
+          g && target != null
+            ? ` Today asks ${esc(targetPhrase(g, target))}; logging fewer minutes saves the summary but leaves the goal unmet.`
+            : ''
+        }</p>
       ${
-        g && target != null
-          ? `<p class="faint" style="font-size:var(--fs-sm);margin:10px 0 0">Today's reading target: <b>${esc(
-              targetPhrase(g, target)
-            )}</b>. Logging fewer minutes saves the summary but leaves the goal unmet.</p>`
+        done
+          ? `<button class="btn ghost danger block" data-act="read-clear" data-date="${dateKey}">Clear this summary</button>`
           : ''
       }`;
   }
 
+  /**
+   * Read, from artboard 2b.
+   *
+   * "The gate is the screen's subject, so the prompt comes first and the day's
+   * word count sits next to the one button that closes it."
+   *
+   * That is the whole change. The form used to be a stack of labelled fields
+   * inside a plain card, with the prompt as a field label three rows down; the
+   * prompt is the thing being asked, so it goes above the box it is asked into,
+   * and the two facts of the entry — book and minutes — shrink to two small
+   * cards beside each other above it. The card takes the amber border every
+   * screen gives to something waiting on you, and drops it once the summary is
+   * written.
+   *
+   * The archives collapse to counted rows. They were two full lists of forty
+   * entries each on the screen you open to write today's, which is most of a
+   * scroll spent on last month.
+   */
   function renderRead() {
     const k = S.today();
     const g = S.activeGoals().find((x) => x.gate === 'summary');
@@ -949,17 +1105,20 @@
     const past = S.readingDays().filter((d) => d !== k);
     const jDays = S.journalDays().filter((d) => d !== k);
     const j = S.journalEntry(k) || {};
+    const r = S.readingEntry(k) || {};
+    const done = g ? S.goalDone(k, g.id) : !!(r.summary || '').trim();
+    const target = g ? S.goalTargetOn(g.id, k) : null;
 
     const summaryList = past.length
       ? past
           .slice(0, ARCHIVE_MAX)
           .map((d) => {
-            const r = S.readingEntry(d);
+            const e = S.readingEntry(d);
             return `<details class="entry"><summary>
                 <b>${esc(A.prettyDate(d))}</b>
-                <span>${esc(r.book || 'Reading')}${r.minutes ? ' · ' + r.minutes + ' min' : ''}</span>
+                <span>${esc(e.book || 'Reading')}${e.minutes ? ' · ' + e.minutes + ' min' : ''}</span>
               </summary>
-              <p>${esc(r.summary)}</p>
+              <p>${esc(e.summary)}</p>
               <button class="link" data-act="open-read" data-date="${d}">Edit</button>
             </details>`;
           })
@@ -979,32 +1138,71 @@
       : `<div class="empty">No journal entries yet.</div>`;
 
     return `
-      <div class="section-head"><h2>Reading</h2>${
-        tl ? `<span class="faint" style="font-size:var(--fs-sm)">🔥 ${tl.streak} · ${esc(advanceHint(g, tl))}</span>` : ''
-      }</div>
-      <div class="card">${
+      <header class="screenhead">
+        <div class="screenhead-top">
+          <h1>Read</h1>
+          ${
+            tl
+              ? `<span class="headpill quiet">${icon('flame')}${tl.streak}</span>`
+              : ''
+          }
+        </div>
+        <div class="screenhead-sub">${
+          g
+            ? `Reading is locked until you write. ${past.length + (done ? 1 : 0)} ${
+                past.length + (done ? 1 : 0) === 1 ? 'summary' : 'summaries'
+              } so far.`
+            : 'A reading goal is closed by writing about it, not by ticking it.'
+        }</div>
+      </header>
+
+      ${
         g
-          ? readingForm(k)
+          ? `<section class="gatecard ${done ? 'is-done' : ''}">
+              <div class="gatecard-label">${
+                done
+                  ? 'Today’s summary · written'
+                  : `Today’s summary${target != null ? ' · ' + esc(targetPhrase(g, target)) : ''}`
+              }</div>
+              ${readingForm(k)}
+            </section>`
           : `<div class="empty"><span class="big">📖</span>No reading goal yet.<br>
              <button class="link" data-act="goal-new">Create one →</button></div>`
-      }</div>
+      }
 
-      <div class="section-head"><h2>Daily journal</h2><span class="faint" style="font-size:var(--fs-sm)">separate from your summaries</span></div>
-      <div class="card">
+      <div class="label">Daily journal</div>
+      <section class="card">
         <div class="mood-row">${MOODS.map(
           (m, i) =>
             `<button type="button" class="mood ${j.mood === i ? 'on' : ''}" data-act="mood" data-i="${i}" data-date="${k}"
               aria-label="${esc(m.name)}" aria-pressed="${j.mood === i}">${m.icon}</button>`
         ).join('')}</div>
-        <textarea id="dayNote" data-date="${k}" rows="5" aria-label="Journal for this day"
+        <textarea id="dayNote" data-date="${k}" rows="4" aria-label="Journal for this day"
           placeholder="How did the day actually go?">${esc(j.text || '')}</textarea>
-      </div>
+      </section>
 
-      <div class="section-head"><h2>Past summaries</h2><span class="faint" style="font-size:var(--fs-sm)">${archiveCount(past.length)}</span></div>
-      <div class="card">${summaryList}</div>
+      <!-- Counted rows, not two lists of forty. The count still says
+           "showing 40 of 96" rather than "96" over a list that stops at 40:
+           a count that overstates what is on screen reads as lost data. -->
+      <details class="archive">
+        <summary>
+          <span class="body"><b>Past summaries</b><span>${
+            past.length ? esc(archiveCount(past.length)) + ' · newest ' + esc(A.prettyDate(past[0])) : 'None yet'
+          }</span></span>
+          ${icon('chev')}
+        </summary>
+        <div class="card">${summaryList}</div>
+      </details>
 
-      <div class="section-head"><h2>Past journal</h2><span class="faint" style="font-size:var(--fs-sm)">${archiveCount(jDays.length)}</span></div>
-      <div class="card">${journalList}</div>
+      <details class="archive">
+        <summary>
+          <span class="body"><b>Past journal</b><span>${
+            jDays.length ? esc(archiveCount(jDays.length)) : 'None yet'
+          }</span></span>
+          ${icon('chev')}
+        </summary>
+        <div class="card">${journalList}</div>
+      </details>
     `;
   }
 
@@ -1032,6 +1230,20 @@
     return bits.join(' · ');
   }
 
+  /**
+   * Stats, from artboard 2c.
+   *
+   * "Real totals on the light surface at the top, in a sentence about a life.
+   * The rank and XP ladder keep their place but drop below the ledger and lose
+   * the accent colour — they are instruments, not the argument."
+   *
+   * That is this app's oldest rule given a visual form: see "This Is Not A Game"
+   * in knowledge/project.md. Days you kept, sessions you trained and summaries
+   * you wrote are facts about a life; XP and a rank are a number the app made up
+   * about itself. So the facts get the one light surface on the screen and a
+   * whole sentence, and the level gets a grey row at the bottom with no accent
+   * anywhere in it. It is not deleted — it is put in proportion.
+   */
   function renderProgress() {
     const hist = S.history();
     const life = S.lifeTotals();
@@ -1056,8 +1268,7 @@
     const weeks = [];
     for (let i = 7; i >= 0; i--) {
       const anchor = A.addDays(A.weekStart(today), -i * 7);
-      const w = S.weekStats(anchor);
-      weeks.push(w);
+      weeks.push(S.weekStats(anchor));
     }
     const maxW = Math.max(1, ...weeks.map((w) => w.complete), S.settings().goalPerWeek);
     const bars = weeks
@@ -1128,42 +1339,54 @@
     );
 
     return `
-      <div class="section-head"><h2>What you've actually done</h2><span class="faint" style="font-size:var(--fs-sm)">since ${esc(
-        A.prettyDate(life.since)
-      )}</span></div>
-      <div class="card">
+      <header class="screenhead">
+        <div class="screenhead-top"><h1>Stats</h1></div>
+        <div class="screenhead-sub">Since ${esc(
+          A.prettyDate(life.since)
+        )} · everything here is recomputed from your logs</div>
+      </header>
+
+      <!-- The light surface, used once on this screen and for this alone. -->
+      <section class="ledgercard">
+        <div class="ledgercard-label">What you've actually done</div>
         <p class="lifeline">${lifeSentence(life)}</p>
         ${
           life.goals.length
-            ? `<div class="lifegrid">${life.goals
-                .slice(0, 6)
+            ? `<div class="ledgercard-grid">${life.goals
+                .slice(0, 3)
                 .map(
-                  (row) => `<div class="lifeitem">
+                  (row) => `<div class="ledgercard-item">
                     <b>${esc(lifeAmount(row))}</b>
-                    <span>${goalGlyph(row.goal)} ${esc(row.goal.name)}</span>
+                    <span>${esc(row.goal.name)}</span>
                   </div>`
                 )
                 .join('')}</div>`
-            : `<div class="empty">Nothing logged yet. This fills up with what you actually did — not points.</div>`
+            : ''
         }
+      </section>
+
+      <div class="statrow">
+        <div class="statcard"><span class="statcard-label">Streak</span>
+          <b>${streak}</b><small>best ${hist.best}</small></div>
+        <div class="statcard"><span class="statcard-label">Days kept</span>
+          <b class="good">${hist.completeDays}</b><small>${life.days} lived</small></div>
+        <div class="statcard"><span class="statcard-label">Exercises</span>
+          <b>${totalEx}</b><small>${life.sessions} session${life.sessions === 1 ? '' : 's'}</small></div>
       </div>
 
-      <div class="section-head"><h2>Streaks</h2></div>
-      <div class="stat-grid">
-        <div class="stat fire"><b>🔥 ${streak}</b><span>Current streak</span></div>
-        <div class="stat fire"><b>${hist.best}</b><span>Best streak</span></div>
-        <div class="stat good"><b>${hist.completeDays}</b><span>Days completed</span></div>
-        <div class="stat"><b>${totalEx}</b><span>Exercises done</span></div>
-      </div>
-
-      <div class="section-head"><h2>Level</h2></div>
+      <div class="label">Last 18 weeks</div>
       <div class="card">
-        <div class="xpbar-top"><span>${prog.rank.icon} ${esc(prog.rank.name)} · Level ${prog.level}</span><span>${fmtXp(prog.into)}/${fmtXp(prog.need)} XP</span></div>
-        ${bar(prog.pct)}
-        <div class="faint" style="font-size:var(--fs-sm);margin-top:8px">${fmtXp(prog.xp)} XP earned all-time · ${fmtXp(A.xpForLevel(prog.level + 1) - prog.xp)} XP to level ${prog.level + 1}</div>
+        <div class="heat">${cells}</div>
+        <div class="legend">
+          <span><b style="background:var(--good)"></b>Kept</span>
+          <span><b style="background:color-mix(in srgb,var(--warn) 45%,transparent)"></b>Partial</span>
+          <span><b style="background:color-mix(in srgb,var(--accent) 14%,transparent)"></b>Rest</span>
+          <span><b style="background:color-mix(in srgb,var(--bad) 22%,transparent)"></b>Missed</span>
+          <span><b style="background:var(--surface-2)"></b>Not yet</span>
+        </div>
       </div>
 
-      <div class="section-head"><h2>Goal ladders</h2><span class="faint" style="font-size:var(--fs-sm)">baseline → target</span></div>
+      <div class="label">Goal ladders</div>
       <div class="card">${
         S.activeGoals().length
           ? S.activeGoals()
@@ -1172,13 +1395,13 @@
                 const pct = tl.maxLevel ? (tl.level / tl.maxLevel) * 100 : 100;
                 return `<div class="ladder">
                   <div class="ladder-top">
-                    <span>${goalGlyph(g)} <b>${esc(g.name)}</b></span>
+                    <span><b>${esc(g.name)}</b></span>
                     <span class="faint">${esc(A.formatValue(g.unit, g.baseline))} → <b>${esc(
                   A.formatValue(g.unit, tl.target)
                 )}</b> → ${esc(A.formatValue(g.unit, g.target))}</span>
                   </div>
                   ${bar(pct, tl.atTarget ? 'gold' : '')}
-                  <div class="faint" style="font-size:var(--fs-xs);margin-top:5px">${esc(advanceHint(g, tl))} · 🔥 ${tl.streak} · ${
+                  <div class="faint" style="font-size:var(--fs-xs);margin-top:5px">${esc(advanceHint(g, tl))} · ${
                   tl.doneDays
                 }/${tl.scheduledDays} days kept</div>
                 </div>`;
@@ -1187,30 +1410,30 @@
           : `<div class="empty">No goals yet.</div>`
       }</div>
 
-      <div class="section-head"><h2>Last 18 weeks</h2></div>
-      <div class="card">
-        <div class="heat">${cells}</div>
-        <div class="legend">
-          <span><b style="background:var(--good)"></b>Complete</span>
-          <span><b style="background:color-mix(in srgb,var(--warn) 45%,transparent)"></b>Partial</span>
-          <span><b style="background:color-mix(in srgb,var(--accent-2) 14%,transparent)"></b>Rest</span>
-          <span><b style="background:color-mix(in srgb,var(--bad) 22%,transparent)"></b>Missed</span>
-          <span><b style="background:var(--surface-2)"></b>Not yet</span>
-        </div>
-      </div>
-
-      <div class="section-head"><h2>Weekly goal history</h2><span class="faint" style="font-size:var(--fs-sm)">goal ${S.settings().goalPerWeek}/wk</span></div>
-      <div class="card"><div class="bars">${bars}</div></div>
-
-      <div class="section-head"><h2>Muscles trained</h2>
-        <div class="segbar tight">${MUSCLE_WINDOWS.map(
-          (w) => `<button class="seg ${muscleWindow === w.days ? 'on' : ''}" data-act="muscle-window"
-            data-days="${w.days}" aria-pressed="${muscleWindow === w.days}">${esc(w.label)}</button>`
-        ).join('')}</div></div>
+      <div class="label">Muscles trained</div>
+      <div class="segbar tight">${MUSCLE_WINDOWS.map(
+        (w) => `<button class="seg ${muscleWindow === w.days ? 'on' : ''}" data-act="muscle-window"
+          data-days="${w.days}" aria-pressed="${muscleWindow === w.days}">${esc(w.label)}</button>`
+      ).join('')}</div>
       <div class="card">${muscleRows}</div>
 
-      <div class="section-head"><h2>Training mix · 30 days</h2></div>
+      <div class="label">Training mix · 30 days</div>
       <div class="card">${mixRows}</div>
+
+      <div class="label">Weekly goal history · target ${S.settings().goalPerWeek} a week</div>
+      <div class="card"><div class="bars">${bars}</div></div>
+
+      <!-- The level, last and grey. It keeps its place and loses the accent:
+           an instrument, not the argument. -->
+      <div class="lvlrow">
+        <span class="lvlrow-plate" aria-hidden="true">${icon('chart')}</span>
+        <div class="lvlrow-body">
+          <div class="lvlrow-line">Level ${prog.level} · ${esc(prog.rank.name)} · ${fmtXp(prog.xp)} XP</div>
+          <div class="lvlrow-bar"><i style="width:${Math.max(0, Math.min(100, prog.pct))}%"></i></div>
+        </div>
+      </div>
+      <p class="footnote">${fmtXp(prog.into)} of ${fmtXp(prog.need)} XP into this level. Points are
+        the app talking about itself; everything above this line is your record.</p>
     `;
   }
 
@@ -1229,13 +1452,22 @@
    * Rewards the user promised themselves. These pay out in the real world, so
    * "claim" means "I actually bought it" — and it toggles, because a mistap is
    * not a purchase.
+   *
+   * Artboard 2d: an earned promise takes the amber border, the amber bar and the
+   * button; one still running takes the plain border and a teal bar, because
+   * teal is progress and amber is a debt the app owes you. And under the button,
+   * verbatim from the mockup: collecting grants no XP. That is the whole point
+   * of this half of the screen — the app cannot pay you, so it does not pretend
+   * that noticing you paid yourself is worth points.
    */
   function myRewards() {
     const list = S.customRewards();
     if (!list.length) {
-      return `<div class="empty"><span class="big">🎁</span>
-        Promise yourself something. Fourteen days of workouts, then the sneakers.<br>
-        <button class="link" data-act="reward-new">Set one up →</button></div>`;
+      return `<div class="promptrow">
+        <span class="promptrow-plate" aria-hidden="true">${icon('gift')}</span>
+        <div class="promptrow-body">Promise yourself something real. Fourteen days, then the thing.
+          <button class="link" data-act="reward-new">Set one up →</button></div>
+      </div>`;
     }
     return list
       .map((r) => {
@@ -1245,7 +1477,9 @@
             <span class="myreward-icon" aria-hidden="true">${esc(r.icon || '🎁')}</span>
             <span class="myreward-body">
               <span class="myreward-name">${esc(r.name)}</span>
-              <span class="myreward-trig">${esc(rewardTrigger(r))}</span>
+              <span class="myreward-trig">${esc(rewardTrigger(r))}${
+          p.unlocked ? ' · earned on your best run of ' + S.history().best : ''
+        }</span>
             </span>
           </button>
           <div class="myreward-track">
@@ -1256,13 +1490,104 @@
           </div>
           ${
             p.unlocked
-              ? `<button class="btn ${p.claimed ? 'ghost' : 'primary'} block" data-act="reward-claim" data-id="${r.id}"
-                   style="margin-top:10px">${p.claimed ? 'Collected — undo' : '🎉 I bought it'}</button>`
+              ? `<button class="btn ${p.claimed ? 'ghost' : 'gold'} block" data-act="reward-claim" data-id="${r.id}"
+                   style="margin-top:13px">${p.claimed ? 'Collected — undo' : 'I bought it'}</button>
+                 <p class="myreward-note">Collecting records the purchase. No XP — you bought this, the app didn't.</p>`
               : ''
           }
         </article>`;
       })
       .join('');
+  }
+
+  /**
+   * Rewards, from artboard 2d.
+   *
+   * "Your own promises sit above the app's milestones and get the amber. 'I
+   * bought it' is the only claim here that means anything, and it grants no XP —
+   * the earned milestone below states its points in muted type instead."
+   *
+   * So the order inverted: what the user promised themselves is the subject of
+   * the screen, and the app's own ladder of medals is what follows. The XP on a
+   * milestone is still stated, in the quietest type on the card, because hiding
+   * it would be pretending the app does not keep score at all.
+   */
+  function renderRewards() {
+    const list = S.rewards();
+    const next = S.nextMilestone();
+    const streak = S.currentStreak();
+    const best = S.history().best;
+    const wk = S.weekStats();
+    const claimable = list.filter((r) => r.unlocked && !r.claimed).length;
+
+    const nextCard = next
+      ? `<section class="card next-reward">
+          <div class="top">
+            <span class="medal">${next.icon}</span>
+            <div><h3>Next: ${esc(next.name)}</h3><p>${esc(next.blurb)}</p></div>
+          </div>
+          <div class="xpbar-top"><span>${best} / ${next.days} days</span><span>${next.days - best} to go · +${fmtXp(next.xp)} XP</span></div>
+          ${bar((best / next.days) * 100, 'gold')}
+        </section>`
+      : `<section class="card next-reward"><div class="top"><span class="medal">🌟</span>
+          <div><h3>Every milestone unlocked</h3><p>You've cleared the whole ladder. Legend.</p></div></div></section>`;
+
+    const grid = list
+      .map(
+        (r) => `<div class="reward ${r.unlocked ? 'unlocked' : ''} ${r.claimed ? 'claimed' : ''}">
+          <span class="medal">${r.icon}</span>
+          <h4>${r.days} days</h4>
+          ${
+            r.unlocked
+              ? r.claimed
+                ? `<div class="days claimed-mark">Claimed</div>`
+                : `<button class="btn primary claim" data-act="claim" data-id="${r.id}">Claim</button>`
+              : `<div class="mini-bar">${bar(r.progress, 'gold')}</div>`
+          }
+          <div class="days">${r.claimed ? '+' + fmtXp(r.xp) + ' XP' : esc(r.name)}</div>
+        </div>`
+      )
+      .join('');
+
+    return `
+      <header class="screenhead">
+        <div class="screenhead-top">
+          <span class="screenhead-plate" aria-hidden="true">${icon('trophy')}</span>
+          <div style="flex:1;min-width:0">
+            <h1 style="font-size:var(--fs-2xl)">Rewards</h1>
+            <div class="screenhead-sub" style="margin-top:2px">Earned on your best run, never revoked</div>
+          </div>
+          <button class="headpill" data-act="reward-new">${icon('plus')}New</button>
+        </div>
+      </header>
+
+      <div class="label">Your own rewards</div>
+      ${myRewards()}
+
+      <div class="label split">
+        <span>Streak milestones</span><span>${streak} now · best ${best}${
+      claimable ? ' · ' + claimable + ' ready' : ''
+    }</span>
+      </div>
+      ${nextCard}
+      <div class="reward-grid">${grid}</div>
+
+      <!-- The weekly chest is the app's own payout, so it sits with the app's own
+           ladder rather than with the promises above. -->
+      <div class="card">
+        <div class="xpbar-top"><span>Weekly chest · ${wk.complete}/${wk.goal} days</span><span>${
+      wk.claimed ? 'Claimed' : wk.hit ? 'Ready' : `${wk.goal - wk.complete} to go`
+    }</span></div>
+        ${bar(wk.pct, 'gold')}
+        ${
+          wk.hit && !wk.claimed
+            ? `<button class="btn gold block" data-act="claim-weekly" style="margin-top:12px">Open chest · +${fmtXp(
+                A.XP.weeklyGoal
+              )} XP</button>`
+            : ''
+        }
+      </div>
+    `;
   }
 
   function openRewardEditor(id, draft) {
@@ -1292,61 +1617,6 @@
     }</button></div>
       ${r ? `<button class="btn ghost danger block" data-act="reward-delete" data-id="${r.id}" style="margin-top:8px">Delete</button>` : ''}
     `);
-  }
-
-  function renderRewards() {
-    const list = S.rewards();
-    const next = S.nextMilestone();
-    const streak = S.currentStreak();
-    const best = S.history().best;
-    const wk = S.weekStats();
-    const claimable = list.filter((r) => r.unlocked && !r.claimed).length;
-
-    const nextCard = next
-      ? `<section class="next-reward">
-          <div class="top">
-            <span class="medal">${next.icon}</span>
-            <div><h3>Next: ${esc(next.name)}</h3><p>${esc(next.blurb)}</p></div>
-          </div>
-          <div class="xpbar-top"><span>${best} / ${next.days} days</span><span>${next.days - best} to go · +${fmtXp(next.xp)} XP</span></div>
-          ${bar((best / next.days) * 100, 'gold')}
-        </section>`
-      : `<section class="next-reward"><div class="top"><span class="medal">🌟</span>
-          <div><h3>Every milestone unlocked</h3><p>You've cleared the whole ladder. Legend.</p></div></div></section>`;
-
-    const grid = list
-      .map(
-        (r) => `<div class="reward ${r.unlocked ? 'unlocked' : ''} ${r.claimed ? 'claimed' : ''}">
-          <span class="medal">${r.icon}</span>
-          <h4>${esc(r.name)}</h4>
-          <div class="days">${r.days} DAY STREAK</div>
-          ${
-            r.unlocked
-              ? r.claimed
-                ? `<div class="pill good" style="margin-top:10px">+${fmtXp(r.xp)} XP</div>`
-                : `<button class="btn primary claim" data-act="claim" data-id="${r.id}">Claim +${fmtXp(r.xp)} XP</button>`
-              : `<div class="mini-bar">${bar(r.progress, 'gold')}</div>`
-          }
-        </div>`
-      )
-      .join('');
-
-    return `
-      <div class="section-head"><h2>Your rewards</h2><button class="link" data-act="reward-new">＋ New reward</button></div>
-      ${myRewards()}
-
-      <div class="section-head"><h2>Milestones</h2>${claimable ? `<span class="pill good">${claimable} ready</span>` : ''}</div>
-      ${nextCard}
-
-      <div class="card">
-        <div class="xpbar-top"><span>🎁 Weekly chest · ${wk.complete}/${wk.goal} days</span><span>${wk.claimed ? 'Claimed' : wk.hit ? 'Ready!' : `${wk.goal - wk.complete} to go`}</span></div>
-        ${bar(wk.pct, 'gold')}
-        ${wk.hit && !wk.claimed ? `<button class="btn primary block" data-act="claim-weekly" style="margin-top:12px">Open chest · +${fmtXp(A.XP.weeklyGoal)} XP</button>` : ''}
-      </div>
-
-      <div class="section-head"><h2>Streak milestones</h2><span class="faint" style="font-size:var(--fs-sm)">🔥 ${streak} now · best ${best}</span></div>
-      <div class="reward-grid">${grid}</div>
-    `;
   }
 
   /* ================= MORE ================= */
@@ -1383,6 +1653,20 @@
       : `<div class="empty">No habits yet.</div>`;
 
     const fz = S.freezeStats();
+    /* The two destinations across the top of 2e each carry one line of state,
+       so the row says what is waiting rather than only where it goes. */
+    const readyRewards = S.customRewards().filter((r) => {
+      const p = S.customRewardProgress(r);
+      return p.unlocked && !p.claimed;
+    }).length + S.rewards().filter((r) => r.unlocked && !r.claimed).length;
+    const runSt = S.runStatus();
+    const runLine = !runSt
+      ? "Not started"
+      : runSt.running
+      ? "Day " + runSt.day + " of " + A.Run.RUN_DAYS
+      : runSt.state === "finished"
+      ? "Finished"
+      : "Not started";
     const modeCards = A.MODE_IDS.map((id) => {
       const m = A.MODES[id];
       const example = S.activeGoals()[0];
@@ -1399,27 +1683,45 @@
     }).join('');
 
     return `
+      <header class="screenhead">
+        <div class="screenhead-top"><h1>More</h1></div>
+        <!-- The artboard says "last export 3 days ago" here. There is no such
+             timestamp in the state and inventing one would mean a new field and
+             a migration, so this says the part that is true today. -->
+        <div class="screenhead-sub">Everything lives on this device · nothing is ever uploaded</div>
+      </header>
+
       <!-- Rewards left the tab bar for this row: it is the one screen you open
            after the fact rather than to do something, and the four daily screens
-           are worth more thumb than it is. -->
-      <button type="button" class="more-rewards" data-nav="rewards">
-        ${icon('trophy')}<b>Rewards</b><i aria-hidden="true">›</i>
-      </button>
+           are worth more thumb than it is. Artboard 2e pairs it with the run as
+           two destinations across the top. -->
+      <div class="destrow">
+        <button type="button" class="dest" data-nav="rewards">
+          <span class="dest-plate" aria-hidden="true">${icon('trophy')}</span>
+          <b>Rewards</b>
+          <span class="${readyRewards ? 'is-ready' : ''}">${
+      readyRewards
+        ? readyRewards + (readyRewards === 1 ? ' earned, uncollected' : ' earned, uncollected')
+        : 'Promises and milestones'
+    }</span>
+        </button>
+        <button type="button" class="dest" data-nav="run">
+          <span class="dest-plate" aria-hidden="true">${icon('sun')}</span>
+          <b>The 66-day run</b>
+          <span>${esc(runLine)}</span>
+        </button>
+      </div>
 
-      <button type="button" class="more-rewards" data-nav="run">
-        ${icon('sun')}<b>The 66-day run</b><i aria-hidden="true">›</i>
-      </button>
-
-      <div class="section-head"><h2>Difficulty</h2></div>
+      <div class="label">Difficulty</div>
       <div class="mode-grid">${modeCards}</div>
-      <p class="faint" style="font-size:var(--fs-sm);margin:2px 4px 0">
+      <p class="footnote">
         Difficulty changes how <b>big</b> each step is, never how you earn one — you always advance by
         performing. Switching re-scores your record at the new step size: nothing is wiped, days you
         already completed stay completed, but the next ask can jump. Individual goals can override this.
       </p>
 
-      <div class="section-head"><h2>Streak rules</h2></div>
-      <div class="card">
+      <div class="label">Streak rules</div>
+      <div class="card flush">
         <div class="row">
           <div class="body"><div class="name">Day rolls over at</div><div class="sub">Late-night logging still counts for the day you meant</div></div>
           <select data-set="dayBoundaryHour">
@@ -1435,15 +1737,21 @@
           <label class="switch"><input type="checkbox" data-set="runCountsTowardDay" ${s.runCountsTowardDay ? 'checked' : ''}><i></i></label>
         </div>
         <div class="row">
+          <div class="body"><div class="name">Rest days keep the streak</div><div class="sub">Days with nothing scheduled don't break it</div></div>
+          <label class="switch"><input type="checkbox" data-set="restCountsAsStreak" ${s.restCountsAsStreak ? 'checked' : ''}><i></i></label>
+        </div>
+        <div class="row">
           <div class="body"><div class="name">Streak freezes</div><div class="sub">One earned per 10 completed days · ${fz.used} used of ${fz.earned} earned</div></div>
-          <span class="pill ${fz.available ? 'good' : ''}">❄️ ${fz.available}</span>
+          <span class="pill ${fz.available ? 'gold' : ''}">${fz.available} left</span>
         </div>
       </div>
 
-      <div class="section-head"><h2>Profile</h2></div>
-      <div class="card">
-        <label class="field"><span>Display name</span>
-          <input type="text" data-set="name" value="${esc(s.name)}" maxlength="24"></label>
+      <div class="label">Profile</div>
+      <div class="card flush">
+        <div class="row">
+          <div class="body"><div class="name">Display name</div><div class="sub">What the app calls you</div></div>
+          <input type="text" data-set="name" value="${esc(s.name)}" maxlength="24" style="max-width:150px">
+        </div>
         <div class="row">
           <div class="body"><div class="name">Weekly goal</div><div class="sub">Completed days needed for the weekly chest</div></div>
           <input type="number" data-set="goalPerWeek" min="1" max="7" value="${esc(s.goalPerWeek)}">
@@ -1458,14 +1766,12 @@
           <div class="body"><div class="name">Habits count toward the day</div><div class="sub">Require habits, not just exercises</div></div>
           <label class="switch"><input type="checkbox" data-set="requireHabits" ${s.requireHabits ? 'checked' : ''}><i></i></label>
         </div>
-        <div class="row">
-          <div class="body"><div class="name">Rest days keep the streak</div><div class="sub">Days with nothing scheduled don't break it</div></div>
-          <label class="switch"><input type="checkbox" data-set="restCountsAsStreak" ${s.restCountsAsStreak ? 'checked' : ''}><i></i></label>
-        </div>
       </div>
 
-      <div class="section-head"><h2>Daily habits</h2><button class="link" data-act="habit-add">＋ Add</button></div>
-      <div class="card">${habitRows}</div>
+      <div class="label split">
+        <span>Daily habits</span><button class="link" data-act="habit-add">＋ Add</button>
+      </div>
+      <div class="card flush">${habitRows}</div>
 
       <!-- Fifty-nine exercises pushed Reminders, Profile and the export route
            off the bottom of More. It is a reference list, opened to change
@@ -1484,20 +1790,24 @@
       })}
       <div id="libBody">${libOpen ? `<div class="card">${libRows}</div>` : ''}</div>
 
-      <div class="section-head"><h2>Reminders</h2></div>
+      <div class="label">Reminders</div>
       <div class="card">
         <div class="row">
           <div class="body"><div class="name">Nudge me while the app is open</div><div class="sub">A browser notification when a goal is still unlogged</div></div>
           <label class="switch"><input type="checkbox" data-set="reminders" ${s.reminders ? 'checked' : ''}><i></i></label>
         </div>
-        <p class="faint" style="font-size:var(--fs-sm);margin:10px 2px 0">
-          Being straight with you: a web app <b>cannot</b> be an alarm clock. Browsers don't run timers in
-          the background, and iOS only delivers web notifications to a home-screen install, unreliably.
-          Discipline <b>tracks</b> your wake-up; it can't wake you. Keep using your phone's alarm for that.
-        </p>
       </div>
+      <!-- Verbatim, and it stays that way. The artboard's note about this screen
+           says "the honest disclaimers stay verbatim — the app cannot be an
+           alarm clock and says so", which is the one thing on More that is worth
+           more than the layout. -->
+      <p class="footnote">
+        Being straight with you: a web app <b>cannot</b> be an alarm clock. Browsers don't run timers in
+        the background, and iOS only delivers web notifications to a home-screen install, unreliably.
+        Discipline <b>tracks</b> your wake-up; it can't wake you. Keep using your phone's alarm for that.
+      </p>
 
-      <div class="section-head"><h2>Countdown</h2></div>
+      <div class="label">Countdown</div>
       <div class="card">
         <div class="row">
           <div class="body"><div class="name">${S.activeChallenge() ? esc(S.activeChallenge().name) : 'No countdown running'}</div>
@@ -1510,7 +1820,7 @@
         </div>
       </div>
 
-      <div class="section-head"><h2>App</h2></div>
+      <div class="label">App</div>
       <div class="card">
         <div class="row">
           <div class="body"><div class="name">Install Discipline</div><div class="sub">Add to your home screen and run offline</div></div>
@@ -1529,7 +1839,7 @@
           <button class="btn danger" data-act="reset">Reset</button>
         </div>
       </div>
-      <p class="faint" style="text-align:center;font-size:var(--fs-xs);margin:18px 0 0">Discipline · offline-first PWA · your data never leaves this device<br>
+      <p class="footnote" style="text-align:center;margin-top:18px">Discipline · offline-first PWA · your data never leaves this device<br>
         build ${esc(buildVersion || 'not yet installed')}</p>
     `;
   }
@@ -2270,8 +2580,10 @@
     const starts = (run.habits || []).map((h) => h.startDay).filter((d) => d > day);
 
     return `
-      <div class="section-head"><h2>The run · day ${day} of ${RUN().RUN_DAYS}</h2>
-        <button class="link" data-nav="run">The whole run</button></div>
+      <div class="label split">
+        <span>The run · day ${day} of ${RUN().RUN_DAYS}</span>
+        <button class="link" data-nav="run">The whole run</button>
+      </div>
       ${
         rows.length
           ? `<div class="runlist">${rows.map((r) => runRow(r, log[r.id])).join('')}</div>
@@ -2356,7 +2668,7 @@
       .sort((a, b) => a.startDay - b.startDay || a.habitId.localeCompare(b.habitId));
 
     return `
-      <div class="section-head"><h2>The whole run</h2></div>
+      <div class="label">The whole run</div>
       ${runLattice(marks)}
       <p class="faint runnote">${esc(runTally(marks))}</p>
 
@@ -2472,15 +2784,13 @@
     if (!run || day == null) return;
     const have = {};
     (run.habits || []).forEach((p) => { have[p.habitId] = true; });
-    const rows = RUN().HABITS.filter((h) => !have[h.id]).map((h) => {
-      let start = null;
-      RUN().legalStartDays(run, day).some((d) => {
-        if (RUN().validate(RUN().withAdded(run, h.id, d)).length) return false;
-        start = d;
-        return true;
-      });
-      return { h: h, start: start };
-    });
+    /* `firstLegalStart` rather than a scan over every legal day: this runs once
+       per candidate habit, so a linear search here multiplied 56 validations by
+       fourteen and the sheet opened on a visible pause. See run.js. */
+    const rows = RUN().HABITS.filter((h) => !have[h.id]).map((h) => ({
+      h: h,
+      start: RUN().firstLegalStart(run, { habitId: h.id, startDay: 1, scale: 1, frozenDay: null }, day)
+    }));
 
     openSheet('Add a habit', `
       <p class="muted" style="margin-top:0;font-size:var(--fs-md)">It joins on the first day the
@@ -2639,7 +2949,10 @@
          answer and a habit was never visible on screen, so it read as a
          questionnaire that got thrown away. The catalog is the choice. */
       return `
-        <div class="section-head"><h2>The 66-day run</h2></div>
+        <header class="screenhead">
+          <div class="screenhead-top"><h1>The 66-day run</h1></div>
+          <div class="screenhead-sub">Separate from your goals, and feasible on all 66 days by construction</div>
+        </header>
         <section class="card">
           <p>A fixed 66 days built from a closed list of habits, which
              <b>cannot ask you for a day you can't do</b>. It ramps on the
@@ -2685,7 +2998,9 @@
 
     if (st.state === 'finished') {
       return `
-        <div class="section-head"><h2>The run is over</h2></div>
+        <header class="screenhead">
+          <div class="screenhead-top"><h1>The run is over</h1></div>
+        </header>
         <section class="hero"><div class="hero-stats">
           <div class="hero-stat"><b>${RUN().RUN_DAYS}</b><span>days</span></div>
           <div class="hero-stat"><b>${kept}</b><span>kept in full</span></div>
@@ -2699,7 +3014,9 @@
     }
 
     if (st.state === 'not_started') {
-      return `<div class="section-head"><h2>The 66-day run</h2></div>
+      return `<header class="screenhead">
+          <div class="screenhead-top"><h1>The 66-day run</h1></div>
+        </header>
         <div class="empty">It starts on ${esc(A.prettyDate(run.startDate))}.</div>
         <button class="btn ghost block" data-act="run-end">Cancel it</button>`;
     }
@@ -2719,12 +3036,27 @@
     const eased = check.notes.filter((n) => n.indexOf('softened') === 0 || n.indexOf('froze') === 0);
 
     return `
-      <section class="dayline">
-        <div>
-          <h1 class="daynum">DAY <b>${day}</b><i>/ ${RUN().RUN_DAYS}</i></h1>
-          <div class="daydate">${esc(ph.name)} · ${run.minutesBudget} min a day · ${kept} kept in full</div>
+      <!-- Ember, like Today's header. The rule for it is "a block whose subject
+           is progress through a fixed length of time", and a screen called
+           "day 12 of 66" is that or nothing is. -->
+      <header class="dayhead ember">
+        <div class="dayhead-top">
+          <div class="dayhead-id">
+            <div class="dayhead-label">The 66-day run</div>
+            <h1 class="daynum">DAY <b>${day}</b><i>/ ${RUN().RUN_DAYS}</i></h1>
+          </div>
+          <div class="dayhead-side">
+            <div class="dayhead-streak"><b>${kept}</b><span>kept in full</span></div>
+          </div>
         </div>
-      </section>
+        <div class="dayhead-track">
+          <i class="elapsed" style="width:${Math.round((day / RUN().RUN_DAYS) * 100)}%"></i>
+          <i class="kept" style="width:${Math.round((kept / RUN().RUN_DAYS) * 100)}%"></i>
+        </div>
+        <div class="dayhead-foot">
+          <span>${esc(ph.name)} phase</span><span>${run.minutesBudget} min a day</span>
+        </div>
+      </header>
 
       ${
         unknown.length
@@ -2744,7 +3076,7 @@
           : ''
       }
 
-      <div class="section-head"><h2>Today</h2></div>
+      <div class="label">Today</div>
       <div class="runlist">${RUN()
         .runDay(run, day)
         .map((r) => runRow(r, (log[day] || {})[r.id]))
@@ -3016,8 +3348,6 @@
         else t.removeAttribute('aria-current');
       }
     });
-    $('#streakChip').innerHTML = `${icon('flame')}<b>${S.currentStreak()}</b>`;
-    $('#keptChip').innerHTML = `${icon('check')}<b>${S.history().completeDays}</b>`;
   }
   UI.render = render;
 
@@ -3089,6 +3419,9 @@
   UI.openExerciseEditor = openExerciseEditor;
   UI.openCopyDay = openCopyDay;
   UI.openSheet = openSheet;
+  UI.wordCount = wordCount;
+  UI.planTab = () => planTab;
+  UI.setPlanTab = (t) => { planTab = t === 'week' ? 'week' : 'goals'; };
   UI.todayFilter = () => todayFilter;
   UI.setTodayFilter = (f) => {
     todayFilter = f === 'done' || f === 'skipped' ? f : 'todo';

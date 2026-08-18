@@ -516,6 +516,10 @@
                   () => S.restoreExtras(date, wasExtras));
         break;
       }
+      case 'plan-tab':
+        UI.setPlanTab(actEl.dataset.tab);
+        UI.render();
+        break;
       case 'today-filter':
         UI.setTodayFilter(actEl.dataset.filter);
         UI.render();
@@ -526,6 +530,16 @@
         break;
       case 'date-next':
         UI.setViewDate(A.addDays(date, 1));
+        UI.render();
+        break;
+      /* The seven-day rail. `sheetDate`, not `date` — `date` is the day already
+         being viewed, so using it here would make every cell a no-op. The cell
+         carries the day it opens in its own data-date, which is the only thing
+         that can be right for a control whose whole job is to change the view
+         date. Which days are offered is the rail's decision; a disabled cell
+         fires nothing. */
+      case 'date-set':
+        UI.setViewDate(sheetDate);
         UI.render();
         break;
       case 'date-today':
@@ -1290,6 +1304,13 @@
   document.addEventListener('input', (ev) => {
     const t = ev.target;
     if (t.id === 'dayNote') S.setJournal(t.dataset.date || UI.viewDate(), { text: t.value });
+    /* The word count beside the Save button, updated in place. A re-render
+       would rebuild the textarea and take the caret with it, which is why this
+       writes one element rather than calling UI.render(). */
+    else if (t.id === 'r_summary') {
+      const out = document.getElementById('r_words');
+      if (out) out.textContent = UI.wordCount(t.value) + ' words · any length counts';
+    }
     else if (t.id === 'pickerQ') {
       UI.setPicker({ q: t.value });
       UI.refreshPicker();

@@ -36,29 +36,45 @@
 
 /* ============ Arise — design tokens ============ */
 :root {
-  /* Warm, near-black and high contrast: the palette reads as paper-on-charcoal
-     rather than glass-on-navy, which is what makes a card-led layout legible at
-     a glance. Cream text rather than white keeps it off the harsh end. */
-  --bg: #100e0c;
-  --surface: #1a1714;
-  --surface-2: #221e1a;
-  --stroke: #2b2622;
-  --stroke-strong: #3a332c;
-  --text: #f5efe8;
-  --muted: #b0a79b;
+  /* Cool, near-black and high contrast, sampled from the redesign brief's
+     artboards. It replaced a warm paper-on-charcoal palette in 2026-08: the
+     brief drew all six screens on these surfaces, and carrying its structure in
+     the old colours would have been half the design.
+
+     Three colours with fixed jobs, and the discipline is in the third:
+       --accent (teal)  the live action, and anything done
+       --gold  (amber)  anything that pays out or is waiting on you
+       --ember          ONLY a block whose subject is progress through a fixed
+                        length of time
+     Ember is what the whole palette used to be built on. It survives on three
+     things: the two ends of Today — the header while a countdown is running,
+     and the strip carrying the next ask — and the run screen's header, which is
+     literally called "day 12 of 66". Nothing else may take it. A fourth use
+     would take the meaning back off it, and then the app would have a warm
+     accent again rather than a rule. */
+  --bg: #0d0f12;
+  --surface: #171a1f;
+  --surface-2: #1f242a;
+  --stroke: #2a3037;
+  --stroke-strong: #39414a;
+  --text: #eef1f5;
+  --muted: #a9b2bd;
   /* WCAG AA (4.5:1) is measured against --surface-2, the lightest card a faint
      label ever sits on — not against --bg, which flatters the ratio. */
-  --faint: #948b80;
+  --faint: #8e98a3;
 
-  --accent: #e2542b;
-  --accent-2: #ee6438;
-  --accent-grad: #e2542b;
-  --flame: #ee6438;
-  --gold: #e8b45c;
-  --good: #57c08a;
-  --warn: #e8b45c;
+  --accent: #2fbfa8;
+  --accent-2: #29a894;
+  --accent-grad: #2fbfa8;
+  /* A streak is time, so the flame keeps the ember hue rather than going teal. */
+  --flame: #e2542b;
+  --gold: #e8a33c;
+  --good: #2fbfa8;    /* done is the same teal as the live action, per the brief */
+  --warn: #e8a33c;
   --bad: #e0685c;
-  --cream: #f0e6d8;   /* the "done"/active surface, borrowed from the reference */
+  --cream: #e7ecf2;   /* the light surface: real totals, the selected segment */
+  --ember: #e2542b;
+  --ember-2: #c94620;
 
   /* Type scale. Every piece of TEXT picks a rung — there were 21 sizes before
      this, with 11.5 and 12 sitting next to each other in one card, so no two
@@ -96,11 +112,17 @@
      --on-art is fixed in both themes because the .gcard artwork is: the scrim
      is painted from literal rgba, so its text cannot follow the theme.
      --on-cream flips with --cream, which does. */
-  --on-accent: #1a0b05;
-  --on-good: #052a19;
+  --on-accent: #06231f;
+  --on-good: #06231f;
+  --on-gold: #06231f;
+  --on-ember: #1a0b05;
   --on-art: #f4efe7;
   --on-art-muted: #b0a79b;
-  --on-cream: #1a1410;
+  --on-cream: #10151a;
+  /* The side padding of a screen. Named because the headers have to break out
+     of it to reach the edge of the viewport, and a header that is 1px off the
+     edge is worse than one that never tried. */
+  --pagepad: 16px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   /* viewport-fit=cover plus a translucent iOS status bar puts content under the
      clock and battery, so anything pinned to the top owes this inset. */
@@ -113,32 +135,40 @@
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #f7f2ea;
+    --bg: #f4f6f9;
     --surface: #ffffff;
-    --surface-2: #f3ede4;
-    --stroke: #e4dacc;
-    --stroke-strong: #cfc3b2;
-    --text: #1b1613;
+    --surface-2: #eef1f5;
+    --stroke: #dde3ea;
+    --stroke-strong: #c2cbd5;
+    --text: #10151a;
     /* --muted darkens with --faint so the two stay a visible step apart once
        --faint is dark enough to clear AA on --surface-2. */
-    --muted: #6f6458;
-    --faint: #736961;
-    --cream: #2a2118;
+    --muted: #5a6472;
+    --faint: #64707d;
+    --cream: #1b2027;
     /* --cream inverts here, so its foreground must invert with it. --on-art and
        --on-art-muted deliberately do not appear in this block: the surface they
        sit on is the same dark artwork in both themes. */
-    --on-cream: #f5efe8;
-    --accent: #c0431f;
-    --accent-2: #a93715;
-    --accent-grad: #c0431f;
-    --flame: #a93715;
-    --gold: #9a6b18;
-    --good: #216e4a;
-    --warn: #9a6b18;
+    --on-cream: #eef1f5;
+    /* Teal and amber both have to clear 4.5:1 against white here, so both drop
+       several steps darker than the artboards' dark-mode values. --ember does
+       the same, and takes white text rather than the near-black ink it uses on
+       a dark ground. */
+    --accent: #12796a;
+    --accent-2: #0e6255;
+    --accent-grad: #12796a;
+    --flame: #b8431c;
+    --gold: #8a5f10;
+    --good: #12796a;
+    --warn: #8a5f10;
     --bad: #b03a2c;
+    --ember: #b8431c;
+    --ember-2: #a03714;
     --on-accent: #ffffff;
     --on-good: #ffffff;
-    --shadow: 0 10px 30px rgba(60, 40, 20, 0.14);
+    --on-gold: #ffffff;
+    --on-ember: #ffffff;
+    --shadow: 0 10px 30px rgba(20, 30, 45, 0.14);
     color-scheme: light;
   }
 }
@@ -181,27 +211,16 @@ button { cursor: pointer; }
   position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%;
   filter: blur(90px); opacity: 0.22;
 }
-.aurora span:nth-child(1) { background: #ff7a18; top: -22vmax; left: -18vmax; }
-.aurora span:nth-child(2) { background: #ffb020; bottom: -26vmax; right: -20vmax; opacity: 0.16; }
-.aurora span:nth-child(3) { background: #8a4b1f; top: 30vmax; left: 30vmax; opacity: 0.1; }
+/* Recoloured with the palette. Three warm blobs under cool charcoal surfaces
+   read as a colour bug rather than as ambience. */
+.aurora span:nth-child(1) { background: #2fbfa8; top: -22vmax; left: -18vmax; opacity: 0.14; }
+.aurora span:nth-child(2) { background: #e8a33c; bottom: -26vmax; right: -20vmax; opacity: 0.1; }
+.aurora span:nth-child(3) { background: #39414a; top: 30vmax; left: 30vmax; opacity: 0.18; }
 
-/* ============ chrome ============ */
-.topbar {
-  position: sticky; top: 0; z-index: 30;
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: calc(14px + var(--safe-t)) 16px 10px;
-  background: linear-gradient(to bottom, var(--bg) 55%, transparent);
-  backdrop-filter: blur(8px);
-}
-.brand { display: flex; align-items: center; gap: 8px; font-weight: 800; letter-spacing: 0.02em; }
-.brand-mark {
-  width: 26px; height: 26px; display: grid; place-items: center;
-  border-radius: 9px; background: var(--accent-grad); color: var(--on-accent); font-weight: 900;
-  box-shadow: var(--shadow-sm);
-}
-.brand-text { font-size: var(--fs-xl); }
-.topbar-right { display: flex; gap: 8px; }
-
+/* ============ chrome ============
+   The sticky top bar is gone: every screen carries its own header now, and a
+   brand bar above one is two headers. `.chip` stays — it is the pill used inside
+   the views, and the bar was only ever one of its callers. */
 .chip {
   display: inline-flex; align-items: center; gap: 6px;
   min-height: 44px; padding: 6px 13px; border-radius: 999px;
@@ -209,10 +228,10 @@ button { cursor: pointer; }
   font-size: var(--fs-md); font-weight: 700;
 }
 .chip b { font-weight: 800; }
-.streak-chip b { color: var(--flame); }
-.kept-chip b { color: var(--good); }
 
-.view { max-width: 720px; margin: 0 auto; padding: 4px 16px 28px; }
+/* No top padding: the first thing on every screen is a header that supplies its
+   own, including the status-bar inset the top bar used to hold. */
+.view { max-width: 720px; margin: 0 auto; padding: 0 var(--pagepad) 28px; }
 .view:focus { outline: none; }
 
 .tabbar {
@@ -322,9 +341,14 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 }
 /* The day's own header. Deliberately small: knowledge/ui-guidelines.md puts what
    today asks and the tick to record it first, and a streak is context, never the
-   headline — so this states the day and gets out of the way of the goal list. */
-.dayhead { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
-.dayhead-meta { min-width: 0; flex: 1; }
+   headline — so this states the day and gets out of the way of the goal list.
+
+   NOTE: the `.dayhead` those two rules styled is not the `.dayhead` at the end
+   of this file. The name was reused by the redesign for Today's whole header,
+   and the old `display: flex` sat EARLIER in the cascade, so it silently applied
+   to the new block as well — a header laid out as a row when it is meant to be a
+   stack. Removing a rule for markup that no longer exists is not tidying here;
+   the two would have gone on fighting. */
 
 .ring { width: 96px; height: 96px; flex: none; position: relative; }
 .ring.sm { width: 66px; height: 66px; }
@@ -752,16 +776,6 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 /* --- the real ledger: what actually happened --- */
 .lifeline { margin: 0; font-size: var(--fs-lg); line-height: 1.6; color: var(--muted); }
 .lifeline b { color: var(--text); font-weight: 800; }
-.lifegrid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: var(--sp-md); margin-top: var(--sp-lg);
-}
-.lifeitem { min-width: 0; }
-.lifeitem b { display: block; font-size: var(--fs-3xl); font-weight: 900; letter-spacing: -0.02em; }
-.lifeitem span {
-  display: block; margin-top: 2px; font-size: var(--fs-sm); color: var(--muted);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
 
 /* --- rewards the user set for themselves --- */
 .myreward {
@@ -783,7 +797,6 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 
 /* ============ Today: day line, segments, goal cards ============ */
 
-.dayline { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin: var(--sp-sm) 0 var(--sp-md); }
 .daynum {
   font-size: 38px; font-weight: 900; letter-spacing: -0.03em; line-height: 1;
   text-transform: uppercase; color: var(--text);
@@ -791,24 +804,8 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 .daynum b { font-weight: 900; }
 .daynum i { font-style: normal; font-size: var(--fs-2xl); font-weight: 700; color: var(--faint); letter-spacing: 0; }
 
-/* The run. Two bars in one track: how far through the calendar you are, and —
-   in front of it — how many of those days you actually kept. Showing only the
-   first would let elapsed time masquerade as progress. */
-.chalbar {
-  display: block; width: 100%; text-align: left;
-  padding: var(--sp-md) var(--sp-lg); margin-bottom: var(--sp-md);
-  border-radius: var(--r); background: var(--surface); border: 1px solid var(--stroke); color: inherit;
-}
-.chalbar.is-complete { border-color: color-mix(in srgb, var(--gold) 50%, transparent); }
-.chalbar-top {
-  display: flex; justify-content: space-between; gap: 10px;
-  font-size: var(--fs-sm); font-weight: 700; color: var(--muted); margin-bottom: 7px;
-}
-.chalbar-track { position: relative; display: block; height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
-.chalbar-track > i { position: absolute; left: 0; top: 0; height: 100%; border-radius: 999px; }
-.chalbar-track > .elapsed { background: color-mix(in srgb, var(--muted) 45%, transparent); }
-.chalbar-track > .kept { background: var(--accent-grad); }
-.daydate { margin-top: 6px; font-size: var(--fs-sm); color: var(--muted); font-weight: 600; }
+/* The challenge bar was its own card under the day line. Both are one header
+   now — see `.dayhead` — and the two-layer track moved there intact. */
 .dayline-nav { display: flex; gap: var(--sp-sm); flex: none; }
 
 .segbar { display: flex; align-items: center; gap: var(--sp-sm); margin-bottom: var(--sp-md); }
@@ -837,67 +834,18 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 }
 .chip-pick.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
-.gcard {
-  /* Overridden per card by goalCard(); declared here so a card without an area
-     still paints a background instead of falling back to nothing. */
-  --hue: 32;
-  position: relative; overflow: hidden; isolation: isolate;
-  display: flex; align-items: center; gap: var(--sp-md);
-  min-height: 108px; padding: var(--sp-md) var(--sp-md) var(--sp-lg);
-  margin-bottom: var(--sp-md); border-radius: var(--r-lg);
-  border: 1px solid var(--stroke);
-  /* Generated "artwork": an area-tinted wash under a dark scrim, so the title
-     stays readable wherever the tint lands. No image is loaded — the app ships
-     no assets and makes no network calls. */
-  background:
-    linear-gradient(100deg, rgba(14, 13, 12, 0.94) 34%, rgba(14, 13, 12, 0.62) 66%, rgba(14, 13, 12, 0.35) 100%),
-    linear-gradient(135deg, hsl(var(--hue) 48% 32%), hsl(var(--hue) 42% 15%));
-}
-.gcard-art {
-  position: absolute; right: 52px; bottom: -20px; z-index: -1;
-  font-size: 96px; line-height: 1; opacity: 0.3; filter: saturate(1.15);
-  transform: rotate(-8deg); pointer-events: none;
-}
-.gcard-open {
-  flex: 1; min-width: 0; display: block; text-align: left;
-  background: none; border: 0; color: inherit; padding: 0;
-}
+/* The goal card is declared ONCE, with the card system at the end of this file.
+   Three generations of `.gcard-*` had accumulated here — a tinted-artwork card
+   with a 96px emoji behind it, then a monogram-tile card, then the redesign —
+   each layered on the last rather than replacing it, so `.gcard-title` had three
+   definitions and the winner depended on file order. Everything the current
+   markup emits is in one block now; what stayed behind is only what is shared
+   with other components. */
 .gcard-badges { display: flex; gap: 6px; min-height: 0; }
-.gcard-streak {
-  display: inline-block; margin-bottom: var(--sp-sm);
-  padding: 3px 9px; border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--flame) 60%, transparent);
-  background: color-mix(in srgb, var(--flame) 18%, transparent);
-  font-size: var(--fs-xs); font-weight: 800; color: var(--flame);
-}
-.gcard-streak.skip { border-color: var(--stroke-strong); background: none; color: var(--on-art-muted); }
-/* --on-art, not --text: the artwork above is painted from literal rgba and does
-   not follow the theme, so a title on --text turned near-black on near-black in
-   light mode — the primary content of the primary screen, unreadable. */
-.gcard-title {
-  display: block; font-size: var(--fs-2xl); font-weight: 800; line-height: 1.2;
-  letter-spacing: -0.015em; color: var(--on-art);
-}
-.gcard-meta {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  margin-top: 7px; font-size: var(--fs-sm); font-weight: 600; color: var(--on-art-muted);
-}
-
-.gcard-tick {
-  flex: none; width: 46px; height: 46px; border-radius: var(--r-xs);
-  background: rgba(18, 14, 11, 0.72); backdrop-filter: blur(3px);
-  border: 1px solid rgba(255, 255, 255, 0.34); color: rgba(255, 255, 255, 0.34);
-  font-size: var(--fs-2xl); font-weight: 900; line-height: 1;
-  transition: background 0.18s, color 0.18s, transform 0.12s;
-}
+.gcard-streak.skip { border-color: var(--stroke-strong); background: none; color: var(--faint); }
 .gcard-tick:active { transform: scale(0.94); }
-.gcard.is-done .gcard-tick { background: var(--cream); border-color: var(--cream); color: var(--on-cream); }
-.gcard.is-done .gcard-title { opacity: 0.72; }
 .gcard.is-skipped { opacity: 0.66; }
 
-/* Progress toward the next rung, hugging the bottom edge of the card. */
-.gcard-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255, 255, 255, 0.09); }
-.gcard-bar > i { display: block; height: 100%; background: var(--accent-grad); }
 
 .lvl {
   flex: none; font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.06em;
@@ -909,14 +857,9 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 
 .btn.tiny { min-height: 44px; padding: 6px 13px; font-size: var(--fs-sm); border-radius: 10px; }
 
-/* --- reading --- */
-.read-card { border-color: color-mix(in srgb, var(--accent) 32%, transparent); }
-.read-card.done { border-color: color-mix(in srgb, var(--good) 32%, transparent); }
-.read-top { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 12px; }
-.read-top .emoji { font-size: 22px; }
-.read-top .name { font-weight: 700; font-size: var(--fs-base); }
-.read-top .sub { font-size: var(--fs-sm); color: var(--muted); margin-top: 2px; line-height: 1.45; }
-
+/* --- reading ---
+   The card Today used to carry for the reading goal is gone: the gated goal card
+   IS that card now. What is left here is the archive entry. */
 .entry { border-bottom: 1px solid var(--stroke); padding: 4px 0; }
 .entry:last-child { border-bottom: 0; }
 .entry > summary {
@@ -957,7 +900,11 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 .mode-card b { font-size: var(--fs-md); }
 .mode-card small { font-size: var(--fs-xs); color: var(--faint); line-height: 1.35; }
 .mode-card i { font-style: normal; font-size: var(--fs-xs); color: var(--accent-2); font-weight: 700; margin-top: 3px; }
-.mode-card.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: 0 6px 18px rgba(124, 108, 255, 0.22); }
+/* The selected one inverts to the light surface — the same treatment the rail
+   gives today and the tab strip gives the open half of Plan. It was a tinted
+   panel with a violet glow, which is a colour this palette does not have. */
+.mode-card.on { border-color: var(--cream); background: var(--cream); color: var(--on-cream); }
+.mode-card.on small, .mode-card.on i { color: inherit; opacity: 0.65; }
 
 /* --- weekday picker --- */
 .wd-picker { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: -4px 0 14px; }
@@ -993,10 +940,6 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 .ladder-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 7px; font-size: var(--fs-md); }
 .ladder-top .faint { font-size: var(--fs-xs); }
 
-.goal-manage { align-items: flex-start; }
-.goal-manage .name { display: flex; align-items: center; gap: 7px; }
-.goal-manage .mini-track { margin: 6px 0 4px; }
-.goal-manage.is-archived { opacity: 0.55; }
 
 @media (max-width: 360px) {
   .mode-grid { grid-template-columns: 1fr; }
@@ -1006,18 +949,15 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 
 /* ============ 2026 redesign — type, flat cards, monograms ============ */
 body { font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif; }
-.brand-mark { background: var(--accent); box-shadow: none; }
-.brand-text { letter-spacing: 0.2em; font-weight: 800; font-size: var(--fs-md); text-transform: uppercase; }
 
 /* Numerals carry the hierarchy, so every figure that is the point of its card
    gets the expanded cut. */
-.daynum, .stat b, .lifeitem b, .ring-label b, .hero-stat b, .reward .medal + h4,
-.next-reward .big-num, .myreward-count {
+.daynum, .stat b, .statcard b, .ledgercard-item b, .ring-label b, .hero-stat b,
+.reward .medal + h4, .dayhead-streak b {
   font-family: Archivo, sans-serif; font-stretch: 125%; letter-spacing: -0.02em;
 }
 .daynum { font-size: 54px; font-weight: 800; line-height: 0.86; }
 .daynum i { font-size: var(--fs-2xl); color: var(--faint); }
-.daydate { letter-spacing: 0.14em; text-transform: uppercase; font-size: var(--fs-xs); }
 
 /* ============ line icons ============
    One stroke weight and one grid for every icon in the app, drawn in
@@ -1041,9 +981,6 @@ body { font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif; }
 .plan-day-head .ico, .goalrow .ico { width: 16px; height: 16px; vertical-align: -0.16em; }
 
 .chip .ico { width: 15px; height: 15px; color: var(--faint); }
-.streak-chip { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border-color: transparent; }
-.streak-chip .ico { color: var(--accent-2); }
-.kept-chip .ico { color: var(--good); }
 .chip b { font-family: Archivo, sans-serif; font-stretch: 125%; font-size: var(--fs-md); }
 
 /* Tabs: a drawn icon over its label, both lit by the active state. */
@@ -1055,36 +992,20 @@ body { font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif; }
 .tab.active i { font-weight: 700; }
 
 /* Cards flatten to hairline strokes. */
-.card, .hero, .chalbar, .next-reward, .myreward, .stat, .reward, .banner { box-shadow: none; }
+.card, .hero, .next-reward, .myreward, .stat, .reward, .banner { box-shadow: none; }
 .hero { background: var(--surface); }
 .next-reward { background: color-mix(in srgb, var(--accent) 9%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
 .reward.unlocked, .myreward.is-ready { background: color-mix(in srgb, var(--gold) 12%, var(--surface)); }
 .section-head h2,
 .section-fold h2 { font-size: var(--fs-xs); letter-spacing: 0.14em; font-weight: 700; }
 
-/* Goal card: tinted panel out, hairline card with a monogram tile in. */
-.gcard {
-  background: var(--surface); border-color: var(--stroke);
-  min-height: 0; padding: var(--sp-md) var(--sp-md) var(--sp-lg); border-radius: var(--r);
-}
-.gcard-mono {
-  flex: none; width: 42px; height: 42px; border-radius: 13px; align-self: center;
-  display: grid; place-items: center; font-size: var(--fs-lg); font-weight: 800;
-  background: color-mix(in srgb, var(--accent) 20%, var(--surface-2)); color: var(--accent-2);
-}
-.gcard-title { color: var(--text); font-size: var(--fs-lg); font-weight: 700; }
-/* Each fact in the meta row is an icon plus its label, so the row separates on
-   whitespace instead of the interpunct it used to need. `gap` does the work the
-   `<i>·</i>` separators did, and the icon rides the uppercase label's size. */
-.gcard-meta { color: var(--muted); font-size: var(--fs-xs); letter-spacing: 0.04em; text-transform: uppercase; margin-top: 5px; gap: 10px; }
+/* The goal card is defined once, in the card system at the end of this file.
+   The block that used to sit here — a monogram tile of the goal's initial, an
+   uppercase meta row, a 2px step bar — was superseded by artboard 1c. Only the
+   two pieces the redesign kept are still declared here: the meta row separates
+   on whitespace rather than on interpuncts, and the streak badge. */
 .gcard-meta span { display: inline-flex; align-items: center; gap: 4px; }
 .gcard-meta .ico { width: 13px; height: 13px; opacity: 0.75; }
-.gcard-tick { background: none; border-color: var(--stroke-strong); color: var(--faint); border-radius: 999px; width: 40px; height: 40px; backdrop-filter: none; }
-.gcard.is-done { background: color-mix(in srgb, var(--good) 10%, var(--surface)); border-color: color-mix(in srgb, var(--good) 32%, transparent); }
-.gcard.is-done .gcard-tick { background: var(--good); border-color: var(--good); color: var(--on-good); }
-.gcard.is-done .gcard-mono { background: color-mix(in srgb, var(--good) 18%, var(--surface-2)); color: var(--good); }
-.gcard-bar { background: var(--surface-2); height: 2px; }
-.gcard-bar > i { background: var(--accent); }
 .gcard-streak {
   display: inline-flex; align-items: center; gap: 4px;
   border-radius: 8px; background: color-mix(in srgb, var(--accent) 16%, var(--surface-2)); color: var(--accent-2);
@@ -1116,22 +1037,9 @@ body { font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif; }
   touch-action: pan-y;
 }
 .gcard.is-swiping { transition: background 0.18s, border-color 0.18s; }
-.gcard.will-keep {
-  background: color-mix(in srgb, var(--good) 16%, var(--surface));
-  border-color: color-mix(in srgb, var(--good) 48%, transparent);
-}
-.gcard.will-keep .gcard-tick { border-color: var(--good); color: var(--good); }
-.gcard.will-skip {
-  background: color-mix(in srgb, var(--muted) 12%, var(--surface));
-  border-color: var(--stroke-strong);
-  opacity: 0.8;
-}
-
-/* Some of it, but not the ask. Gold, never green: it is not a kept day. */
-.gcard.is-part { background: color-mix(in srgb, var(--gold) 10%, var(--surface)); border-color: color-mix(in srgb, var(--gold) 34%, transparent); }
-.gcard.is-part .gcard-mono { background: color-mix(in srgb, var(--gold) 18%, var(--surface-2)); color: var(--gold); }
-.gcard.is-part .gcard-tick { border-color: color-mix(in srgb, var(--gold) 50%, transparent); color: var(--gold); }
-.gcard.is-part .gcard-bar > i { background: var(--gold); }
+/* What each of the three swipe states and the part-done state LOOK like is
+   declared once, with the card, at the end of this file. What is declared here
+   is only the mechanics the gesture needs: the transition and `touch-action`. */
 
 /* A gesture nobody is told about is a gesture nobody uses. */
 .gesture-hint {
@@ -1141,22 +1049,30 @@ body { font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif; }
 
 /* --- the day strip ---
    What is left, and one tap to keep it, pinned above the tab bar. */
+/* Ember, like the header at the other end of the same screen — the two are the
+   pairing artboard 1c is built on, and between them they are the only ember in
+   the app. The button inside it inverts to the ink rather than staying teal: on
+   an ember ground teal is the one colour that reads as an error. */
 .today-strip {
   position: fixed; left: 0; right: 0; z-index: 39;
   bottom: calc(var(--tab-h) + var(--safe-b));
   display: flex; align-items: center; gap: var(--sp-md);
-  padding: 10px var(--sp-lg);
-  background: color-mix(in srgb, var(--bg) 94%, transparent);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid var(--stroke);
+  padding: var(--sp-md) var(--sp-lg);
+  background: var(--ember); color: var(--on-ember);
 }
 .today-strip-body { flex: 1; min-width: 0; }
-.today-strip b { display: block; font-size: var(--fs-md); font-weight: 800; }
+.today-strip b {
+  display: block; font-size: var(--fs-xs); font-weight: 800;
+  letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.6;
+}
 .today-strip span {
-  display: block; font-size: var(--fs-xs); color: var(--muted);
+  display: block; margin-top: 2px; font-size: var(--fs-lg); font-weight: 800;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.today-strip .btn { flex: none; min-height: 44px; }
+.today-strip .btn {
+  flex: none; min-height: 44px; border: 0;
+  background: var(--on-ember); color: var(--cream);
+}
 /* The strip is fixed, so the page has to end above it rather than under it. */
 body:has(.today-strip) { padding-bottom: calc(var(--tab-h) + var(--safe-b) + 66px); }
 /* …and a toast must clear the strip, not land behind it. */
@@ -1173,17 +1089,8 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.06em;
 }
 
-/* --- Rewards, promoted out of the tab bar into More --- */
-.more-rewards {
-  display: flex; align-items: center; gap: var(--sp-md);
-  width: 100%; min-height: 60px; padding: var(--sp-md) var(--sp-lg);
-  margin-bottom: var(--sp-md); border-radius: var(--r);
-  background: var(--surface); border: 1px solid var(--stroke); color: var(--text);
-  text-align: left;
-}
-.more-rewards .ico { flex: none; width: 20px; height: 20px; color: var(--gold); }
-.more-rewards b { flex: 1; font-size: var(--fs-lg); font-weight: 700; }
-.more-rewards i { font-style: normal; color: var(--faint); }
+/* Rewards, promoted out of the tab bar into More. The row it used was replaced
+   by the pair of `.dest` cards artboard 2e puts across the top of that screen. */
 
 /* ============ the 66-day run ============
    Visually a quieter cousin of the goal card: same tokens, same rhythm, less
@@ -1534,91 +1441,518 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .card.flush.runlist-card { padding: 0 var(--sp-lg); }
 .card.flush.runlist-card > .row:last-child { border-bottom: 0; }
 
-/* ================= the ledger =================
+/* ================= the card system, from the redesign brief =================
 
-   Today, redrawn from the "Arise — visual and structural redesign" brief. Its
-   own summary of this direction: hairlines instead of cards, numerals doing the
-   hierarchy, and ember appearing exactly once — on the live action.
+   Six screens, redrawn from "Arise Redesign (standalone).html" — a design-canvas
+   export that unpacks to eight artboards. Today is 1c; Plan, Read, Stats,
+   Rewards and More are 2a-2e. The brief's own summary of the system those five
+   are drawn in:
 
-   It reuses every existing token. The brief's mockup samples out to --faint,
-   --surface-2, --stroke, --text, --stroke-strong, --good, --cream, --muted,
-   --bg, --gold, --accent and --on-accent, so this is a change of structure and
-   weight, not a repaint. Nothing new was added to :root.
+     "an ember block only where the screen's own subject is progress through
+      time; a charcoal header with a 26px-radius base elsewhere; cards #171a1f on
+      #0d0f12 with a 38px icon plate; 11px letterspaced section labels; teal
+      reserved for the live action and for anything done, amber for anything that
+      pays out or is waiting on you."
 
-   `.gcard` keeps its name, its `data-goal` and every data-act: the swipe and
-   press-and-hold handlers close on `.gcard`, so renaming the row would have
-   silently dropped three gestures. */
-.gcard.ledger {
-  display: flex; align-items: center; gap: 14px;
-  background: none; border: 0; border-radius: 0; box-shadow: none;
-  border-bottom: 1px solid var(--surface-2);
-  padding: 15px 2px; min-height: 0; overflow: visible;
+   The surfaces in that sentence are the palette in :root now, so everything here
+   is written in tokens and none of the artboards' literal hexes appear below.
+
+   It replaces a hairline direction (artboard 1a) that had been applied to Today
+   alone. Both cannot be right at once: 1a's rows have no cards and no icon
+   plates, and the five other artboards are nothing but cards and icon plates.
+
+   `.gcard` keeps its name, its `data-goal` and every data-act: the swipe, the
+   left-swipe and the press-and-hold all close on `.gcard`, so renaming the row
+   would silently drop three gestures with nothing failing. */
+
+/* --- the section label: 11px, letterspaced, no rule and no card --- */
+.label {
+  font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--faint);
+  margin: var(--sp-lg) 2px var(--sp-sm);
 }
-/* The card, the monogram tile and the step bar are what made a row a card. */
-.gcard.ledger .gcard-mono, .gcard.ledger .gcard-bar { display: none; }
+/* A label that also carries a figure or a control on the right. */
+.label.split { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-sm); }
+/* The label is uppercase and letterspaced; a control inside it is neither —
+   "＋ Add" set in 11px tracked capitals reads as another label rather than as a
+   button. The 44px hit band comes from `.section-head .link`'s trick, which is
+   the same problem: a taller box here would push the section spacing around. */
+.label .link {
+  position: relative; min-height: 0; padding: var(--sp-xs);
+  font-size: var(--fs-md); text-transform: none; letter-spacing: 0;
+}
+.label .link::after {
+  content: ''; position: absolute; left: 0; right: 0;
+  top: 50%; height: 44px; transform: translateY(-50%);
+}
 
-.gcard.ledger .gcard-tick {
-  order: 0; flex: none; width: 26px; height: 26px; border-radius: 999px;
+/* --- the screen header ---
+   A charcoal slab with a 26px-radius base, breaking the full width of the
+   viewport. It has to escape the page's own side padding to do that, which is
+   what the negative margins are for. */
+.screenhead {
+  margin: 0 calc(-1 * var(--pagepad)) var(--sp-lg);
+  padding: calc(var(--sp-xl) + var(--safe-t)) var(--pagepad) var(--sp-lg);
+  background: var(--surface); border-bottom: 1px solid var(--stroke);
+  border-radius: 0 0 26px 26px;
+}
+.screenhead-top { display: flex; align-items: center; gap: var(--sp-md); }
+.screenhead h1 {
+  flex: 1; min-width: 0;
+  font-size: var(--fs-3xl); font-weight: 800; letter-spacing: -0.02em;
+}
+.screenhead-sub {
+  margin-top: 5px; font-size: var(--fs-sm); color: var(--faint); line-height: 1.5;
+}
+/* The round plate beside a title — Rewards uses it. */
+.screenhead-plate {
+  flex: none; width: 36px; height: 36px; border-radius: 999px;
+  display: grid; place-items: center; background: var(--surface-2); color: var(--gold);
+}
+.screenhead-plate .ico { width: 19px; height: 19px; }
+/* A pill action in the header: teal when it is the screen's live action, quiet
+   otherwise. */
+.headpill {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 40px; padding: 0 14px; border-radius: 999px; border: 0;
+  background: var(--accent); color: var(--on-accent);
+  font-size: var(--fs-md); font-weight: 700;
+}
+.headpill .ico { width: 15px; height: 15px; }
+.headpill.quiet { background: var(--surface-2); color: var(--muted); }
+
+/* --- Today's header: the one ember block in the app ---
+   Ember only while a challenge is running, which is the brief's rule: the
+   screen's own subject is then progress through time. With no challenge there is
+   no length to count against, so it is a charcoal header like the other five. */
+.dayhead {
+  margin: 0 calc(-1 * var(--pagepad)) var(--sp-md);
+  padding: calc(var(--sp-xl) + var(--safe-t)) var(--pagepad) var(--sp-md);
+  background: var(--surface); border-bottom: 1px solid var(--stroke);
+  border-radius: 0 0 26px 26px;
+}
+.dayhead.ember {
+  background: linear-gradient(var(--ember), var(--ember-2));
+  color: var(--on-ember); border-bottom: 0;
+}
+.dayhead-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-md); }
+.dayhead-id { min-width: 0; }
+.dayhead-label {
+  font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--faint); margin-bottom: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dayhead.ember .dayhead-label { color: inherit; opacity: 0.65; }
+.dayhead-side { display: flex; align-items: center; gap: var(--sp-md); flex: none; }
+.dayhead-streak { text-align: right; }
+.dayhead-streak b { display: block; font-size: var(--fs-2xl); font-weight: 800; line-height: 1.1; }
+.dayhead-streak span {
+  display: block; font-size: var(--fs-xs); font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint);
+}
+.dayhead.ember .dayhead-streak span { color: inherit; opacity: 0.65; }
+
+/* Two layers in one track: how far through the calendar you are, and — in front
+   of it — how many of those days you actually kept. Showing only the first would
+   let elapsed time masquerade as progress. */
+.dayhead-track {
+  position: relative; display: block; width: 100%; height: 10px; margin-top: var(--sp-lg);
+  border-radius: 5px; overflow: hidden; border: 0; padding: 0;
+  background: color-mix(in srgb, var(--stroke-strong) 60%, transparent);
+}
+.dayhead.ember .dayhead-track { background: color-mix(in srgb, var(--on-ember) 22%, transparent); }
+.dayhead-track > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; }
+.dayhead-track > .elapsed { background: color-mix(in srgb, var(--muted) 45%, transparent); }
+.dayhead-track > .kept { background: var(--accent); }
+.dayhead.ember .dayhead-track > .elapsed { background: color-mix(in srgb, var(--on-ember) 30%, transparent); }
+.dayhead.ember .dayhead-track > .kept { background: var(--on-ember); }
+.dayhead.is-complete .dayhead-track > .kept { background: var(--gold); }
+
+.dayhead-foot {
+  display: flex; justify-content: space-between; gap: var(--sp-md);
+  margin-top: 7px; font-size: var(--fs-xs); font-weight: 700; color: var(--faint);
+}
+.dayhead.ember .dayhead-foot { color: inherit; opacity: 0.72; }
+.dayhead .daynum { color: inherit; }
+.dayhead .daynum i { color: inherit; opacity: 0.6; }
+.dayhead .dayline-nav .icon-btn { color: inherit; }
+.dayhead.ember .dayline-nav .icon-btn { border-color: color-mix(in srgb, var(--on-ember) 28%, transparent); }
+/* The day's state in words. On the ember header it rides the ink it is printed
+   on rather than --muted, which would be invisible there. */
+.dayhead .dayline-headline { margin-top: var(--sp-sm); }
+.dayhead.ember .dayline-headline { color: inherit; opacity: 0.8; }
+
+/* --- the seven-day rail --- */
+.week-strip.rail { gap: var(--sp-xs); margin-bottom: var(--sp-md); }
+.week-strip.rail .wd {
+  display: block; width: 100%; padding: 7px 0 8px; border: 0; border-radius: var(--r-xs);
+  background: var(--surface-2); color: inherit;
+}
+.week-strip.rail .wd:disabled { opacity: 0.45; }
+.week-strip.rail .wd.on { background: var(--cream); }
+.week-strip.rail .wd .dot {
+  height: auto; border: 0; background: none; min-height: 17px;
+  font-size: var(--fs-base); font-weight: 700;
+}
+.week-strip.rail .wd .dot.today { box-shadow: none; }
+.week-strip.rail .wd.on .dot,
+.week-strip.rail .wd.on small { color: var(--on-cream); }
+.week-strip.rail .wd small {
+  margin-top: 2px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+
+/* --- the count line: 1c's answer to a segmented filter ---
+   What is left reads as the heading it already looked like; the two quiet
+   figures beside it still switch the list, so the filter is drawn rather than
+   deleted. */
+.segbar.countline { align-items: baseline; gap: var(--sp-md); margin-bottom: var(--sp-md); }
+.segbar.countline .seg {
+  position: relative;
+  flex: none; min-height: 0; padding: 4px 0; border: 0; border-radius: 0;
+  background: none; color: var(--faint); font-size: var(--fs-sm); font-weight: 600;
+}
+/* The tap target the 4px of padding above does not give them. */
+.segbar.countline .seg::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 50%;
+  transform: translateY(-50%); height: 44px;
+}
+.segbar.countline > .seg:first-child {
+  font-size: var(--fs-2xl); font-weight: 700; color: var(--text); letter-spacing: -0.01em;
+}
+.segbar.countline .countline-rest {
+  flex: 1; display: flex; align-items: baseline; gap: 5px; justify-content: flex-end;
+}
+.segbar.countline .countline-rest i { font-style: normal; color: var(--faint); font-size: var(--fs-sm); }
+.segbar.countline .seg.on { color: var(--text); font-weight: 700; }
+.segbar.countline .seg-add { flex: none; min-height: 40px; }
+
+/* --- the goal card, artboard 1c ---
+   A 38px icon plate, the name, one 12px line of context, and either the ask or a
+   tick. The plate replaced a 42px monogram tile of the goal's initial. */
+.gcard {
+  display: flex; align-items: center; gap: var(--sp-md);
+  background: var(--surface); border: 1px solid var(--stroke); border-radius: var(--r);
+  padding: 15px var(--sp-lg); margin-bottom: var(--sp-sm); min-height: 0;
+}
+.gcard-plate {
+  flex: none; width: 38px; height: 38px; border-radius: 11px;
+  display: grid; place-items: center; background: var(--surface-2); color: var(--muted);
+}
+.gcard-plate .ico { width: 19px; height: 19px; }
+.gcard-open {
+  flex: 1; min-width: 0; display: block; text-align: left;
+  background: none; border: 0; padding: 0; color: inherit;
+}
+.gcard-title {
+  display: block; font-size: var(--fs-lg); font-weight: 700; color: var(--text);
+  letter-spacing: 0; text-transform: none;
+}
+.gcard-meta {
+  display: flex; flex-wrap: wrap; gap: var(--sp-sm); margin-top: 2px;
+  font-size: var(--fs-sm); color: var(--faint); text-transform: none; letter-spacing: 0;
+}
+.gcard-gate { color: var(--gold); }
+.gcard-value { flex: none; font-size: var(--fs-lg); font-weight: 700; color: var(--text); white-space: nowrap; }
+.gcard-tick {
+  flex: none; width: 30px; height: 30px; border-radius: 999px;
   border: 1.5px solid var(--stroke-strong); background: none;
   color: transparent; font-size: var(--fs-sm); font-weight: 900;
 }
-.gcard.ledger.is-done .gcard-tick { background: var(--good); border-color: var(--good); color: var(--on-good); }
-.gcard.ledger.is-part .gcard-tick { border-color: var(--gold); color: var(--gold); }
-.gcard.ledger.will-keep .gcard-tick { border-color: var(--good); color: var(--good); }
+/* A gated goal takes a pill rather than a tick: the summary is what closes it,
+   so a tick here would be a control that cannot honour what it looks like. */
+.gcard-tick.is-write {
+  width: auto; height: auto; min-height: 36px; padding: 0 14px; border: 0; border-radius: 999px;
+  background: var(--gold); color: var(--on-gold); font-size: var(--fs-sm); font-weight: 700;
+}
+.gcard.is-gated { border-color: var(--gold); }
+.gcard.is-done { background: var(--surface); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+.gcard.is-done .gcard-tick { background: var(--good); border-color: var(--good); color: var(--on-good); }
+.gcard.is-done .gcard-plate { color: var(--good); }
+.gcard.is-done .gcard-title { color: var(--faint); }
+.gcard.is-done .gcard-value { color: var(--faint); }
+.gcard.is-part { border-color: color-mix(in srgb, var(--gold) 40%, transparent); }
+.gcard.is-part .gcard-plate,
+.gcard.is-part .gcard-value { color: var(--gold); }
+.gcard.is-part .gcard-tick { border-color: var(--gold); color: var(--gold); }
+.gcard.is-skipped .gcard-title { color: var(--faint); }
+/* Mid-swipe. The card carries its own verdict while it moves — a tinted plate
+   behind it would be invisible, because .gcard is opaque over the page. */
+.gcard.will-keep {
+  background: color-mix(in srgb, var(--good) 16%, var(--surface));
+  border-color: var(--good);
+}
+.gcard.will-keep .gcard-tick { border-color: var(--good); color: var(--good); }
+.gcard.will-skip {
+  background: color-mix(in srgb, var(--muted) 12%, var(--surface));
+  border-color: var(--stroke-strong); opacity: 0.8;
+}
 
-.gcard.ledger .gcard-open {
-  order: 1; flex: 1; min-width: 0; display: block; text-align: left;
-  background: none; border: 0; padding: 0;
+/* --- a daily habit is the same card ---
+   A habit is a thing you tick today, exactly like a goal, so it is the same row
+   rather than a third visual language on one screen. The emoji goes: the tick
+   already says what state it is in, and a column of platform emoji is what made
+   this screen read as a toy once before. */
+.item.habit-row {
+  background: var(--surface); border: 1px solid var(--stroke); border-radius: var(--r);
+  box-shadow: none; min-height: 0; padding: 14px var(--sp-lg); gap: var(--sp-md);
+  /* `.list` is a flex column with its own 8px gap, so the card must not also
+     carry a margin — that is how a list ends up spaced twice. */
+  margin: 0;
 }
-.gcard.ledger .gcard-title {
-  display: block; font-size: var(--fs-lg); font-weight: 600; color: var(--text);
-  letter-spacing: 0; text-transform: none;
-}
-.gcard.ledger .gcard-gate { font-style: normal; font-size: var(--fs-xs); font-weight: 600; color: var(--gold); }
-.gcard.ledger .gcard-meta {
-  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px;
-  font-size: var(--fs-sm); color: var(--faint); text-transform: none; letter-spacing: 0;
-}
-/* The value is the numeral the hierarchy rests on, so it is the only thing on
-   the row in --cream. */
-.gcard.ledger .gcard-value {
-  order: 2; flex: none; font-size: var(--fs-lg); color: var(--cream); white-space: nowrap;
-}
-.gcard.ledger .gcard-badges { order: 3; flex: none; }
-.gcard.ledger.is-done .gcard-title,
-.gcard.ledger.is-skipped .gcard-title { color: var(--faint); }
-.gcard.ledger.is-done .gcard-value { color: var(--faint); }
-
-/* Tabs, not pills: the active one is marked by weight and a rule under it, so
-   the accent is free to mean "the live action" and nothing else. */
-.segbar.ledger { gap: 20px; border-bottom: 1px solid var(--stroke); padding-bottom: 0; }
-.segbar.ledger .seg {
-  flex: none; min-height: 40px; padding: 0 0 9px; border: 0; border-radius: 0;
-  background: none; color: var(--faint); font-size: var(--fs-md); font-weight: 500;
-  border-bottom: 2px solid transparent;
-}
-.segbar.ledger .seg.on {
-  background: none; color: var(--text); font-weight: 700; border-bottom-color: var(--text);
-}
-.segbar.ledger .seg b { color: var(--faint); font-weight: 600; }
-.segbar.ledger .seg-add { margin-left: auto; min-height: 40px; }
-
-/* A daily habit is a thing you tick today, exactly like a goal, so it is the
-   same row on the ledger rather than a third visual language on one screen.
-   The emoji goes: the tick already says what state it is in, and a column of
-   platform emoji is what made this screen read as a toy once before. */
-.item.ledger-row {
-  background: none; border: 0; border-radius: 0; box-shadow: none;
-  border-bottom: 1px solid var(--surface-2);
-  min-height: 0; padding: 15px 2px; gap: 14px;
-}
-.item.ledger-row .tick {
-  order: 0; width: 26px; height: 26px; border-radius: 999px;
+.item.habit-row .tick {
+  order: 9; width: 30px; height: 30px; border-radius: 999px;
   border: 1.5px solid var(--stroke-strong); background: none;
   color: transparent; font-size: var(--fs-sm);
 }
-.item.ledger-row.done { background: none; }
-.item.ledger-row.done .tick { background: var(--good); border-color: var(--good); color: var(--on-good); }
-.item.ledger-row .name { font-size: var(--fs-lg); font-weight: 600; }
-.item.ledger-row.done .name { color: var(--faint); text-decoration: none; }
-.item.ledger-row .sub { font-size: var(--fs-sm); color: var(--faint); }
+.item.habit-row.done { background: var(--surface); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+.item.habit-row.done .tick { background: var(--good); border-color: var(--good); color: var(--on-good); }
+.item.habit-row .name { font-size: var(--fs-lg); font-weight: 700; }
+.item.habit-row.done .name { color: var(--faint); text-decoration: none; }
+.item.habit-row .sub { font-size: var(--fs-sm); color: var(--faint); }
+
+/* --- a row that pays out, and a row that leads somewhere ---
+   Amber is the whole point of the first: it is the only colour in the system
+   that means "waiting on you". */
+.paycard {
+  display: flex; align-items: center; gap: var(--sp-md); width: 100%; text-align: left;
+  padding: 15px var(--sp-lg); margin: var(--sp-md) 0;
+  background: var(--surface); border: 1px solid var(--gold); border-radius: var(--r); color: inherit;
+}
+.paycard .body { flex: 1; min-width: 0; }
+.paycard b { display: block; font-size: var(--fs-base); font-weight: 700; }
+.paycard .body span { display: block; margin-top: 2px; font-size: var(--fs-sm); color: var(--gold); }
+.paycard-go {
+  flex: none; padding: 10px 14px; border-radius: 999px;
+  background: var(--gold); color: var(--on-gold); font-size: var(--fs-sm); font-weight: 700;
+}
+
+.linkrow {
+  display: flex; align-items: center; gap: var(--sp-md); width: 100%; text-align: left;
+  padding: 14px var(--sp-lg); margin-bottom: var(--sp-sm);
+  background: var(--surface); border: 1px solid var(--stroke); border-radius: var(--r); color: inherit;
+}
+.linkrow .body { flex: 1; min-width: 0; }
+.linkrow b { display: block; font-size: var(--fs-base); font-weight: 700; }
+.linkrow .body span {
+  display: block; margin-top: 1px; font-size: var(--fs-sm); color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.linkrow > .ico { flex: none; width: 18px; height: 18px; color: var(--faint); }
+.linkrow-plate {
+  flex: none; width: 38px; height: 38px; border-radius: 11px;
+  display: grid; place-items: center; background: var(--surface-2); color: var(--muted);
+}
+.linkrow-plate .ico { width: 19px; height: 19px; }
+
+/* --- the segmented tab strip in a header, artboard 2a ---
+   A tray with two segments in it. The selected one inverts to the light surface,
+   which is the same treatment the rail gives the selected day — one idea for
+   "this is the one you are on", used twice. */
+.segbar.tabs {
+  gap: var(--sp-xs); margin: 14px 0 0; padding: var(--sp-xs);
+  background: var(--surface-2); border-radius: var(--r-xs);
+}
+.segbar.tabs .seg {
+  flex: 1; min-height: 40px; padding: 0 var(--sp-sm); border: 0; border-radius: 9px;
+  background: none; color: var(--faint); font-size: var(--fs-md); font-weight: 600;
+}
+.segbar.tabs .seg.on { background: var(--cream); color: var(--on-cream); font-weight: 700; }
+
+/* --- the goal card on Plan, artboard 2a --- */
+.goalcard {
+  background: var(--surface); border: 1px solid var(--stroke); border-radius: var(--r);
+  padding: 15px var(--sp-lg); margin-bottom: var(--sp-sm);
+}
+.goalcard.is-archived { opacity: 0.6; }
+.goalcard-top { display: flex; align-items: center; gap: var(--sp-md); }
+.goalcard-body { flex: 1; min-width: 0; }
+.goalcard-name { display: flex; align-items: baseline; gap: var(--sp-sm); }
+.goalcard-name b { font-size: var(--fs-lg); font-weight: 700; }
+/* The ladder in one line: where you started, what today asks, where you chose to
+   stop. The middle figure is the only one of the three that is a question being
+   asked of you now, so it is the only one in --text. */
+.goalcard-ladder {
+  margin-top: 2px; font-size: var(--fs-sm); color: var(--faint); line-height: 1.45;
+}
+.goalcard-ladder b { color: var(--text); font-weight: 700; }
+.goalcard-bar {
+  position: relative; height: 5px; border-radius: 3px;
+  background: var(--stroke); margin-top: 13px; overflow: hidden;
+}
+.goalcard-bar > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--accent); }
+.goalcard-hint { margin-top: 7px; font-size: var(--fs-xs); color: var(--faint); }
+
+/* --- a rule stated at the bottom of the screen it governs --- */
+.footnote {
+  margin: var(--sp-md) 2px 0; font-size: var(--fs-xs); line-height: 1.6; color: var(--faint);
+}
+
+/* --- Read: the gate is the screen's subject, artboard 2b ---
+   Amber while it is waiting on you, and only while: the border drops the moment
+   the summary exists, because amber means unfinished business and a written day
+   is not that. */
+.gatecard {
+  background: var(--surface); border: 1px solid var(--gold); border-radius: var(--r);
+  padding: var(--sp-lg); margin-bottom: var(--sp-lg);
+}
+.gatecard.is-done { border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+.gatecard-label {
+  font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--gold); margin-bottom: 14px;
+}
+.gatecard.is-done .gatecard-label { color: var(--good); }
+
+/* The two facts of the entry, as small cards rather than as labelled fields:
+   they are what the summary is about, not two more questions. */
+.minifields { display: flex; gap: var(--sp-sm); margin-bottom: 10px; }
+.minifield {
+  flex: 1; min-width: 0; display: block;
+  background: var(--surface-2); border-radius: var(--r-xs); padding: 9px 12px 10px;
+}
+.minifield.wide { flex: 2; }
+.minifield > span {
+  display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--faint);
+}
+.minifield input {
+  display: block; width: 100%; margin-top: 3px; padding: 0; min-height: 24px;
+  background: none; border: 0; border-radius: 0;
+  font-size: var(--fs-base); font-weight: 600; color: var(--text);
+}
+.minifield input:focus { outline: none; }
+.minifield:focus-within { box-shadow: 0 0 0 2px var(--accent-2); }
+
+/* The question, above the box it is asked into. */
+.readprompt {
+  margin: 0 0 var(--sp-sm); font-size: var(--fs-md); font-weight: 600; color: var(--text);
+}
+.readfoot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-md); margin-top: var(--sp-md);
+}
+.readwords { font-size: var(--fs-xs); color: var(--faint); }
+.readfoot .btn { flex: none; }
+
+/* --- an archive that collapses to one counted row --- */
+.archive {
+  background: var(--surface); border: 1px solid var(--stroke); border-radius: var(--r);
+  margin-bottom: var(--sp-sm); overflow: hidden;
+}
+.archive > summary {
+  display: flex; align-items: center; gap: var(--sp-md);
+  padding: 14px var(--sp-lg); cursor: pointer; list-style: none;
+}
+.archive > summary::-webkit-details-marker { display: none; }
+.archive > summary .body { flex: 1; min-width: 0; }
+.archive > summary b { display: block; font-size: var(--fs-base); font-weight: 700; }
+.archive > summary .body span { display: block; margin-top: 1px; font-size: var(--fs-sm); color: var(--faint); }
+.archive > summary .ico { flex: none; width: 18px; height: 18px; color: var(--faint); transition: transform 0.18s; }
+.archive[open] > summary .ico { transform: rotate(90deg); }
+.archive > .card { margin: 0 var(--sp-md) var(--sp-md); }
+
+/* --- Stats: the real ledger on the light surface, artboard 2c ---
+   The one light card in the app, spent on the one thing that is unarguably
+   true: what you actually did. Everything painted on it takes --on-cream,
+   because --text is the colour of the dark surfaces and would vanish here. */
+.ledgercard {
+  background: var(--cream); color: var(--on-cream);
+  border-radius: var(--r); padding: var(--sp-lg); margin-bottom: 10px;
+}
+.ledgercard-label {
+  font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.16em;
+  text-transform: uppercase; opacity: 0.55;
+}
+.ledgercard .lifeline {
+  margin: var(--sp-sm) 0 0; font-size: var(--fs-xl); font-weight: 700; line-height: 1.45;
+  color: var(--on-cream);
+}
+.ledgercard .lifeline b { font-weight: 800; }
+.ledgercard-grid { display: flex; gap: var(--sp-sm); margin-top: 14px; }
+.ledgercard-item {
+  flex: 1; min-width: 0;
+  background: color-mix(in srgb, var(--on-cream) 7%, transparent);
+  border-radius: var(--r-xs); padding: 10px 12px;
+}
+.ledgercard-item b { display: block; font-size: 16px; font-weight: 800; }
+.ledgercard-item span {
+  display: block; margin-top: 2px; font-size: var(--fs-xs); font-weight: 600; opacity: 0.6;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Three figures, one card each. */
+.statrow { display: flex; gap: var(--sp-sm); }
+.statcard {
+  flex: 1; min-width: 0; background: var(--surface); border-radius: var(--r); padding: 14px;
+}
+.statcard-label {
+  display: block; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--faint);
+}
+.statcard b { display: block; margin-top: 6px; font-size: 22px; font-weight: 800; }
+.statcard b.good { color: var(--good); }
+.statcard small { display: block; font-size: var(--fs-xs); color: var(--faint); }
+
+/* --- the level row: last, grey, and carrying no accent at all --- */
+.lvlrow {
+  display: flex; align-items: center; gap: var(--sp-md);
+  background: var(--surface); border-radius: var(--r); padding: 14px var(--sp-lg); margin-top: var(--sp-lg);
+}
+.lvlrow-plate {
+  flex: none; width: 34px; height: 34px; border-radius: var(--r-sm);
+  display: grid; place-items: center; background: var(--surface-2); color: var(--faint);
+}
+.lvlrow-plate .ico { width: 18px; height: 18px; }
+.lvlrow-body { flex: 1; min-width: 0; }
+.lvlrow-line { font-size: var(--fs-md); font-weight: 600; color: var(--muted); }
+.lvlrow-bar {
+  position: relative; height: 4px; border-radius: 2px; background: var(--stroke); margin-top: 8px; overflow: hidden;
+}
+.lvlrow-bar > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--faint); }
+
+/* --- Rewards: your own promises first, artboard 2d ---
+   Amber is a debt the app owes you, so it lands on the promise you have earned
+   and on nothing else. One still running keeps the plain border and a teal bar:
+   that is progress, which is a different thing from a payout. */
+.myreward.is-ready { border-color: var(--gold); }
+.myreward-note {
+  margin: 9px 0 0; text-align: center;
+  font-size: var(--fs-xs); color: var(--faint); line-height: 1.5;
+}
+/* The one button in the app that is amber. It is not "primary" — the primary
+   action of a screen is teal — it is a payout, and it says so by colour. */
+.btn.gold { background: var(--gold); color: var(--on-gold); border-color: var(--gold); }
+
+/* The dashed invitation, for a screen with nothing on it yet. */
+.promptrow {
+  display: flex; align-items: center; gap: var(--sp-md);
+  border: 1px dashed var(--stroke-strong); border-radius: var(--r);
+  padding: 15px var(--sp-lg); margin-bottom: var(--sp-lg);
+}
+.promptrow-plate {
+  flex: none; width: 34px; height: 34px; border-radius: 999px;
+  display: grid; place-items: center; background: var(--surface-2); color: var(--gold);
+}
+.promptrow-plate .ico { width: 18px; height: 18px; }
+.promptrow-body { flex: 1; font-size: var(--fs-md); color: var(--muted); line-height: 1.5; }
+.promptrow-body .link { padding: 0; min-height: 0; font-size: var(--fs-md); }
+
+/* A milestone that has been claimed says so in teal, and its points in the
+   quietest type on the card — stated, never celebrated. */
+.reward .claimed-mark { color: var(--good); font-weight: 700; letter-spacing: 0.06em; }
+
+/* --- More: two destinations across the top, artboard 2e --- */
+.destrow { display: flex; gap: var(--sp-sm); margin-bottom: var(--sp-lg); }
+.dest {
+  flex: 1; min-width: 0; text-align: left; color: inherit;
+  background: var(--surface); border: 1px solid var(--stroke); border-radius: var(--r);
+  padding: 15px;
+}
+.dest-plate {
+  display: grid; place-items: center; width: 30px; height: 30px;
+  border-radius: var(--r-sm); background: var(--surface-2); color: var(--muted);
+}
+.dest-plate .ico { width: 17px; height: 17px; }
+.dest b { display: block; margin-top: 9px; font-size: var(--fs-base); font-weight: 700; }
+.dest > span { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--faint); line-height: 1.4; }
+/* Amber, because an uncollected reward is the app waiting on you. */
+.dest > span.is-ready { color: var(--gold); }

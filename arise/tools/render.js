@@ -131,10 +131,21 @@ function renderRoute(r) {
   return view.innerHTML;
 }
 
+/* A screen with a tab is two screens. Plan's second half — the seven training
+   days — is behind a segment now, so the route sweep alone would render the
+   goals side twice and never the other one, and half of Plan would leave the
+   suite with no cover at all. Every variant sweeps with the routes. */
+function checkVariants() {
+  UI.setPlanTab('week');
+  check('plan (training week)', () => renderRoute('plan'));
+  UI.setPlanTab('goals');
+}
+
 /* ---------- 1. empty state ---------- */
 S.load();
 console.log('\nfresh install');
 ROUTES.forEach((r) => check(r, () => renderRoute(r)));
+checkVariants();
 
 /* ---------- 2. a lived-in account ---------- */
 console.log('\npopulated account');
@@ -161,6 +172,7 @@ for (let i = 30; i >= 0; i--) {
 }
 S.claimReward('m3');
 ROUTES.forEach((r) => check(r, () => renderRoute(r)));
+checkVariants();
 
 console.log('\npast + future days');
 UI.setViewDate(A.addDays(t, -3));
@@ -821,13 +833,21 @@ console.log('\nToday leads with the day, not the scoreboard');
 S.resetAll();
 UI.setViewDate(S.today());
 
-behaves('the goal cards come before the streak and XP block', () => {
+/* This used to assert the scoreboard came AFTER the goal cards. Artboard 1c
+   removes it from Today altogether — the streak and days kept are in the header,
+   and the totals are the first thing on Stats — so the assertion is now that it
+   is not on this screen at all. Stronger, and the same principle.
+
+   Note what it checks: `hero-stats` is the markup, not the prose. The first
+   version of this looked for the words "Where you are", which the comment
+   explaining the removal happened to contain, so it passed on a sentence
+   describing the thing being gone. */
+behaves('Today carries no scoreboard at all — the day is the whole screen', () => {
   const html = renderRoute('today');
-  const goals = html.indexOf('class="gcard');
-  const progress = html.indexOf('Where you are');
-  if (goals < 0) return 'no goal cards on Today';
-  if (progress < 0) return 'no progress section on Today';
-  return goals < progress ? '' : 'the scoreboard still comes first';
+  if (html.indexOf('class="gcard') < 0) return 'no goal cards on Today';
+  if (html.indexOf('class="hero-stats"') >= 0) return 'the three-figure scoreboard is back on Today';
+  const rails = (html.match(/class="week-strip/g) || []).length;
+  return rails === 1 ? '' : `${rails} week strips on Today — the rail is meant to be the only one`;
 });
 
 behaves('the day counter leads, with the segments under it', () => {
@@ -950,10 +970,28 @@ behaves('and shows days kept instead', () => {
 behaves('Stats leads with what actually happened, not the level', () => {
   const html = renderRoute('progress');
   const real = html.indexOf("What you've actually done");
-  const level = html.indexOf('<h2>Level</h2>');
+  /* Artboard 2c drops the level from a headed card to an unheaded grey row at
+     the very bottom, so this looks for the row rather than for a heading that no
+     longer exists. Demoted, not deleted, is still the whole assertion. */
+  const level = html.indexOf('class="lvlrow"');
   if (real < 0) return 'no real ledger on Stats';
-  if (level < 0) return 'the level card vanished entirely — it should be demoted, not deleted';
-  return real < level ? '' : 'the level card still comes first';
+  if (level < 0) return 'the level vanished entirely — it should be demoted, not deleted';
+  return real < level ? '' : 'the level still comes first';
+});
+
+/* The rule the artboard states in one line: the level is an instrument, not the
+   argument. It loses the accent colour, and it is the LAST thing on the screen.
+   Both halves are checkable, and both were decisions rather than styling. */
+behaves('the level is the last thing on Stats, and carries no accent', () => {
+  const html = renderRoute('progress');
+  const level = html.indexOf('class="lvlrow"');
+  if (level < 0) return 'no level row';
+  const after = html.slice(level);
+  if (/class="(ledgercard|statrow|heat|label)/.test(after.replace('class="lvlrow"', ''))) {
+    return 'something real is drawn below the level row';
+  }
+  return /class="lvlrow[\s\S]{0,600}(var\(--accent|var\(--gold)/.test(html)
+    ? 'the level row is painted in an accent' : '';
 });
 
 behaves('a clock goal reports days, never a sum of times', () => {
@@ -973,7 +1011,9 @@ UI.setViewDate(S.today());
 
 behaves('the empty state invites you to promise yourself something', () => {
   const html = renderRoute('rewards');
-  if (html.indexOf('Your rewards') < 0) return 'no custom rewards section';
+  // "Your own rewards" since 2d — the section label, and the sentence under it.
+  if (html.indexOf('Your own rewards') < 0) return 'no custom rewards section';
+  if (html.indexOf('Promise yourself something real') < 0) return 'the empty state says nothing';
   return html.indexOf('data-act="reward-new"') > 0 ? '' : 'no way to add one';
 });
 
@@ -1150,7 +1190,13 @@ behaves('every state class the run UI emits is actually styled', () => {
                   '.lat.kept', '.lat.part', '.lat.missed', '.lat.unopened', '.lat.today',
                   '.lat.ahead', '.latphase.is-now', '.row.ahead',
                   '.item.tight', '.item.tight .dose', '.section-fold.is-open',
-                  '.section-fold.is-done .fold-tick', '.fold-main', '.block-head', '.fold-bar', '.item.tight .exsub', '.item.tight .name', '.card.flush.runlist-card', '.gcard.ledger', '.item.ledger-row', '.segbar.ledger .seg.on', '.how-photo img', '.how-photo-add', '.chip-pick.on', '.segbar.tight'];
+                  '.section-fold.is-done .fold-tick', '.fold-main', '.block-head', '.fold-bar', '.item.tight .exsub', '.item.tight .name', '.card.flush.runlist-card', '.item.habit-row', '.how-photo img', '.how-photo-add',
+                  '.chip-pick.on', '.segbar.tight',
+                  /* the card system the six screens are drawn in */
+                  '.label', '.screenhead', '.headpill', '.dayhead.ember', '.dayhead-track > .kept',
+                  '.week-strip.rail .wd.on', '.segbar.countline .seg.on', '.gcard-plate',
+                  '.gcard.is-gated', '.gcard-tick.is-write', '.gcard.is-done', '.gcard.is-part',
+                  '.paycard', '.linkrow', '.segbar.tabs .seg.on', '.goalcard', '.goalcard-bar > i', '.footnote', '.gatecard.is-done', '.minifield', '.readprompt', '.archive[open] > summary .ico', '.ledgercard', '.statcard', '.lvlrow-bar > i', '.myreward.is-ready', '.btn.gold', '.promptrow', '.reward .claimed-mark', '.dest', '.dest > span.is-ready', '.label.split', '.mode-card.on'];
   const missing = needed.filter((sel) => css.indexOf(sel) < 0);
   if (missing.length) return 'no rule for: ' + missing.join(', ');
   return css.indexOf(':has(:checked)') < 0 ? '' : 'a dead :has(:checked) rule is still in the sheet';
