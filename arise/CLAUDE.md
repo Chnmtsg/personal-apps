@@ -280,6 +280,18 @@ they failed. The daily check-in opens today's record, so *tapping* the run is
 never worse than ignoring it. `runCountsTowardDay` turns it off, the way
 `goalsCountTowardDay` does.
 
+**One function owns what today asks.** The app has two answers to that question:
+the screens draw the day from the programme (`A.Run.runDay` → `activeOn`) and
+every score reads the record (`runEntriesOn` → `computeDayStatus`). `runCheckIn`
+freezes the record when the day opens, so any edit made after that opens a gap,
+and each gap was its own bug — a removed habit left a row nothing could tick and
+the day could never be completed; an edited checklist changed nothing until
+tomorrow. `store.reconcileToday()` is the single owner: membership from the
+programme, the ask from the record wherever it already has one, rows for habits
+no longer live today dropped. Every run-editing verb goes through it. It reads
+`runToday()` itself and can touch no other day, which is what keeps the
+frozen-history rule a rule rather than a comment — there is a test by that name.
+
 **A run habit must be the only place a thing is tracked.** Eleven were removed
 in 2026-08 — `read`, `meditate`, `deep_work`, `water`, `sleep_window`,
 `pushups`, `squats`, `plank`, `run`, `strength` and `journal` — because each
@@ -333,7 +345,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v56`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v57`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

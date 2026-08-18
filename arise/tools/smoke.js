@@ -1220,6 +1220,18 @@ ok('today lost exactly the one row, and gained none',
    Object.keys(S.run().log[openDay]).length === rowsBefore - 1,
    [rowsBefore, Object.keys(S.run().log[openDay])]);
 
+/* The helper's own boundary, and the reason it reads `runToday()` itself rather
+   than taking a day: it may touch today and nothing else. If a run-editing verb
+   could ever reach backwards, "a day you have lived is never re-judged" would be
+   a comment rather than a rule. */
+const livedBefore = JSON.stringify(S.run().log[3]);
+S.setRunItems('vitamins', ['Multivitamin', 'Zinc']);
+S.runAddHabit('course');
+S.runRemoveHabit('vitamins');
+ok('no run edit of any kind reaches a day already lived',
+   JSON.stringify(S.run().log[3]) === livedBefore, S.run().log[3]);
+
+
 /* The floor is a refusal, not a repair. A run of two is not a run, and
    `validate` would start reporting a state the user asked for. */
 S.runRemoveHabit('floss');
@@ -1700,22 +1712,43 @@ section('the checklist belongs to the run, the catalog stays closed');
 {
   S.resetAll();
   S.startRun(['vitamins', 'skincare', 'walk'], 90);
+  /* Day 1 is a day LIVED: recorded, then the run moved on so today is day 5.
+     The old fixture edited the list while day 1 was still today and asserted it
+     did not change — which is the opposite of what should happen, and passed
+     only because nothing reached today at all. */
+  S.run().startDate = A.addDays(S.today(), -4);
+  S.run().log[1] = R.recordDay(S.run(), 1, ['vitamins']);
+  S.commit({ type: 'fixture' });
+  const livedAsked = S.run().log[1].vitamins.asked;
+  const livedNames = Object.keys(S.run().log[1].vitamins.items).join('/');
+  S.runCheckIn();                                  // opens today, as boot does
+  const itemDay = S.runToday();
   S.toggleRunItem('vitamins', 'Vitamin D3');
-  const beforeAsked = S.run().log[1].vitamins.asked;
-  const beforeNames = Object.keys(S.run().log[1].vitamins.items).join('/');
 
   const saved = S.setRunItems('vitamins', ['Multivitamin', ' Vitamin D3 ', 'Vitamin D3', 'Zinc', '', '  ']);
   ok('blank lines and repeats are dropped, and entries trimmed',
      saved.join(',') === 'Multivitamin,Vitamin D3,Zinc', saved);
   ok('today now asks for the edited list',
-     R.doseOn(S.run().habits.find((p) => p.habitId === 'vitamins'), S.runToday()) === 3);
+     R.doseOn(S.run().habits.find((p) => p.habitId === 'vitamins'), itemDay) === 3);
+
+  /* CODE-05: the edit reaches TODAY's record, on the one day the user is
+     looking at it — and carries the tick across by name rather than losing it. */
+  ok("today's record is re-opened from the new list",
+     S.run().log[itemDay].vitamins.asked === 3 &&
+     Object.keys(S.run().log[itemDay].vitamins.items).join('/') === 'Multivitamin/Vitamin D3/Zinc',
+     S.run().log[itemDay].vitamins);
+  ok('and the item already ticked stays ticked',
+     S.run().log[itemDay].vitamins.items['Vitamin D3'] === true,
+     S.run().log[itemDay].vitamins.items);
+  ok('while a name that was not on the old list starts unticked',
+     S.run().log[itemDay].vitamins.items.Zinc === false);
 
   /* The reason the record stores names and not a count: a day already lived
      keeps the list it actually asked for, including the one that was missed. */
   ok('a day already recorded keeps the list it asked for',
-     S.run().log[1].vitamins.asked === beforeAsked &&
-     Object.keys(S.run().log[1].vitamins.items).join('/') === beforeNames,
-     [beforeAsked, S.run().log[1].vitamins.asked]);
+     S.run().log[1].vitamins.asked === livedAsked &&
+     Object.keys(S.run().log[1].vitamins.items).join('/') === livedNames,
+     [livedAsked, S.run().log[1].vitamins.asked]);
 
   ok('an empty checklist is refused — a habit with nothing in it is not a habit',
      S.setRunItems('vitamins', ['', '   ']) === null &&

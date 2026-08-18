@@ -1002,6 +1002,13 @@
     const p = (state.run.habits || []).find((x) => x.habitId === habitId);
     if (!p) return null;
     p.items = clean;
+    /* CODE-05: today's row is re-opened from the new list, carrying each
+       surviving item's ticked state across by name. `runCheckIn` freezes the
+       record when the day opens, so without this the editor changed nothing
+       until tomorrow — on the one day the user is actually looking at it. Days
+       already recorded keep the list they really asked for, which is why the
+       record stores the names and not just a count. */
+    reconcileToday();
     commit({ type: 'runItems', habitId: habitId });
     return clean;
   }
@@ -1053,6 +1060,68 @@
 
   /** Take up a recommendation. Refuses rather than repairs — see run.js. */
   /**
+   * Reconcile TODAY's record with the programme, and answer what today asks.
+   *
+   * This app has two answers to that question and they can disagree. The screens
+   * draw the day from the PROGRAMME (`A.Run.runDay` → `activeOn`); every score —
+   * `computeDayStatus`, the streak, `history()` — reads the RECORD
+   * (`runEntriesOn`). `runCheckIn` freezes the record when the day opens, so any
+   * edit made after that opens a gap between them, and each gap is its own bug:
+   * a removed habit left a row nothing could tick and the day could never be
+   * completed; an edited checklist changed nothing until tomorrow.
+   *
+   * So one function owns it, and every run-editing verb goes through it rather
+   * than patching its own corner. Membership comes from the programme; the ASK
+   * comes from the record wherever the record already has one, because a number
+   * the user has been working toward since this morning must not move under
+   * them. New rows are taken from the programme. Rows for habits no longer live
+   * today go.
+   *
+   * TODAY ONLY. It reads `runToday()` itself and can touch nothing else, which
+   * is what keeps "a day you have lived is never re-judged" true — a past day is
+   * its record and this never looks at one.
+   */
+  function reconcileToday() {
+    const day = runToday();
+    if (!state.run || day == null) return null;
+    const log = state.run.log || (state.run.log = {});
+    const prev = log[day] || {};
+    const fresh = A.Run.recordDay(state.run, day, [], null);
+    const next = {};
+
+    Object.keys(fresh).forEach((id) => {
+      const was = prev[id];
+      if (!was) { next[id] = fresh[id]; return; }
+
+      /* An item habit whose checklist was edited: carry every surviving name's
+         ticked state across, take the new names as unticked, and re-freeze the
+         verdict from the new list. `done` is stored rather than derived
+         everywhere else in the run, so it has to be recomputed here too. */
+      if (fresh[id].items) {
+        const items = {};
+        Object.keys(fresh[id].items).forEach((name) => {
+          items[name] = !!(was.items && was.items[name]);
+        });
+        const names = Object.keys(items);
+        const ticked = names.filter((n) => items[n]).length;
+        next[id] = {
+          asked: names.length,
+          done: names.length > 0 && ticked === names.length,
+          did: ticked || (was.did != null ? 0 : null),
+          items: items
+        };
+        return;
+      }
+      // Not an item habit: the frozen ask and whatever was logged against it stay.
+      next[id] = was;
+    });
+
+    if (JSON.stringify(next) === JSON.stringify(prev)) return next;
+    log[day] = next;
+    return next;
+  }
+
+  /**
    * Put a habit into a run that is already going.
    *
    * Refuses rather than repairs, exactly as `applyRecommendation` does: it goes
@@ -1072,6 +1141,7 @@
       const after = A.Run.withAdded(state.run, habitId, start);
       if (!A.Run.validate(after).length) {
         state.run = Object.assign({}, after, { log: state.run.log });
+        reconcileToday();
         commit({ type: 'runAdd', habitId: habitId, startDay: start });
         return { habitId: habitId, startDay: start };
       }
@@ -1113,6 +1183,7 @@
       });
       if (!A.Run.validate(after).length) {
         state.run = Object.assign({}, after, { log: state.run.log });
+        reconcileToday();
         commit({ type: 'runAddCustom', habitId: id, startDay: start });
         return { habitId: id, startDay: start, name: clean.name };
       }
@@ -1140,22 +1211,7 @@
     state.run = Object.assign({}, state.run, {
       habits: habits.filter((p) => p.habitId !== habitId)
     });
-    /* TODAY'S ROW GOES WITH IT. Every earlier day keeps its own, which is the
-       frozen-history invariant — but today has not been lived yet, and leaving
-       its row behind broke the day permanently.
-
-       The mechanism is the seam this app has two answers for: the screen draws
-       from the PROGRAMME (`A.Run.runDay` → `activeOn`), and `computeDayStatus`
-       scores from the RECORD (`runEntriesOn`). `runCheckIn` opens today's record
-       at boot, so after a removal the record held four rows and the screen drew
-       three — the user ticked everything visible and the day sat at 3 of 4,
-       `partial`, forever. The streak broke, `completeDays` was short by one, and
-       nothing could put it right: `clearDay` does not touch `run.log`, and
-       re-adding the habit lands on `today + 1`. */
-    const openDay = runToday();
-    if (openDay != null && state.run.log && state.run.log[openDay]) {
-      delete state.run.log[openDay][habitId];
-    }
+    reconcileToday();          // today's row goes with the habit; see the helper
     commit({ type: 'runRemove', habitId: habitId });
     return { habitId: habitId };
   }
