@@ -1404,6 +1404,125 @@ ok('while every legal day before it does not',
    beforeIt == null || A.Run.validate(A.Run.withAdded(S.run(), 'language', beforeIt)).length > 0,
    beforeIt);
 /* ------------------------------------------------------------------ */
+section('a goal offered to the run');
+S.resetAll();
+const cands = S.runCandidateGoals();
+ok('every active goal is judged, none silently missing',
+   cands.length === S.activeGoals().length, [cands.length, S.activeGoals().length]);
+
+/* The two rules, and both come from the run engine rather than from taste: a
+   run's dose only ever rises, and a clock reading is not an amount. */
+const wakeCand = cands.find((r) => r.goal.name === 'Wake up');
+const readCandidate = cands.find((r) => r.goal.name === 'Read');
+ok('a goal that counts down is refused', !!wakeCand && !wakeCand.eligible, wakeCand && wakeCand.why);
+ok('and says why rather than just vanishing', !!wakeCand && /counts down|time of day/.test(wakeCand.why), wakeCand && wakeCand.why);
+ok('a goal that counts up is offered', !!readCandidate && readCandidate.eligible, readCandidate && readCandidate.why);
+ok('with the goal numbers already in the draft',
+   !!readCandidate && readCandidate.draft.start === 10 && readCandidate.draft.target === 45 && readCandidate.draft.step === 5, readCandidate && readCandidate.draft);
+ok('and it remembers which goal it came from', !!readCandidate && readCandidate.draft.fromGoal === readCandidate.goal.id);
+/* A goal measured in minutes is the one case where the run's minutes cost IS
+   arithmetic. Everything else has to be asked for. */
+ok('minutes convert to a cost, other units do not',
+   !!readCandidate && readCandidate.draft.minutesAtTarget === 45, readCandidate && readCandidate.draft.minutesAtTarget);
+
+/* Taking a goal into the run pauses it, in the same commit. Two rows for one
+   act on Today is the duplication the catalogue was halved to remove. */
+S.resetAll();
+const readSrc = S.activeGoals().find((g) => g.name === 'Read');
+const readCand = S.runCandidateGoals().find((r) => r.goal.id === readSrc.id);
+S.startRun(['floss', 'brush_teeth', 'vitamins'], 90, true, null, [readCand.draft]);
+const inRun = S.run().habits.find((p) => p.fromGoal === readSrc.id);
+ok('the goal is in the run as a habit of its own', !!inRun, S.run().habits.map((p) => p.habitId));
+ok('carrying its own definition', !!inRun && A.Run.defOf(inRun).name === 'Read');
+ok('and the run is feasible on all 66 days',
+   A.Run.validate(S.run()).length === 0, A.Run.validate(S.run()).map((v) => v.kind));
+ok('the goal it came from is paused', !!S.goalById(readSrc.id).archived);
+ok('and the pause is reported by name', (() => {
+  const paused = S.takeRunPaused();
+  return paused.length === 1 && paused[0] === 'Read';
+})());
+ok('so today asks for it once, not twice', (() => {
+  const asGoal = S.goalsForDay(S.today()).filter((e) => e.goal.name === 'Read').length;
+  const asRun = A.Run.runDay(S.run(), 1).filter((r) => r.name === 'Read').length;
+  return asGoal === 0 && asRun === 1;
+})(), [S.goalsForDay(S.today()).map((e) => e.goal.name), A.Run.runDay(S.run(), 1).map((r) => r.name)]);
+
+/* Paused, never deleted, and no day already lived is re-judged: `activeHistory`
+   records the day it stopped, which is what every other pause in this app does. */
+ok('the goal still exists, with its record', !!S.goalById(readSrc.id), S.goals().map((g) => g.name));
+ok('and its pause is dated rather than backdated',
+   Array.isArray(S.goalById(readSrc.id).activeHistory) &&
+   S.goalById(readSrc.id).activeHistory.slice(-1)[0].archived === true,
+   S.goalById(readSrc.id).activeHistory);
+S.archiveGoal(readSrc.id, false);
+ok('one tap resumes it', !S.goalById(readSrc.id).archived);
+
+/* A goal whose habit did not fit must NOT be paused — the run never took it. */
+S.resetAll();
+const deepGoal = S.activeGoals().find((g) => g.name === 'Deep work');
+const deepDraft = S.runCandidateGoals().find((r) => r.goal.id === deepGoal.id).draft;
+S.startRun(['walk', 'stretch', 'floss'], 30, true, null, [deepDraft]);
+ok('a goal the run could not fit is left running',
+   !S.goalById(deepGoal.id).archived && S.takeRunRefusals().length === 1,
+   [S.goalById(deepGoal.id).archived, S.run().habits.map((p) => p.habitId)]);
+ok('and nothing claims to have paused it', S.takeRunPaused().length === 0);
+
+/* ------------------------------------------------------------------ */
+section('a run can be started with a habit the user wrote');
+S.resetAll();
+/* Cheap catalog picks and a generous budget, so what this measures is whether a
+   written habit is PLACED — not whether it fits. The first version of this
+   fixture put Sauna beside Walk at 60 minutes and was correctly refused: day 36
+   would have cost 64 minutes against the budget. That refusal is the run's whole
+   promise, and it is asserted on its own below. */
+const withWritten = S.startRun(['floss', 'brush_teeth', 'vitamins'], 90, true, null, [
+  { name: 'Sauna', unit: 'min', domain: 'self_care', start: 5, target: 20, step: 5, min: 1, friction: 2 }
+]);
+const written = withWritten.habits.find((p) => (p.custom || {}).name === 'Sauna');
+ok('the written habit is in the run from the start', !!written,
+   withWritten.habits.map((p) => p.habitId));
+/* The point of writing it at the start rather than adding it afterwards: a habit
+   added to a live run cannot begin before day two, because the legal start days
+   count from today + 1. */
+ok('and it begins on day one', !!written && written.startDay === 1, written && written.startDay);
+ok('it carries its own definition, not a catalog id',
+   !!written && written.habitId.indexOf('c_') === 0 && !!written.custom, written && written.habitId);
+ok('which resolves like any other', !!A.Run.defOf(written) && A.Run.defOf(written).name === 'Sauna');
+ok('the catalog picks came too', ['floss', 'brush_teeth', 'vitamins'].every(
+   (id) => withWritten.habits.some((p) => p.habitId === id)), withWritten.habits.map((p) => p.habitId));
+ok('and all 66 days are still feasible',
+   A.Run.validate(S.run()).length === 0, A.Run.validate(S.run()).map((v) => v.kind));
+ok('the catalog itself gained nothing', !A.Run.HABITS.some((h) => h.name === 'Sauna'));
+ok('nothing was refused', S.takeRunRefusals().length === 0);
+
+/* A written habit that cannot fit is DROPPED and reported, never squeezed in —
+   the same contract `buildRun` already has for a selection too big for the
+   budget. Every one of the 66 days has to be a day the user can actually do. */
+S.resetAll();
+S.startRun(['walk', 'stretch', 'floss'], 30, true, null, [
+  { name: 'Impossible', unit: 'min', domain: 'fitness', start: 300, target: 600, step: 30, min: 1, friction: 2 }
+]);
+ok('an impossible habit does not reach the run',
+   !S.run().habits.some((p) => (p.custom || {}).name === 'Impossible'),
+   S.run().habits.map((p) => (p.custom || {}).name || p.habitId));
+const refusals = S.takeRunRefusals();
+ok('and it is reported by name rather than dropped in silence',
+   refusals.length === 1 && refusals[0].name === 'Impossible', refusals);
+ok('the refusals are cleared once read', S.takeRunRefusals().length === 0);
+ok('the run it produced is still feasible',
+   A.Run.validate(S.run()).length === 0, A.Run.validate(S.run()).map((v) => v.kind));
+
+/* Rubbish in the form is refused by the same cleaner the store uses, so the
+   picker cannot list something `startRun` would then throw away. */
+S.resetAll();
+S.startRun(['floss', 'brush_teeth', 'vitamins'], 90, true, null, [
+  { name: '', unit: 'min', domain: 'self_care', start: 5, target: 20, step: 5, min: 1, friction: 2 },
+  { name: 'Backwards', unit: 'min', domain: 'self_care', start: 20, target: 5, step: 5, min: 1, friction: 2 }
+]);
+ok('a nameless or backwards habit never becomes an entry',
+   S.run().habits.every((p) => !p.custom), S.run().habits.map((p) => (p.custom || {}).name));
+
+/* ------------------------------------------------------------------ */
 section('habits the user wrote');
 S.resetAll();
 S.startRun(['walk', 'stretch', 'vitamins', 'floss'], 90, true);

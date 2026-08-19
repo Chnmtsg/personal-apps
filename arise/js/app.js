@@ -976,7 +976,8 @@
         const sel = $('#run_budget');
         const budget = sel ? Number(sel.value) : 45;
         const picks = UI.runPicks();
-        S.startRun(picks, budget, UI.runTogether(), UI.draftItems());
+        S.startRun(picks, budget, UI.runTogether(), UI.draftItems(), UI.draftCustoms());
+        const refused = S.takeRunRefusals();
         UI.resetRunPicks();
         UI.go('run');
         /* Say what the budget forced out, by name. `buildRun` repairs rather
@@ -986,7 +987,17 @@
            be the app deciding for them without saying so. */
         const got = S.run().habits.map((p) => p.habitId);
         const dropped = picks.filter((id) => got.indexOf(id) < 0)
-          .map((id) => (A.Run.habitIn(S.run(), id) || { name: id }).name);
+          .map((id) => (A.Run.habitIn(S.run(), id) || { name: id }).name)
+          // Written habits are refused by name rather than by id — they have no
+          // id until the run accepts them — so both lists say the same thing.
+          .concat(refused.map((r) => r.name));
+        const paused = S.takeRunPaused();
+        if (paused.length) {
+          UI.toast('⏸ <span><b>' + esc(paused.join(', ')) +
+                   '</b> ' + (paused.length === 1 ? 'is' : 'are') +
+                   ' paused while the run holds ' + (paused.length === 1 ? 'it' : 'them') +
+                   ' — everything already earned stays.</span>', 'gold');
+        }
         if (dropped.length) {
           UI.toast('🗓 <span>Day 1 of 66. <b>' + esc(dropped.join(', ')) +
                    '</b> did not fit ' + budget + ' min a day and was left out.</span>', 'gold');
@@ -1016,7 +1027,51 @@
       case 'run-custom-open':
         UI.openRunCustom();
         break;
+      /* A goal, offered to the run. It opens the same sheet rather than adding
+         on the tap, because a goal carries no minutes cost and the budget check
+         is built on one — the number is asked for instead of invented. */
+      case 'run-goal-add': {
+        const cand = S.runCandidateGoals().find((r) => r.goal.id === id);
+        if (!cand || !cand.eligible) break;
+        UI.openRunCustom(cand.draft);
+        break;
+      }
+      case 'run-custom-rm':
+        UI.removeDraftCustom(actEl.dataset.key);
+        UI.render();
+        break;
       case 'run-custom-save': {
+        /* Before the run exists there is nothing to add it TO, so it waits on
+           the picker with the ticked ones and `startRun` places it. Same form,
+           same validation — `addDraftCustom` cleans through `A.Run.cleanCustom`,
+           which is the function the store would have used — so what the list
+           shows is what the run will actually try to take. */
+        if (!S.run()) {
+          const draft = UI.addDraftCustom({
+            name: ($('#rc_name') && $('#rc_name').value) || '',
+            unit: ($('#rc_unit') && $('#rc_unit').value) || 'min',
+            domain: ($('#rc_domain') && $('#rc_domain').value) || 'self_care',
+            start: numVal('rc_start', NaN),
+            target: numVal('rc_target', NaN),
+            step: numVal('rc_step', NaN),
+            friction: numVal('rc_friction', 2),
+            minutesAtTarget: numVal('rc_at_target', NaN),
+            fromGoal: ($('#rc_from_goal') && $('#rc_from_goal').value) || '',
+            min: 1
+          });
+          if (!draft) {
+            UI.toast('⚠️ <span>Give it a name, and numbers that build upward.</span>', 'bad');
+          } else if (draft.refused === 'full') {
+            UI.toast('⚠️ <span>A run holds at most ' + A.Run.MAX_HABITS + ' habits.</span>', 'bad');
+          } else if (draft.refused === 'already') {
+            UI.toast('⚠️ <span>That goal is already on the list.</span>', 'bad');
+          } else {
+            UI.closeSheet();
+            UI.toast('➕ <span><b>' + esc(draft.name) + '</b> is on the list.</span>');
+          }
+          UI.render();
+          break;
+        }
         const out = S.runAddCustomHabit({
           name: ($('#rc_name') && $('#rc_name').value) || '',
           unit: ($('#rc_unit') && $('#rc_unit').value) || 'min',

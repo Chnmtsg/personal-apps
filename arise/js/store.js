@@ -882,7 +882,87 @@
     return st && st.running ? st.day : null;
   }
 
-  function startRun(picks, minutesBudget, together, items) {
+  /**
+   * @param {string[]} picks       catalog ids ticked on the start screen
+   * @param {object[]} [customs]   habits the user wrote themselves, cleaned
+   *
+   * `buildRun` takes catalog ids only — it `filter(isCatalogId)`s its picks — so
+   * anything the user wrote is appended afterwards rather than passed in. That
+   * is also the honest order: the catalog half is feasible-by-construction and
+   * repairs itself down to what fits, and each written habit is then offered to
+   * the run one at a time and either fits or does not.
+   *
+   * A habit that does not fit is DROPPED rather than squeezed in, and the caller
+   * is told which — same contract `buildRun` already has for a selection too big
+   * for the budget. Every one of the 66 days has to be a day the user can
+   * actually do, and that outranks getting everything they asked for.
+   */
+  /**
+   * The user's goals, judged against what a run can actually hold.
+   *
+   * This is the ONLY place the two systems meet, and it lives here rather than
+   * in run.js or goals.js on purpose: "the run and the goals share nothing" is
+   * an invariant about those two modules, and the store is the one thing that
+   * already owns both. Neither engine learns about the other.
+   *
+   * It reports the ineligible ones WITH their reason rather than hiding them,
+   * the same way the add-habit sheet shows a habit with no legal day left. "Why
+   * is Wake up not on this list" has a real answer and it is better said than
+   * left to be guessed at.
+   *
+   * Two rules decide it, and both come from the run engine rather than taste:
+   *
+   *   A run's dose only ever rises toward its target — `doseOn` clamps upward
+   *   and `validate` enforces `dose_monotonic` — so a ladder that counts DOWN
+   *   cannot exist in a run at all. That rules out every "less than" goal, which
+   *   unhappily includes the two a 66-day run looks most made for: an earlier
+   *   wake-up and an earlier bedtime.
+   *
+   *   A clock reading is not a dose. "06:15" is a point in the day, not an
+   *   amount of something you can do more of, so a `time` goal has no ramp the
+   *   run could walk even when its numbers happen to ascend.
+   */
+  function runCandidateGoals() {
+    return activeGoals().map((g) => {
+      if (g.unit === 'time') {
+        return { goal: g, eligible: false, why: 'a time of day is not an amount the run can ask for more of' };
+      }
+      const from = G.norm(g, g.baseline);
+      const to = G.norm(g, g.target);
+      if (!(to > from)) {
+        return { goal: g, eligible: false, why: 'it counts down, and a run only ever asks for more' };
+      }
+      if (!(g.step > 0) || !isFinite(g.step)) {
+        return { goal: g, eligible: false, why: 'it has no step to ramp by' };
+      }
+      /* `min` is minutes of daily cost per unit of dose, and it is the one thing
+         a goal does not carry. For a goal measured in time it is arithmetic; for
+         anything else — pages, litres, reps — there is no honest conversion, so
+         the number is asked for rather than invented. `minutesAtTarget` is the
+         answerable form of the same question. */
+      const perUnit = g.unit === 'minutes' ? 1 : g.unit === 'seconds' ? 1 / 60 : null;
+      return {
+        goal: g,
+        eligible: true,
+        why: '',
+        draft: {
+          name: g.name,
+          unit: g.unit === 'minutes' ? 'min' : g.unit === 'seconds' ? 'sec' : g.unit,
+          domain: 'self_care',
+          start: from,
+          target: to,
+          step: g.step,
+          minutesAtTarget: perUnit == null ? null : Math.round(to * perUnit * 100) / 100,
+          fromGoal: g.id
+        }
+      };
+    });
+  }
+
+  let runRefused = [];
+  let runPaused = [];
+
+  function startRun(picks, minutesBudget, together, items, customs) {
     // One run at a time. Replacing a live one would erase days the user earned,
     // which is the same thing the day counter refuses to do.
     if (state.run) return state.run;
@@ -894,8 +974,88 @@
         if (Array.isArray(items[p.habitId]) && items[p.habitId].length) p.items = items[p.habitId].slice();
       });
     }
+
+    /* Written habits, offered to the run in the order they were written.
+       `firstLegalStart` with a day of 0 asks "the earliest day from day one",
+       which is what a run being born wants — `legalStartDays` counts from
+       `today + 1`, and before a run exists there is no today in it. */
+    runRefused = [];
+    (customs || []).forEach((def) => {
+      const clean = A.Run.cleanCustom(def);
+      if (!clean) return;
+      if (state.run.habits.length >= A.Run.MAX_HABITS) {
+        runRefused.push({ name: (def && def.name) || 'it', why: 'full' });
+        return;
+      }
+      const id = 'c_' + A.uid('').replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase();
+      /* `min` is minutes of daily cost per unit of dose, and the budget check is
+         built on it. The form asks the answerable version of the question — how
+         long the whole thing takes once you are at the target — because "how
+         many minutes is one push-up" is not a question anybody can answer. */
+      const atTarget = Number(def.minutesAtTarget);
+      const perUnit = isFinite(atTarget) && atTarget > 0 && clean.target > 0
+        ? atTarget / clean.target
+        : clean.min;
+      const entry = {
+        habitId: id, startDay: 1, scale: 1, frozenDay: null,
+        custom: {
+          name: clean.name, unit: clean.unit, domain: clean.domain,
+          start: clean.start, target: clean.target, step: clean.step,
+          min: perUnit > 0 ? perUnit : 1, friction: clean.friction
+        }
+      };
+      const startDay = A.Run.firstLegalStart(state.run, entry, 0);
+      if (startDay == null) {
+        runRefused.push({ name: clean.name, why: 'no_room' });
+        return;
+      }
+      /* Where it came from, beside the definition rather than inside it:
+         `cleanCustom` returns a fixed shape and would drop it, and it is a fact
+         about the run's history rather than about the habit's ramp. */
+      const placed = Object.assign({}, entry, { startDay: startDay });
+      if (def.fromGoal) placed.fromGoal = def.fromGoal;
+      state.run.habits.push(placed);
+    });
+
+    /* A goal the run has taken over is PAUSED, in the same commit that starts
+       the run. Leaving it active would put the same commitment on Today twice —
+       once as a goal row and once as a run row — with two ticks for one act, and
+       that is the duplication the run's catalogue was cut in half to remove.
+
+       Paused, not deleted: every day it has already earned stays exactly as it
+       was, `activeHistory` records when it stopped so no past day is re-judged,
+       and Plan's Paused section resumes it with one tap whenever the user wants
+       it back — including the day the run ends. */
+    runPaused = [];
+    state.run.habits.forEach((p) => {
+      if (!p.fromGoal) return;
+      const g = goalById(p.fromGoal);
+      if (!g || g.archived) return;
+      g.archived = true;
+      recordActiveChange(g, true);
+      runPaused.push(g.name);
+    });
+
     commit({ type: 'runStart' });
     return state.run;
+  }
+
+  /** Goals `startRun` paused because the run took them over. Same read-once
+      contract as the refusals, and for the same reason. */
+  function takeRunPaused() {
+    const out = runPaused;
+    runPaused = [];
+    return out;
+  }
+
+  /** What `startRun` could not fit, for the toast that reports it.
+      Module-local rather than on `state`: it describes one start, not the run it
+      produced, and anything put on `state` is persisted, exported and migrated
+      forever. Read once and cleared. */
+  function takeRunRefusals() {
+    const out = runRefused;
+    runRefused = [];
+    return out;
   }
 
   function endRun() {
@@ -2203,6 +2363,7 @@
     toggleExercise, toggleHabit, completeAll, toggleWorkout, muscleTally, clearDay, addExtra, removeExtra,
     restoreExercises, restorePlanDay, restoreExtras, acknowledgeStart,
     addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan, reinstallProgram,
+    takeRunRefusals, takeRunPaused, runCandidateGoals,
     addExercise, updateExercise, removeExercise, addHabit, removeHabit, habitStreak,
     habitToGoal, restoreHabitFromGoal,
     goals, activeGoals, goalById, goalEntry, goalTimeline, goalTarget, goalTargetOn,

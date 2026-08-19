@@ -348,6 +348,117 @@ console.log('\nediting a run in progress through app.js');
   ok('confirming does', S.run().habits.length === before, S.run().habits.map((p) => p.habitId));
 }
 
+console.log('\nbringing a goal into the run, through app.js');
+{
+  const UIg = sandbox.UI;
+  S.resetAll();
+  UIg.resetRunPicks();
+  resolve('#run_budget').value = '90';
+
+  const readGoal = S.activeGoals().find((g) => g.name === 'Read');
+  const wakeGoal = S.activeGoals().find((g) => g.name === 'Wake up');
+
+  /* A goal that counts down cannot exist in a run at all, so the tap must be a
+     no-op rather than half-adding something the engine will reject later. */
+  click({ act: 'run-goal-add', id: wakeGoal.id });
+  ok('a descending goal cannot be added', UIg.draftCustoms().length === 0, UIg.draftCustoms());
+
+  click({ act: 'run-goal-add', id: readGoal.id });
+  /* The stub DOM holds the sheet as a STRING — it never parses it into elements,
+     so a pre-filled `value=` attribute cannot be read back through `resolve`
+     here. That the markup carries the right values is render.js's assertion;
+     what this file can see is that the tap opened the right sheet at all. */
+  const goalSheet = resolve('#sheetBody').innerHTML;
+  ok('an ascending one opens the sheet for that goal', goalSheet.indexOf('value="Read"') > 0,
+     goalSheet.slice(0, 120));
+  ok('the tap alone adds nothing', UIg.draftCustoms().length === 0);
+
+  // What a real browser would have handed back from the pre-filled form.
+  resolve('#rc_name').value = 'Read';
+  resolve('#rc_unit').value = 'min';
+  resolve('#rc_domain').value = 'self_care';
+  resolve('#rc_start').value = '10';
+  resolve('#rc_target').value = '45';
+  resolve('#rc_step').value = '5';
+  resolve('#rc_friction').value = '2';
+  resolve('#rc_at_target').value = '45';
+  resolve('#rc_from_goal').value = readGoal.id;
+  click({ act: 'run-custom-save' });
+  ok('saving puts it on the list', UIg.draftCustoms().length === 1, UIg.draftCustoms());
+  ok('still tied to the goal it came from', UIg.draftCustoms()[0].fromGoal === readGoal.id);
+  ok('and the goal is NOT paused yet — nothing has started',
+     !S.goalById(readGoal.id).archived);
+
+  /* The same goal twice would pause it once and ask for it twice. */
+  click({ act: 'run-goal-add', id: readGoal.id });
+  click({ act: 'run-custom-save' });
+  ok('the same goal cannot go on the list twice', UIg.draftCustoms().length === 1,
+     UIg.draftCustoms().map((d) => d.name));
+
+  A.Run.DEFAULT_PICKS.forEach((id) => click({ act: 'run-pick', id: id }));
+  ['floss', 'brush_teeth', 'vitamins'].forEach((id) => click({ act: 'run-pick', id: id }));
+  click({ act: 'run-start' });
+
+  ok('starting the run takes the goal in as a habit',
+     S.run().habits.some((p) => p.fromGoal === readGoal.id),
+     S.run().habits.map((p) => (p.custom || {}).name || p.habitId));
+  ok('and pauses the goal in the same commit', !!S.goalById(readGoal.id).archived);
+  ok('so Today asks for it once', (() => {
+    const asGoal = S.goalsForDay(S.today()).filter((e) => e.goal.name === 'Read').length;
+    const asRun = A.Run.runDay(S.run(), 1).filter((r) => r.name === 'Read').length;
+    return asGoal === 0 && asRun === 1;
+  })());
+  ok('the run is feasible on all 66 days', A.Run.validate(S.run()).length === 0,
+     A.Run.validate(S.run()).map((v) => v.kind));
+}
+
+console.log('\nwriting your own habit before the run exists, through app.js');
+{
+  /* The reported gap: the catalog is fourteen and closed, and "write your own"
+     lived only inside the mid-run Add sheet — so the screen where you decide
+     what your 66 days are could not reach it. `run-custom-save` has to branch on
+     whether a run exists, because before it does there is nothing to add it TO. */
+  const UIw = sandbox.UI;
+  S.resetAll();
+  UIw.resetRunPicks();
+  resolve('#run_budget').value = '90';
+
+  resolve('#rc_name').value = 'Sauna';
+  resolve('#rc_unit').value = 'min';
+  resolve('#rc_domain').value = 'self_care';
+  resolve('#rc_start').value = '5';
+  resolve('#rc_target').value = '20';
+  resolve('#rc_step').value = '5';
+  resolve('#rc_friction').value = '2';
+  click({ act: 'run-custom-save' });
+
+  ok('with no run, it goes on the list rather than into the store',
+     UIw.draftCustoms().length === 1 && !S.run(), [UIw.draftCustoms().length, !!S.run()]);
+  ok('and it is the habit that was written', UIw.draftCustoms()[0].name === 'Sauna',
+     UIw.draftCustoms()[0]);
+
+  /* Taking it back off before starting. */
+  const key = UIw.draftCustoms()[0].key;
+  click({ act: 'run-custom-rm', key: key });
+  ok('it can be taken back off the list', UIw.draftCustoms().length === 0);
+
+  click({ act: 'run-custom-save' });
+  A.Run.DEFAULT_PICKS.forEach((id) => click({ act: 'run-pick', id: id }));   // clear the defaults
+  ['floss', 'brush_teeth', 'vitamins'].forEach((id) => click({ act: 'run-pick', id: id }));
+  click({ act: 'run-start' });
+
+  const started = S.run();
+  ok('starting the run takes the written habit with it',
+     !!started && started.habits.some((p) => (p.custom || {}).name === 'Sauna'),
+     started && started.habits.map((p) => (p.custom || {}).name || p.habitId));
+  ok('on day one, which adding it afterwards could never do',
+     !!started && (started.habits.find((p) => (p.custom || {}).name === 'Sauna') || {}).startDay === 1,
+     started && (started.habits.find((p) => (p.custom || {}).name === 'Sauna') || {}).startDay);
+  ok('and the run it built is feasible on all 66 days',
+     A.Run.validate(started).length === 0, A.Run.validate(started).map((v) => v.kind));
+  ok('the list is cleared once the run has them', UIw.draftCustoms().length === 0);
+}
+
 console.log('\na daily habit becomes a goal, through app.js');
 {
   /* The route the user actually takes: tap the control on More, fill the form,

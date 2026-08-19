@@ -27,6 +27,9 @@
      setting — it opens on the goals every time, because that is the half a
      person comes to Plan to change. */
   let planTab = 'goals';
+  /* Written habits waiting for a run to exist. Cleared with the rest of the
+     picker, because they are a selection rather than stored data. */
+  let draftCustoms = [];
   /* Which window the muscle breakdown on Stats is showing. View state, like the
      folds — a look at the last week is not a setting anybody wants remembered
      across devices. */
@@ -2756,39 +2759,64 @@
    * work is refused when it is written, which is far kinder than an impossible
    * day 41.
    */
-  function openRunCustom() {
-    openSheet('Write your own habit', `
+  function openRunCustom(pre) {
+    const live = !!S.run();
+    const v = Object.assign(
+      { name: '', unit: 'min', domain: 'self_care', start: 10, target: 25, step: 5,
+        friction: 2, minutesAtTarget: null, fromGoal: '' },
+      pre || {}
+    );
+    openSheet(v.fromGoal ? 'Bring ' + v.name + ' into the run' : 'Write your own habit', `
       <p class="muted" style="margin-top:0;font-size:var(--fs-md)">It belongs to this run and
         nothing else — the catalog is unchanged, and your goals and plan are untouched. It ramps
         the same way every other habit does: from the first number to the second, one step a week.</p>
       <label class="field"><span>Name</span>
-        <input type="text" id="rc_name" maxlength="40" placeholder="e.g. Sauna"></label>
+        <input type="text" id="rc_name" maxlength="40" value="${esc(v.name)}" placeholder="e.g. Sauna"></label>
       <div class="grid-2">
         <label class="field"><span>Measured in</span>
-          <input type="text" id="rc_unit" maxlength="12" value="min" placeholder="min"></label>
+          <input type="text" id="rc_unit" maxlength="12" value="${esc(v.unit)}" placeholder="min"></label>
         <label class="field"><span>Area</span><select id="rc_domain">
-          <option value="self_care">Self-care</option>
-          <option value="fitness">Fitness</option>
-          <option value="development">Development</option>
+          ${[['self_care', 'Self-care'], ['fitness', 'Fitness'], ['development', 'Development']]
+            .map(([id, label]) => `<option value="${id}"${v.domain === id ? ' selected' : ''}>${label}</option>`)
+            .join('')}
         </select></label>
       </div>
       <div class="grid-2">
         <label class="field"><span>Start at</span>
-          <input type="number" id="rc_start" min="0" step="any" value="10"></label>
+          <input type="number" id="rc_start" min="0" step="any" value="${esc(v.start)}"></label>
         <label class="field"><span>Build up to</span>
-          <input type="number" id="rc_target" min="0" step="any" value="25"></label>
+          <input type="number" id="rc_target" min="0" step="any" value="${esc(v.target)}"></label>
       </div>
       <div class="grid-2">
         <label class="field"><span>Step each week</span>
-          <input type="number" id="rc_step" min="0.1" step="any" value="5"></label>
+          <input type="number" id="rc_step" min="0.1" step="any" value="${esc(v.step)}"></label>
         <label class="field"><span>Effort</span><select id="rc_friction">
-          ${[1, 2, 3, 4, 5].map((n) => `<option value="${n}"${n === 2 ? ' selected' : ''}>${'•'.repeat(n)}</option>`).join('')}
+          ${[1, 2, 3, 4, 5].map((n) => `<option value="${n}"${n === v.friction ? ' selected' : ''}>${'•'.repeat(n)}</option>`).join('')}
         </select></label>
       </div>
-      <div class="btn-row"><button class="btn primary block" data-act="run-custom-save">Add it to the run</button></div>
-      <p class="faint" style="font-size:var(--fs-xs);margin:10px 2px 0">It joins on the first day the
-        run can take it. If the numbers make a day you could not actually do, it is refused rather
-        than squeezed in — that is the promise the run is built on.</p>
+      <!-- The minutes budget is the rule that decides whether a day is
+           physically doable, and it is built on how long one unit costs. Asking
+           that directly — "how many minutes is one push-up" — is a question
+           nobody can answer, so this asks the whole thing at its target and
+           divides. It was hardcoded to one minute per unit before, which is
+           right for a habit measured in minutes and wrong for every other. -->
+      <label class="field"><span>Minutes a day once you reach the target</span>
+        <input type="number" id="rc_at_target" min="0" step="any" value="${esc(
+          v.minutesAtTarget == null ? v.target : v.minutesAtTarget
+        )}"></label>
+      <input type="hidden" id="rc_from_goal" value="${esc(v.fromGoal || '')}">
+      <div class="btn-row"><button class="btn primary block" data-act="run-custom-save">${
+        live ? 'Add it to the run' : 'Add it to the list'
+      }</button></div>
+      <p class="faint" style="font-size:var(--fs-xs);margin:10px 2px 0">${
+        live
+          ? `It joins on the first day the run can take it. If the numbers make a day you could not
+             actually do, it is refused rather than squeezed in — that is the promise the run is
+             built on.`
+          : `It goes on the list with the ones you have ticked, and starts on day one if the budget
+             has room for it. If the numbers make a day you could not actually do, it is dropped
+             when the run is built and you are told — that is the promise the run is built on.`
+      }</p>
     `);
   }
 
@@ -2910,6 +2938,7 @@
   function resetRunPicks() {
     runPicks = null;
     runTogether = true;
+    draftCustoms = [];
   }
 
   /**
@@ -2947,6 +2976,51 @@
           } steps · edit</button>`
         : ''
     }`;
+  }
+
+  /**
+   * The user's own goals, offered to the run.
+   *
+   * The ineligible ones are listed WITH their reason rather than hidden — the
+   * same rule the add-habit sheet follows. "Why is Wake up not here" has a real
+   * answer, and the two goals a 66-day run looks most made for are exactly the
+   * two it cannot take, so saying nothing would read as a bug.
+   *
+   * Tapping one opens the write-your-own sheet pre-filled from the goal, because
+   * a goal does not carry the one number the run's budget is built on: how many
+   * minutes it costs. That is asked for rather than invented.
+   */
+  function runGoalPicker() {
+    const rows = S.runCandidateGoals();
+    if (!rows.length) return '';
+    const taken = draftCustoms.map((d) => d.fromGoal).filter(Boolean);
+    return `
+      <div class="label">From your goals</div>
+      <div class="card flush runlist-card">${rows
+        .map((r) => {
+          const on = taken.indexOf(r.goal.id) >= 0;
+          return `<div class="row"><div class="body">
+            <div class="name">${esc(r.goal.name)}</div>
+            <div class="sub">${
+              r.eligible
+                ? esc(
+                    A.formatValue(r.goal.unit, r.goal.baseline) + ' → ' +
+                    A.formatValue(r.goal.unit, r.goal.target)
+                  )
+                : esc(r.why)
+            }</div></div>
+            ${
+              !r.eligible
+                ? `<span class="faint" style="font-size:var(--fs-xs)">can't</span>`
+                : on
+                ? `<span class="pill good">on the list</span>`
+                : `<button class="btn" data-act="run-goal-add" data-id="${esc(r.goal.id)}">Add</button>`
+            }</div>`;
+        })
+        .join('')}</div>
+      <p class="faint pickhint">A goal the run takes over is <b>paused</b> while the run holds it,
+        so it is asked for once rather than twice. Everything it has already earned stays, and Plan
+        resumes it with one tap.</p>`;
   }
 
   function runPicker() {
@@ -3004,9 +3078,40 @@
           fit your minutes is dropped when the run is built, and you will be told what went — every one
           of the 66 days has to be a day you can actually do. Fewer than
           ${A.Run.MIN_HABITS} and the rest is filled in for you.</p>
+
+        <!-- The catalog is fourteen habits and deliberately closed, so this is
+             the only way a run can hold something it does not have. It used to
+             exist ONLY inside the mid-run "Add a habit" sheet, which meant the
+             one screen where you decide what your 66 days are was the one screen
+             that could not reach it — and a habit added after the start cannot
+             begin before day two, because the legal start days count from
+             today + 1. Written here, it can start on day one. -->
+        <button type="button" class="how-photo-add" data-act="run-custom-open" style="min-height:64px">
+          <b>＋ Write your own</b>
+          <small>Anything the fourteen below do not cover. It lives in this run
+            only — the catalog, your goals and your plan are all untouched.</small>
+        </button>
+        ${
+          draftCustoms.length
+            ? `<div class="card flush runlist-card">${draftCustoms
+                .map(
+                  (d) => `<div class="row"><div class="body">
+                    <div class="name">${esc(d.name)}</div>
+                    <div class="sub">${esc(
+                      A.formatValue('count', d.start) + ' → ' + A.formatValue('count', d.target) + ' ' + d.unit
+                    )}</div></div>
+                    <button class="icon-btn" data-act="run-custom-rm" data-key="${esc(d.key)}"
+                      aria-label="Remove ${esc(d.name)}">✕</button></div>`
+                )
+                .join('')}</div>`
+            : ''
+        }
+
+        ${runGoalPicker()}
+
         <div id="runPicker">${runPicker()}</div>
         <button class="btn primary block" data-act="run-start" style="margin-top:14px">Start the run · ${
-          currentRunPicks().length
+          currentRunPicks().length + draftCustoms.length
         } chosen</button>`;
     }
 
@@ -3423,6 +3528,35 @@
     return clean;
   };
   UI.draftItems = () => draftItems;
+  /* Habits the user wrote on the start screen, before there is a run to store
+     them against — the same shape of problem `draftItems` already solves for
+     checklists. Cleaned on the way in, so what the picker lists is what
+     `startRun` will actually try to place. */
+  UI.draftCustoms = () => draftCustoms.slice();
+  UI.addDraftCustom = (def) => {
+    const clean = RUN().cleanCustom(Object.assign({ id: 'c_draft' }, def || {}));
+    if (!clean) return null;
+    if (draftCustoms.length + currentRunPicks().length >= RUN().MAX_HABITS) return { refused: 'full' };
+    /* One goal, once. Two drafts from the same goal would pause it once and put
+       the same commitment in the run twice, which is the whole thing this is
+       meant to prevent. */
+    if (def && def.fromGoal && draftCustoms.some((d) => d.fromGoal === def.fromGoal)) {
+      return { refused: 'already' };
+    }
+    const row = {
+      key: A.uid('dc'), name: clean.name, unit: clean.unit, domain: clean.domain,
+      start: clean.start, target: clean.target, step: clean.step,
+      min: clean.min, friction: clean.friction,
+      /* Neither of these survives `cleanCustom`, which returns a fixed shape —
+         they are carried alongside it. `minutesAtTarget` is what the budget cost
+         is derived from, and `fromGoal` is what `startRun` pauses. */
+      minutesAtTarget: def && isFinite(Number(def.minutesAtTarget)) ? Number(def.minutesAtTarget) : null,
+      fromGoal: (def && def.fromGoal) || ''
+    };
+    draftCustoms.push(row);
+    return row;
+  };
+  UI.removeDraftCustom = (key) => { draftCustoms = draftCustoms.filter((d) => d.key !== key); };
   UI.openGoalDetail = openGoalDetail;
   UI.openGoalEditor = openGoalEditor;
   UI.openGoalRestart = openGoalRestart;

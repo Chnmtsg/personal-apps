@@ -1248,6 +1248,82 @@ behaves('the page can grow past the viewport, so a fixed bar cannot eat the end 
     ? '' : 'nothing reserves room for the fixed tab bar';
 });
 
+/* The reported bug: "I can't choose my goal, it only shows a few habits". The
+   catalog is fourteen and closed on purpose, so the escape hatch is writing your
+   own — and that route existed ONLY inside the mid-run "Add a habit" sheet. The
+   one screen where you decide what your 66 days will be was the one screen that
+   could not reach it, and a habit added after the start cannot begin before day
+   two. Both halves are asserted: the route is on the start screen, and the
+   catalog really is as small as it looks. */
+behaves('the run can be started with a habit the catalog does not have', () => {
+  S.resetAll();
+  UI.resetRunPicks();
+  const html = renderRoute('run');
+  if (html.indexOf('data-act="run-custom-open"') < 0) {
+    return 'no way to write your own on the start screen — the catalog is all you get';
+  }
+  return html.indexOf('Write your own') > 0 ? '' : 'the route is there but unlabelled';
+});
+
+behaves('and the catalog it offers is the whole catalog', () => {
+  S.resetAll();
+  UI.resetRunPicks();
+  const html = renderRoute('run');
+  /* By the tap, not by the class — the "start everything on day one" toggle is
+     also a `.pick`, so counting the class returns one too many. */
+  const cards = (html.match(/data-act="run-pick"/g) || []).length;
+  if (cards !== A.Run.HABITS.length) return `${cards} pick cards for ${A.Run.HABITS.length} habits`;
+  /* Every habit must be reachable through one of the picker's three sections; a
+     habit whose domain is not one of them renders nowhere and can never be
+     chosen, with nothing to say so. */
+  const homeless = A.Run.HABITS.filter((h) => html.indexOf('data-id="' + h.id + '"') < 0);
+  return homeless.length ? 'not shown at all: ' + homeless.map((h) => h.id).join(', ') : '';
+});
+
+behaves('a habit written before the run starts is listed, and removable', () => {
+  S.resetAll();
+  UI.resetRunPicks();
+  UI.addDraftCustom({ name: 'Sauna', unit: 'min', domain: 'self_care', start: 5, target: 20, step: 5, min: 1, friction: 2 });
+  const html = renderRoute('run');
+  UI.resetRunPicks();
+  if (html.indexOf('Sauna') < 0) return 'the written habit is not shown before the run starts';
+  return html.indexOf('data-act="run-custom-rm"') > 0 ? '' : 'no way to take it back off';
+});
+
+behaves('the start screen offers the goals the run could actually hold', () => {
+  S.resetAll();
+  UI.resetRunPicks();
+  const html = renderRoute('run');
+  if (html.indexOf('From your goals') < 0) return 'goals are not offered at all';
+  const cands = S.runCandidateGoals();
+  const eligible = cands.filter((r) => r.eligible);
+  const refused = cands.filter((r) => !r.eligible);
+  if (!eligible.length || !refused.length) return 'the fixture has no mix to check';
+  /* Both halves listed. The refused ones are shown WITH the reason rather than
+     hidden — the two goals a 66-day run looks most made for are the two it
+     cannot take, so saying nothing would read as a bug. */
+  const missing = cands.filter((r) => html.indexOf('>' + r.goal.name + '<') < 0);
+  if (missing.length) return 'not listed at all: ' + missing.map((r) => r.goal.name).join(', ');
+  if (html.indexOf(refused[0].why) < 0) return 'a refused goal does not say why';
+  return html.indexOf('data-act="run-goal-add" data-id="' + eligible[0].goal.id + '"') > 0
+    ? '' : 'an eligible goal has no way in';
+});
+
+behaves('and the sheet it opens is pre-filled from that goal', () => {
+  const cand = S.runCandidateGoals().find((r) => r.eligible);
+  if (!cand) return 'no eligible goal in the fixture';
+  sheetBody.innerHTML = '';
+  UI.openRunCustom(cand.draft);
+  const html = sheetBody.innerHTML;
+  if (html.indexOf('value="' + cand.goal.name + '"') < 0) return 'the name is not carried across';
+  if (html.indexOf('value="' + cand.draft.start + '"') < 0) return 'the baseline is not carried across';
+  if (html.indexOf('value="' + cand.draft.target + '"') < 0) return 'the target is not carried across';
+  /* The one number a goal does not carry, and the one the budget check is built
+     on. It has to be asked for, so the field has to be there. */
+  if (html.indexOf('id="rc_at_target"') < 0) return 'nothing asks what it costs in minutes';
+  return html.indexOf('value="' + cand.goal.id + '"') > 0 ? '' : 'the goal id is not carried into the form';
+});
+
 behaves('a chosen habit is marked in the markup, not only in colour', () => {
   S.resetAll();
   UI.resetRunPicks();

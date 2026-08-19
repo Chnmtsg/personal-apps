@@ -314,6 +314,27 @@ resolver — `defOf(p)` — serves both. Use `defOf(entry)` when you have the en
 and `habitIn(run, id)` when you only have an id; plain `habit(id)` is the
 catalog and cannot see a custom habit.
 
+**A run can be built from habits the catalog does not have, and that route has
+to be on the START screen.** The catalog is fourteen and closed, so writing your
+own is the only way a run holds anything else — and for a long time
+`run-custom-open` appeared in exactly one place, the mid-run "Add a habit" sheet.
+The one screen where the user decides what their 66 days will be was the one
+screen that could not reach it, and it does not even fix itself afterwards: a
+habit added to a live run cannot begin before day two, because `legalStartDays`
+counts from `today + 1`. Written on the start screen it begins on day one.
+
+Before a run exists there is nothing to add a habit TO, so the picker holds them
+as drafts — `UI.draftCustoms`, the same shape of answer `draftItems` already
+gives for checklists — and `startRun` places them after `buildRun`, which takes
+catalog ids only and `filter(isCatalogId)`s anything else. Each is offered to the
+run one at a time through `firstLegalStart(run, entry, 0)`; one that does not fit
+is DROPPED and named in the toast, never squeezed in, which is the contract
+`buildRun` already had for a selection too big for the budget.
+
+`S.takeRunRefusals()` carries that report, and it is module-local rather than on
+`state`: it describes one start, not the run it produced, and anything put on
+`state` is persisted, exported and migrated forever.
+
 **Asking where one more habit fits is a binary search, not a scan.**
 `firstLegalStart` answers "the earliest day this run could take this habit", and
 three callers use it — the add-habit sheet, `runAddHabit` and
@@ -392,6 +413,36 @@ a goal and a run habit for the same commitment by hand; that is still the rule
 above, enforced by the catalog being small rather than by name-matching, which
 would fire wrongly.
 
+**A goal can be brought INTO a run, and the bridge lives in the store.** The one
+place the two systems meet is `S.runCandidateGoals()`, and it is in `js/store.js`
+rather than in either engine on purpose: "the run and the goals share nothing" is
+an invariant about those two modules, and the store is the one thing that already
+owns both. Neither learns about the other.
+
+Two rules decide what can cross, and both come from the run engine rather than
+from taste. A run's dose only ever RISES toward its target — `doseOn` clamps
+upward and `validate` enforces `dose_monotonic` — so a ladder that counts down
+cannot exist in a run at all; that rules out every "less than" goal, unhappily
+including the two a 66-day run looks most made for, an earlier wake-up and an
+earlier bedtime. And a clock reading is not a dose: "06:15" is a point in the
+day, not an amount you can do more of, so a `time` goal has no ramp to walk.
+Ineligible goals are LISTED WITH THEIR REASON rather than hidden, the same way
+the add-habit sheet shows a habit with no legal day left.
+
+A goal carries no minutes cost, and the budget check is built on one. It is asked
+for rather than invented — the form asks the answerable form of the question,
+"minutes a day once you reach the target", and divides. That field also fixed the
+hand-written custom habit, which hardcoded one minute per unit: right for a habit
+measured in minutes, wrong for one measured in reps.
+
+**A goal the run takes over is PAUSED, in the same commit that starts the run.**
+Leaving it active puts the same commitment on Today twice — a goal row and a run
+row, two ticks for one act — which is the duplication the catalog was halved to
+remove. Paused, never deleted: everything already earned stays, `activeHistory`
+records the day it stopped so no past day is re-judged, and Plan's Paused section
+resumes it with one tap. A goal whose habit did NOT fit the budget is left
+running, because the run never took it.
+
 **The run and the goals share nothing.** `js/run.js` is a port of the
 `life-reset` Python engine and sits beside `js/goals.js`: a goal ramps a target
 the user chose from a baseline they set and earns each step by performing; a run
@@ -447,7 +498,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v60`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v62`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by
