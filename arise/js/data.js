@@ -126,6 +126,13 @@
     { id: 'hamstrings', name: 'Hamstrings', group: 'Legs' },
     { id: 'glutes', name: 'Glutes', group: 'Legs' },
     { id: 'calves', name: 'Calves', group: 'Legs' },
+    /* Added in 2026-08 with the SITE programme, which trains adductors directly
+       (Copenhagen plank) and had nowhere honest to record it — tagging that as
+       obliques would have put work in the breakdown where it was not done.
+       Purely additive: `cleanMuscles` accepts a new id, nothing stored changes,
+       and no migration is needed. It is the twentieth group, not a re-split of
+       the nineteen v6 made. */
+    { id: 'adductors', name: 'Adductors', group: 'Legs' },
     { id: 'abs', name: 'Abs', group: 'Core' },
     { id: 'obliques', name: 'Obliques', group: 'Core' },
     { id: 'full', name: 'Full body', group: 'Other' },

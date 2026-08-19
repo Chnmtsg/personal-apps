@@ -616,15 +616,52 @@ ok('every program exercise has how-to notes', A.PROGRAM_EXERCISES.every((p) => (
   (A.PROGRAM_EXERCISES.find((p) => !(named(p.name) || {}).how) || {}).name);
 ok('shared names are not duplicated', lib.filter((e) => e.name === 'Plank').length === 1, lib.filter((e) => e.name === 'Plank').length);
 ok('all seven days are programmed', [0, 1, 2, 3, 4, 5, 6].every((d) => S.get().plan[d].length > 0));
-ok('Monday is the push day', S.get().plan[1].some((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Floor Press'));
-ok('Thursday is recovery, not lifting', S.get().plan[4].every((i) => S.exerciseById(i.exerciseId).category !== 'Strength'));
-ok('a day opens with a warm-up', S.exerciseById(S.get().plan[1][0].exerciseId).category === 'Warm-up');
-ok('and closes with a stretch', S.exerciseById(S.get().plan[1].slice(-1)[0].exerciseId).category === 'Stretch');
+
+/* `programPlan` resolves each week entry by NAME and `.filter(Boolean)`s what it
+   cannot find, so one typo in PROGRAM_WEEK drops that exercise out of the day
+   silently — no error, no empty row, just a session one lift shorter than the
+   programme says. Nothing else in the app can catch it. */
+const weekNames = [];
+[0, 1, 2, 3, 4, 5, 6].forEach((d) => {
+  ((A.PROGRAM_WEEK[d] || {}).items || []).forEach((it) => weekNames.push({ d: d, name: it.name }));
+});
+const unresolved = weekNames.filter((x) => !named(x.name));
+ok('every exercise the week names exists in the library', unresolved.length === 0,
+   unresolved.map((x) => 'day ' + x.d + ': ' + x.name));
+ok('and nothing was silently dropped on the way into the plan',
+   [0, 1, 2, 3, 4, 5, 6].every((d) => S.get().plan[d].length === ((A.PROGRAM_WEEK[d] || {}).items || []).length),
+   [0, 1, 2, 3, 4, 5, 6].map((d) => S.get().plan[d].length + '/' + ((A.PROGRAM_WEEK[d] || {}).items || []).length).join(' '));
+
+/* The SITE programme: Mon Upper A, Tue Lower A, Wed rest, Thu Upper B,
+   Fri Lower B, Sat accessory, Sun rest. */
+ok('Monday is the press day', S.get().plan[1].some((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Floor Press'));
+ok('Thursday is the pull day', S.get().plan[4].some((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Bent-Over Row'));
+ok('Wednesday and Sunday carry no lifting',
+   [3, 0].every((d) => S.get().plan[d].every((i) => S.exerciseById(i.exerciseId).category !== 'Strength')));
+ok('a training day opens with a warm-up', S.exerciseById(S.get().plan[1][0].exerciseId).category === 'Warm-up');
+ok('and closes with its stretch', (() => {
+  const items = S.get().plan[1];
+  // The daily mobility is the last row on every day, so the stretch is the one before it.
+  return S.exerciseById(items[items.length - 2].exerciseId).category === 'Stretch';
+})(), S.get().plan[1].map((i) => S.exerciseById(i.exerciseId).category).join(','));
+
+/* "Training day or not" is the programme's own wording, and it is the only item
+   that appears on all seven days — including the two rest days, which is what
+   makes it the thing the app has to be most careful not to quietly drop. */
+ok('the daily mobility is on every day of the week',
+   [0, 1, 2, 3, 4, 5, 6].every((d) =>
+     S.get().plan[d].some((i) => S.exerciseById(i.exerciseId).name === 'Daily Shift Mobility')));
+
 ok('rep ranges survive into the plan', S.get().plan[1].some((i) => i.repsMax > i.reps));
 ok('a day overrides the exercise default', (() => {
-  const sun = S.get().plan[0].find((i) => S.exerciseById(i.exerciseId).name === 'Goblet Squat');
-  return sun && sun.reps === 10; // Sunday asks 10–12 where Wednesday asks 8–12
+  const a = S.get().plan[2].find((i) => S.exerciseById(i.exerciseId).name === 'Goblet Squat');
+  const b = S.get().plan[5].find((i) => S.exerciseById(i.exerciseId).name === 'Goblet Squat');
+  return a && b && a.reps === 8 && b.reps === 12; // Lower A asks 8–12, Lower B 12–15 at tempo
 })());
+ok('the prescription rides the plan item, not the exercise', (() => {
+  const row = S.get().plan[1].find((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Lateral Raise');
+  return row && /RIR/.test(row.note || '');
+})(), (S.get().plan[1].find((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Lateral Raise') || {}).note);
 
 section('installing the program over an existing account');
 // An account that predates the program: its own exercise, its own plan.

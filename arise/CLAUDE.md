@@ -338,6 +338,33 @@ finite numbers — and the whole 66 days are walked before it is stored. A
 definition that later becomes corrupt is reported as `unknown_habit` and hidden
 from the day, exactly like a retired catalog id, rather than rendered.
 
+**The built-in programme reaches an existing account by a tap, never by a
+migration.** `js/program.js` holds the library and `PROGRAM_WEEK`, and
+`installProgram` runs **exactly once per account**, guarded by
+`meta.programInstalled`. That guard is load-bearing: installing replaces
+`state.plan` outright, and doing that from a migration would throw away a week
+the user had built by hand. So editing `PROGRAM_WEEK` reaches a fresh install and
+nobody else, and the way it reaches everybody else is `S.reinstallProgram()`,
+behind the confirm on Plan → Training week. The sheet states what goes and what
+stays, because both halves matter: the library is additive and nothing is ever
+deleted from it, and no logged day moves, since `ensureLog` freezes each day's
+exercise list into that day's log the first time it is touched.
+
+`programPlan` resolves each week entry **by name** and `.filter(Boolean)`s what
+it cannot find, so one typo in `PROGRAM_WEEK` drops that lift out of the day in
+silence — no error, no empty row, just a session one exercise shorter than the
+programme says. `tools/smoke.js` asserts every name resolves and that each day's
+item count survives into the plan; nothing else in the app can see it.
+
+The programme itself is Context 1 (SITE, dumbbells only): Mon Upper A, Tue
+Lower A, Wed rest, Thu Upper B, Fri Lower B, Sat accessory, Sun rest. Day 1 is
+read as Monday — nothing in the programme names a weekday and the app stores a
+plan per weekday, so the two had to be pinned together somewhere. A plan item's
+`note` carries the **prescription** (reps per side, the RIR target, the rest
+interval, any tempo); the exercise's `how` carries the **technique**. A cue is
+true every time you do the lift, an RIR target is true on this day of this
+programme, so they do not live in the same field.
+
 **The run and the goals share nothing.** `js/run.js` is a port of the
 `life-reset` Python engine and sits beside `js/goals.js`: a goal ramps a target
 the user chose from a baseline they set and earns each step by performing; a run
@@ -393,7 +420,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v58`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v59`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

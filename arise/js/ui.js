@@ -959,7 +959,14 @@
       })
       .join('');
 
-    return days + `<p class="footnote">Today's list shows up on the Today tab by
+    return days + `
+      <button type="button" class="linkrow" data-act="program-install">
+        <span class="linkrow-plate" aria-hidden="true">${icon('dumbbell')}</span>
+        <span class="body"><b>Install the built-in programme</b>
+          <span>Four dumbbell sessions, warm-ups and stretches, across the week</span></span>
+        ${icon('chev')}
+      </button>
+      <p class="footnote">Today's list shows up on the Today tab by
       itself, and changing a day here never rewrites one you have already
       logged — every day's log freezes its own exercise list.</p>`;
   }

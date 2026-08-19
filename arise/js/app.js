@@ -675,6 +675,26 @@
       case 'plan-copy':
         UI.openCopyDay(day);
         break;
+      /* The one route by which a NEW built-in programme reaches an account that
+         already installed the old one. It has to be a tap rather than a
+         migration: `installProgram` replaces the weekly plan, and doing that to
+         somebody silently on an update would throw away a week they built by
+         hand. So the sheet says exactly what goes and exactly what stays. */
+      case 'program-install':
+        UI.openConfirm({
+          title: 'Install the built-in programme?',
+          body: 'The seven days of your weekly plan are replaced by the built-in dumbbell programme — ' +
+                'Upper A, Lower A, Upper B, Lower B, the daily mobility, and their warm-ups and stretches. ' +
+                'Anything you have arranged in the weekly plan yourself is overwritten. ' +
+                'Your exercise library is not touched, nothing is deleted from it, and no day you have ' +
+                'already logged changes — every logged day froze its own exercise list when you opened it.',
+          confirmLabel: 'Install it',
+          onConfirm: () => {
+            S.reinstallProgram();
+            UI.toast('🏋️ <span>The programme is installed across the week.</span>');
+          }
+        });
+        break;
       case 'plan-copy-from': {
         const fromDay = Number(actEl.dataset.from);
         const copy = () => {

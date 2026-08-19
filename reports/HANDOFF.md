@@ -53,12 +53,12 @@ only bridge is More → Export on the old origin, Import on the new one.
 
 ```bash
 cd arise
-npm test          # smoke 450, render 193, wire 54 — all green
+npm test          # smoke 455, render 193, wire 59 — all green
 npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
-- `sw.js` VERSION → **`discipline-v58`**
+- `sw.js` VERSION → **`discipline-v59`**
 - `js/` is **eight** files, loaded in this order:
   `data.js` → `program.js` → `goals.js` → `run.js` → `photos.js` → `store.js` →
   `ui.js` → `app.js`
@@ -150,15 +150,23 @@ the tree beside it.
    than the warm ember one. What that cost and what it bought is in
    `arise/CLAUDE.md` under the design-brief invariant. Two artboard decisions
    were deliberately not taken and both say so in the code.
-3. **The exfoliation schedule.** Decided, not built. The user's Mon/Thu toner
+3. **The SITE programme is missing its sixth day, and its second context.**
+   `js/program.js` now holds Context 1 (SITE, dumbbells only) — Mon Upper A, Tue
+   Lower A, Wed rest, Thu Upper B, Fri Lower B, Sat accessory, Sun rest. The
+   source document lists an accessory-and-mobility session on the Saturday and
+   points at a section that was never supplied, so that day carries the daily
+   mobility and nothing else; the week entry says so in a comment rather than
+   inventing a session. "CONTEXT 1" also implies a context 2 that has not
+   arrived. Both are drop-in: add the exercises, add the day, no plumbing.
+4. **The exfoliation schedule.** Decided, not built. The user's Mon/Thu toner
    cadence is to be a *goal*, not a run habit — `goals.js` already does weekday
    schedules and `run.js` assumes every habit is daily. Nothing was created for
    them: Plan → new goal, schedule Mon/Thu, baseline 2/week → target 3/week.
-4. **Flattening `arise/` to the repo root.** With one project left, the nesting
+5. **Flattening `arise/` to the repo root.** With one project left, the nesting
    is arguably pointless — but the Pages workflow uploads `arise/dist` and the
    folder name is deliberate (see `arise/CLAUDE.md` on the rename). Not done,
    and not obviously worth doing.
-5. **Muscle tags are read live, not frozen.** Re-tagging an exercise changes
+6. **Muscle tags are read live, not frozen.** Re-tagging an exercise changes
    what past days are credited with in the muscle breakdown on Stats. Day
    completion, streaks and the ledger are untouched — only the attribution
    moves — and there is a test documenting it by name. Freezing them into each

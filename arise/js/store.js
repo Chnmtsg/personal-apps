@@ -1921,6 +1921,28 @@
 
   /* ---------- mutations: plan ---------- */
 
+  /**
+   * Put the built-in programme back over the weekly plan, on purpose.
+   *
+   * `installProgram` runs exactly ONCE per account, guarded by
+   * `meta.programInstalled`, so changing the programme in `js/program.js` reaches
+   * a fresh install and nobody else. That guard is not a bug — re-running it from
+   * a migration would replace a plan the user has since built by hand, and
+   * "never overwrite user data in a migration" is one of this app's rules.
+   *
+   * So the way a new programme reaches an existing account is a tap. The user
+   * asks for it, having been told in the confirm sheet exactly what it replaces.
+   * The library is additive as always; only `state.plan` is rewritten, and no
+   * logged day moves, because `ensureLog` froze each day's exercises into that
+   * day's log the first time it was touched.
+   */
+  function reinstallProgram() {
+    installProgram(state);
+    state.meta.programInstalled = true;
+    commit({ type: 'programReinstall' });
+    return state.plan;
+  }
+
   function addToPlan(dayIndex, exerciseId, overrides) {
     const ex = exerciseById(exerciseId);
     if (!ex) return null;
@@ -2123,7 +2145,7 @@
     customRewardProgress, claimCustomReward,
     toggleExercise, toggleHabit, completeAll, toggleWorkout, muscleTally, clearDay, addExtra, removeExtra,
     restoreExercises, restorePlanDay, restoreExtras, acknowledgeStart,
-    addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan,
+    addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan, reinstallProgram,
     addExercise, updateExercise, removeExercise, addHabit, removeHabit, habitStreak,
     goals, activeGoals, goalById, goalEntry, goalTimeline, goalTarget, goalTargetOn,
     goalDone, goalsForDay, setGoalValue, hitGoalTarget, skipGoal, clearGoalEntry,

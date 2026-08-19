@@ -348,6 +348,43 @@ console.log('\nediting a run in progress through app.js');
   ok('confirming does', S.run().habits.length === before, S.run().habits.map((p) => p.habitId));
 }
 
+console.log('\ninstalling the built-in programme through app.js');
+{
+  /* The only route by which a NEW programme reaches an account that already
+     installed the old one — `installProgram` is guarded to run once per account,
+     so without this tap, editing js/program.js changes nothing for anybody who
+     has already opened the app. It is behind a confirm because it replaces the
+     weekly plan. */
+  S.resetAll();
+  const day = A.weekday(S.today());
+  S.clearDayPlan(1);
+  S.clearDayPlan(2);
+  ok('the fixture really has an emptied plan', S.get().plan[1].length === 0);
+
+  click({ act: 'program-install' });
+  ok('the tap alone installs nothing', S.get().plan[1].length === 0, S.get().plan[1].length);
+
+  UI.resolveConfirm(true);
+  ok('confirming rebuilds the week', S.get().plan[1].length > 0 && S.get().plan[2].length > 0,
+     [S.get().plan[1].length, S.get().plan[2].length]);
+  ok('and every day of it, rest days included',
+     [0, 1, 2, 3, 4, 5, 6].every((d) => S.get().plan[d].length > 0),
+     [0, 1, 2, 3, 4, 5, 6].map((d) => S.get().plan[d].length).join(' '));
+
+  /* The half of the promise the confirm sheet makes that is easiest to break:
+     a day already logged keeps what it froze. */
+  const k = S.today();
+  S.ensureLog(k);
+  const frozen = JSON.stringify(S.log(k).ex);
+  const planned = S.dayPlan(k).length;
+  click({ act: 'program-install' });
+  UI.resolveConfirm(true);
+  ok('a day already logged keeps the exercises it froze',
+     JSON.stringify(S.log(k).ex) === frozen && S.dayPlan(k).length === planned,
+     [planned, S.dayPlan(k).length]);
+  void day;
+}
+
 console.log('\nexercise picture handlers through app.js');
 {
   const ex = S.get().exercises[0];
