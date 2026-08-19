@@ -365,6 +365,33 @@ interval, any tempo); the exercise's `how` carries the **technique**. A cue is
 true every time you do the lift, an RIR target is true on this day of this
 programme, so they do not live in the same field.
 
+**One commitment, one tick, one place — and a habit crosses to a goal by
+moving.** The app tracks daily things in three shapes: a **daily habit** is a
+tick that asks the same thing forever; a **goal** ramps from a baseline the user
+set to a target they chose and earns each step by *performing*; a **run habit**
+ramps on the *calendar* across a fixed 66 days. `S.habitToGoal` turns the first
+into the second, because "make this progress slowly, step by step" is what the
+goals engine already is.
+
+It is a MOVE, not a copy: the habit is removed in the same commit that creates
+the goal. A thing tracked in two places is a thing ticked twice on Today, which
+is the duplication the run's catalog was cut from twenty-five habits to fourteen
+to remove. The conversion opens the goal editor rather than converting on the tap
+— a habit carries no baseline, target or step, and only the user knows where they
+actually are today, so the numbers are asked for rather than invented.
+
+Nothing already lived moves: `dayHabits` returns `log.habits` for any day that
+has a log, so a day already opened keeps the habit list it froze and is scored
+out of the same total. The undo restores the habit under its **own id**;
+`addHabit` would mint a new one and every tick already recorded against the old
+id would stop belonging to it, with nothing to report that.
+
+What this does NOT do is join the run to anything. The run keeps its closed
+catalog and shares no data with goals — see below. Nothing stops a user creating
+a goal and a run habit for the same commitment by hand; that is still the rule
+above, enforced by the catalog being small rather than by name-matching, which
+would fire wrongly.
+
 **The run and the goals share nothing.** `js/run.js` is a port of the
 `life-reset` Python engine and sits beside `js/goals.js`: a goal ramps a target
 the user chose from a baseline they set and earns each step by performing; a run
@@ -420,7 +447,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v59`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v60`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

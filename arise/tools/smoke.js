@@ -607,6 +607,66 @@ ok('new settings get defaults', S.settings().dayBoundaryHour === 4 && S.settings
 ok('best streak is preserved', S.get().bestStreak >= 4, S.get().bestStreak);
 
 /* ------------------------------------------------------------------ */
+section('a daily habit becomes a goal');
+S.resetAll();
+S.get().habits = [];
+S.commit({ type: 'fixture' });
+const hbWater = S.addHabit('Drink 3L water', '💧');
+const hbFloss = S.addHabit('Floss', '🦷');
+
+/* A day lived WITH the habit on it, ticked. This is the one that must not move:
+   `dayHabits` returns the day's own frozen list once a log exists, so removing
+   the habit today cannot change what a day two days ago was scored out of. */
+const hbDay = A.addDays(S.today(), -2);
+S.ensureLog(hbDay);
+S.toggleHabit(hbDay, hbWater.id);
+const frozenHabits = JSON.stringify(S.dayHabits(hbDay).map((h) => h.id));
+const frozenStatus = JSON.stringify(S.dayStatus(hbDay));
+
+const moved = S.habitToGoal(hbWater.id, {
+  name: 'Drink 3L water', icon: '💧', unit: 'count', direction: 'up',
+  baseline: 1.5, target: 3, step: 0.25
+});
+ok('it comes back with both halves', !!moved && !!moved.goal && !!moved.habit, moved);
+ok('the goal carries the habit name', moved.goal.name === 'Drink 3L water', moved.goal.name);
+ok('and the numbers it was given', moved.goal.baseline === 1.5 && moved.goal.target === 3, [moved.goal.baseline, moved.goal.target]);
+ok('it is a real goal, on the goal list', S.activeGoals().some((g) => g.id === moved.goal.id));
+ok('the habit is gone from the habit list',
+   !S.get().habits.some((h) => h.id === hbWater.id), S.get().habits.map((h) => h.name));
+ok('and the other habit is untouched', S.get().habits.some((h) => h.id === hbFloss.id));
+
+/* The whole point of moving rather than copying: one commitment, one tick. */
+ok('today asks for it once, not twice', (() => {
+  const asHabit = S.dayHabits(S.today()).filter((h) => h.name === 'Drink 3L water').length;
+  const asGoal = S.goalsForDay(S.today()).filter((e) => e.goal.name === 'Drink 3L water').length;
+  return asHabit === 0 && asGoal === 1;
+})(), [S.dayHabits(S.today()).map((h) => h.name), S.goalsForDay(S.today()).map((e) => e.goal.name)]);
+
+ok('a day already lived keeps the habits it froze',
+   JSON.stringify(S.dayHabits(hbDay).map((h) => h.id)) === frozenHabits, S.dayHabits(hbDay).map((h) => h.id));
+ok('and is still scored out of the same total',
+   JSON.stringify(S.dayStatus(hbDay)) === frozenStatus,
+   [JSON.parse(frozenStatus).total, S.dayStatus(hbDay).total]);
+
+/* Undo has to put the ORIGINAL id back. A fresh one would orphan every day
+   already logged against the old one and read the streak as zero for a habit
+   that was never actually broken. */
+S.restoreHabitFromGoal(moved.habit, moved.index, moved.goal.id);
+ok('undo puts the habit back', S.get().habits.some((h) => h.id === hbWater.id), S.get().habits.map((h) => h.id));
+/* The id is the whole assertion. Every tick ever recorded is keyed by it, so a
+   restore that minted a fresh one would leave a habit whose own history no
+   longer belongs to it — and nothing would report that. */
+ok('under its own id, so the tick it already has still belongs to it',
+   S.get().habits.find((h) => h.id === hbWater.id).id === hbWater.id &&
+   !!(S.log(hbDay) || { hb: {} }).hb[hbWater.id],
+   [S.get().habits.map((h) => h.id), (S.log(hbDay) || {}).hb]);
+ok('in the position it left', S.get().habits[moved.index].id === hbWater.id, S.get().habits.map((h) => h.name));
+ok('and the goal that replaced it is gone',
+   !S.goals().some((g) => g.id === moved.goal.id), S.goals().map((g) => g.name));
+
+ok('converting a habit that is not there is refused', S.habitToGoal('hb_nope', { name: 'X' }) === null);
+
+/* ------------------------------------------------------------------ */
 section('the built-in training program');
 S.resetAll();
 const lib = S.get().exercises;

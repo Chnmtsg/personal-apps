@@ -1653,6 +1653,8 @@
             (h) => `<div class="row">
               <span class="emoji" style="font-size:20px">${esc(h.icon || '✅')}</span>
               <div class="body"><div class="name">${esc(h.name)}</div><div class="sub">🔥 ${S.habitStreak(h.id)} day streak</div></div>
+              <button class="icon-btn" data-act="habit-to-goal" data-id="${h.id}"
+                aria-label="Make ${esc(h.name)} a goal that progresses">${icon('level')}</button>
               <button class="icon-btn" data-act="habit-rm" data-id="${h.id}" aria-label="Delete">✕</button>
             </div>`
           )
@@ -1779,6 +1781,10 @@
         <span>Daily habits</span><button class="link" data-act="habit-add">＋ Add</button>
       </div>
       <div class="card flush">${habitRows}</div>
+      <p class="footnote">A habit is a tick that asks the same thing every day.
+        Tap ${icon('level')} on one to turn it into a goal instead — it keeps the
+        name, and starts asking a little more as you earn it. It stops being a
+        habit at that point, so it is still one tick in one place.</p>
 
       <!-- Fifty-nine exercises pushed Reminders, Profile and the export route
            off the bottom of More. It is a reference list, opened to change
@@ -2441,8 +2447,17 @@
         <label class="switch"><input type="checkbox" id="gg_gate" ${v.gate === 'summary' ? 'checked' : ''}><i></i></label>
       </div>
 
-      <div class="btn-row"><button class="btn primary block" data-act="goal-save" data-id="${g ? g.id : ''}">${
-      g ? 'Save changes' : 'Create goal'
+      ${
+        v.fromHabit
+          ? `<p class="footnote" style="margin-bottom:10px">Saving turns the daily habit
+              <b>${esc(v.name)}</b> into this goal and takes it off the habit list, so it is asked
+              for once rather than twice. Days you have already logged keep the habits they froze
+              and their score does not move.</p>`
+          : ''
+      }
+      <div class="btn-row"><button class="btn primary block" data-act="goal-save" data-id="${g ? g.id : ''}"
+        data-habit="${esc(v.fromHabit || '')}">${
+      g ? 'Save changes' : v.fromHabit ? 'Make it a goal' : 'Create goal'
     }</button></div>
       ${
         g

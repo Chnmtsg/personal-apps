@@ -2021,6 +2021,63 @@
     return h;
   }
 
+  /**
+   * A daily habit becomes a goal, in one commit.
+   *
+   * A habit is a tick that asks the same thing forever. A goal ramps from where
+   * you actually are to a target you chose and earns each step by PERFORMING —
+   * never because a week passed — which is the app's own answer to "make this
+   * progress slowly, step by step".
+   *
+   * It is a MOVE, not a copy. The habit goes, because a thing tracked in two
+   * places is a thing ticked twice on Today, and that duplication is why the
+   * run's habit catalogue was cut from twenty-five to fourteen in 2026-08. One
+   * commitment, one tick, one place.
+   *
+   * Nothing already lived changes. `dayHabits` returns `log.habits` for any day
+   * that has a log, so every day already opened keeps the habit list it froze
+   * and is still scored out of the same total; the removal reaches forward only.
+   * `addGoal` is not reused because it commits, and a conversion that committed
+   * twice would render once with the thing existing in both lists at once.
+   */
+  function habitToGoal(habitId, data) {
+    const i = (state.habits || []).findIndex((h) => h.id === habitId);
+    if (i < 0) return null;
+    const habit = state.habits[i];
+    const goal = G.fromSeed(
+      Object.assign(
+        {
+          name: habit.name, icon: habit.icon || '🎯', section: 'custom',
+          unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5, blurb: ''
+        },
+        data || {}
+      ),
+      (data && data.startDate) || today()
+    );
+    state.goals.push(goal);
+    state.habits.splice(i, 1);
+    commit({ type: 'habitToGoal', id: habitId, goalId: goal.id });
+    return { goal: goal, habit: habit, index: i };
+  }
+
+  /**
+   * Undo it: the habit goes back where it was, under its OWN id, and the goal
+   * that replaced it goes.
+   *
+   * Restoring through `addHabit` would mint a new id, and every day already
+   * logged against the old one would stop matching it — the streak would read
+   * zero for a habit the user never actually broke, and no error would say so.
+   */
+  function restoreHabitFromGoal(habit, index, goalId) {
+    if (!habit) return;
+    if (!state.habits.some((h) => h.id === habit.id)) {
+      const at = Math.max(0, Math.min(index == null ? state.habits.length : index, state.habits.length));
+      state.habits.splice(at, 0, habit);
+    }
+    state.goals = state.goals.filter((g) => g.id !== goalId);
+    commit({ type: 'habitToGoalUndo', id: habit.id });
+  }
+
   function removeHabit(id) {
     state.habits = state.habits.filter((h) => h.id !== id);
     commit({ type: 'habitRemove', id });
@@ -2147,6 +2204,7 @@
     restoreExercises, restorePlanDay, restoreExtras, acknowledgeStart,
     addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan, reinstallProgram,
     addExercise, updateExercise, removeExercise, addHabit, removeHabit, habitStreak,
+    habitToGoal, restoreHabitFromGoal,
     goals, activeGoals, goalById, goalEntry, goalTimeline, goalTarget, goalTargetOn,
     goalDone, goalsForDay, setGoalValue, hitGoalTarget, skipGoal, clearGoalEntry,
     addGoal, updateGoal, archiveGoal, removeGoal, restartGoal,

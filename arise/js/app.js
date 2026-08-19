@@ -370,8 +370,28 @@
           );
           break;
         }
-        if (existing) S.updateGoal(id, data);
-        else S.addGoal(data);
+        const fromHabit = actEl.dataset.habit || '';
+        if (existing) {
+          S.updateGoal(id, data);
+        } else if (fromHabit) {
+          const moved = S.habitToGoal(fromHabit, data);
+          if (moved) {
+            UI.closeSheet();
+            /* Undoable, because it deletes a habit. The restore puts it back
+               under its OWN id — a fresh one would orphan every day already
+               logged against it and read the streak as zero. */
+            offerUndo(
+              '🎯 <span><b>' + esc(moved.goal.name) + '</b> is a goal now, and off your daily habits.</span>',
+              () => S.restoreHabitFromGoal(moved.habit, moved.index, moved.goal.id)
+            );
+            break;
+          }
+          // The habit went while the sheet was open. Keep the goal rather than
+          // throwing away a form the user just filled in.
+          S.addGoal(data);
+        } else {
+          S.addGoal(data);
+        }
         UI.closeSheet();
         UI.toast('🎯 <span>Goal saved</span>');
         break;
@@ -803,6 +823,18 @@
           onSave: (name) => S.addHabit(name, '✅')
         });
         break;
+      /* A habit is a tick that asks the same thing forever; a goal ramps and is
+         earned by performing. The editor opens pre-filled with the habit's name
+         and icon and carries its id, so saving MOVES it rather than leaving the
+         same commitment on two lists with two ticks. The numbers cannot be
+         guessed — only the user knows where they actually are today — so this
+         opens the form rather than converting on the tap. */
+      case 'habit-to-goal': {
+        const h = S.habitById(id);
+        if (!h) break;
+        UI.openGoalEditor(null, { name: h.name, icon: h.icon || '🎯', fromHabit: h.id });
+        break;
+      }
       case 'habit-rm': {
         const h = S.habitById(id);
         if (!h) break;

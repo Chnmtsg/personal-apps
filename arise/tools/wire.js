@@ -348,6 +348,59 @@ console.log('\nediting a run in progress through app.js');
   ok('confirming does', S.run().habits.length === before, S.run().habits.map((p) => p.habitId));
 }
 
+console.log('\na daily habit becomes a goal, through app.js');
+{
+  /* The route the user actually takes: tap the control on More, fill the form,
+     save. Two things this drives that smoke.js cannot — the editor opening
+     pre-filled and carrying the habit id, and `goal-save` branching on it.
+     Without the id reaching the button, saving would create the goal and leave
+     the habit behind, and Today would ask for the same thing twice. */
+  const UIh = sandbox.UI;
+  S.resetAll();
+  S.get().habits = [];
+  S.commit({ type: 'fixture' });
+  const hb = S.addHabit('Cold shower', '🚿');
+  const goalsBefore = S.activeGoals().length;
+
+  click({ act: 'habit-to-goal', id: hb.id });
+  ok('the tap alone converts nothing',
+     S.get().habits.some((h) => h.id === hb.id) && S.activeGoals().length === goalsBefore);
+
+  const sheet = resolve('#sheetBody').innerHTML;
+  ok('it opens the goal editor pre-filled with the habit', sheet.indexOf('Cold shower') > 0);
+  ok('and the save button carries the habit id', sheet.indexOf('data-habit="' + hb.id + '"') > 0,
+     (sheet.match(/data-habit="[^"]*"/) || [])[0]);
+
+  /* The form the sheet just rendered, filled the way a person would. */
+  resolve('#gg_name').value = 'Cold shower';
+  resolve('#gg_icon').value = '🚿';
+  resolve('#gg_unit').value = 'seconds';
+  resolve('#gg_base').value = '15';
+  resolve('#gg_target').value = '120';
+  resolve('#gg_step').value = '15';
+  resolve('#gg_sched').value = 'daily';
+  click({ act: 'goal-save', id: '', habit: hb.id });
+
+  const made = S.activeGoals().find((g) => g.name === 'Cold shower');
+  ok('saving creates the goal', !!made, S.activeGoals().map((g) => g.name));
+  ok('and takes the habit off the list', !S.get().habits.some((h) => h.id === hb.id),
+     S.get().habits.map((h) => h.name));
+  ok('so today asks for it exactly once', (() => {
+    const k = S.today();
+    const asHabit = S.dayHabits(k).filter((h) => h.name === 'Cold shower').length;
+    const asGoal = S.goalsForDay(k).filter((e) => e.goal.name === 'Cold shower').length;
+    return asHabit === 0 && asGoal === 1;
+  })());
+
+  /* Deleting a habit is undoable everywhere else in this app, and a conversion
+     deletes one. */
+  if (made) {
+    S.restoreHabitFromGoal({ id: hb.id, name: 'Cold shower', icon: '🚿' }, 0, made.id);
+    ok('and it is undoable', S.get().habits.some((h) => h.id === hb.id) &&
+       !S.goals().some((g) => g.id === made.id), S.get().habits.map((h) => h.name));
+  }
+}
+
 console.log('\ninstalling the built-in programme through app.js');
 {
   /* The only route by which a NEW programme reaches an account that already

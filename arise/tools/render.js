@@ -1093,6 +1093,29 @@ behaves('a gated goal routes to its summary instead', () => {
   return html.indexOf('data-act="goal-log"') < 0 ? '' : 'a gated goal offers a value log that cannot complete it';
 });
 
+/* The conversion sheet is a goal editor with one extra promise printed on it,
+   and the promise is the load-bearing part: the habit GOES. A form that made
+   that change without saying so would be the app deleting something the user
+   did not ask it to. */
+behaves('the habit-to-goal sheet says the habit will be moved, not copied', () => {
+  const h = S.addHabit('Cold shower', '🚿');
+  sheetBody.innerHTML = '';
+  UI.openGoalEditor(null, { name: h.name, icon: h.icon, fromHabit: h.id });
+  const html = sheetBody.innerHTML;
+  S.removeHabit(h.id);
+  if (html.indexOf('data-habit="' + h.id + '"') < 0) return 'the save button does not carry the habit';
+  if (html.indexOf('takes it off the habit list') < 0) return 'it does not say the habit is removed';
+  return html.indexOf('Make it a goal') > 0 ? '' : 'the button still reads as a plain new goal';
+});
+
+behaves('a plain new goal carries no habit and no such promise', () => {
+  sheetBody.innerHTML = '';
+  UI.openGoalEditor(null);
+  const html = sheetBody.innerHTML;
+  if (html.indexOf('takes it off the habit list') >= 0) return 'it promises to remove a habit that does not exist';
+  return html.indexOf('data-habit=""') > 0 ? '' : 'the save button should carry an empty habit id';
+});
+
 behaves('a future day keeps the goal sheet read-only', () => {
   const gv = S.addGoal({ name: 'Later', unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5 });
   sheetBody.innerHTML = '';
