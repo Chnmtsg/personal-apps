@@ -231,7 +231,15 @@
       schedule: schedType === 'weekdays' ? { type: 'weekdays', days: days } : { type: 'daily' },
       advance: adv,
       regress: $('#gg_reg').checked ? { misses: Math.max(2, parseInt($('#gg_miss').value, 10) || 3) } : false,
-      gate: $('#gg_gate').checked ? 'summary' : null
+      gate: $('#gg_gate').checked ? 'summary' : null,
+      /* Optional, and null rather than 0 when blank — 0 is a floor somebody
+         might mean, and an empty box is not a number at all. */
+      floor: (() => {
+        const el = $('#gg_floor');
+        if (!el || String(el.value).trim() === '') return null;
+        const n = el.type === 'time' ? A.hhmmToMin(el.value) : parseFloat(el.value);
+        return n == null || isNaN(n) ? null : n;
+      })()
     };
     // A bedtime that crosses midnight needs the wrap rule, or 00:30 reads as "earlier" than 23:30.
     // That's only a guess worth making for a brand-new goal — editing an existing one must
@@ -330,9 +338,39 @@
         const el = $('#g_val');
         if (!g || !el) break;
         const raw = g.unit === 'time' ? A.hhmmToMin(el.value) : parseFloat(el.value);
-        act(() => S.setGoalValue(sheetDate, id, isNaN(raw) || raw == null ? null : raw));
+        const value = isNaN(raw) || raw == null ? null : raw;
+        act(() => S.setGoalValue(sheetDate, id, value));
         UI.closeSheet();
-        UI.toast(S.goalDone(sheetDate, id) ? '✅ <span>Target met</span>' : '📝 <span>Logged — short of target</span>');
+        if (S.goalDone(sheetDate, id)) {
+          UI.toast('✅ <span>Target met</span>');
+          break;
+        }
+        /* The +10% rule, delivered at the only moment it is useful: you have just
+           logged short, so the urge to stop already arrived. The app names the
+           number and stops — it cannot do the work and it will not log a figure
+           you did not earn. Ten percent is small enough to always be possible,
+           which is the whole reason the rule uses it. */
+        const more = value != null && value > 0 && g.unit !== 'time'
+          ? A.formatValue(g.unit, A.Goals.roundValue(g, value * 1.1))
+          : null;
+        UI.toast(
+          more
+            ? '📝 <span>Short of target. Ten percent more is <b>' + esc(more) + '</b> — do that, then stop.</span>'
+            : '📝 <span>Logged — short of target</span>'
+        );
+        break;
+      }
+      /* Logs the floor as the real number it is. No special status, no discount
+         to the day's score — the whole value of the record is that it does not
+         flatter anybody, and a "bad day" that scored as kept would be the first
+         lie in it. */
+      case 'goal-floor': {
+        const g = S.goalById(id);
+        if (!g || g.floor == null) break;
+        act(() => S.setGoalValue(sheetDate, id, g.floor));
+        UI.closeSheet();
+        UI.toast('📝 <span><b>' + esc(A.formatValue(g.unit, g.floor)) +
+                 '</b> logged. Short of the ask, and not nothing.</span>');
         break;
       }
       case 'goal-skip':
@@ -829,6 +867,63 @@
          same commitment on two lists with two ticks. The numbers cannot be
          guessed — only the user knows where they actually are today — so this
          opens the form rather than converting on the tap. */
+      case 'cookie-jar':
+        UI.openCookieJar();
+        break;
+      case 'cookie-add': {
+        const box = $('#ck_text');
+        const made = S.addCookie(box ? box.value : '');
+        if (!made) {
+          UI.toast('⚠️ <span>Write the actual thing that happened — a day, and a detail.</span>', 'bad');
+          break;
+        }
+        // Straight back to the jar so the entry is visibly in it.
+        UI.openCookieJar();
+        break;
+      }
+      case 'cookie-rm': {
+        const gone = S.removeCookie(id);
+        if (!gone) break;
+        UI.openCookieJar();
+        offerUndo('<span>Taken out of the jar.</span>',
+                  () => { S.restoreCookie(gone.cookie, gone.index); UI.openCookieJar(); });
+        break;
+      }
+      /* Reaching a target is not the end of a goal, it is the end of the
+         estimate that produced it. This opens the editor with the target moved
+         up by one more step-block so the next ceiling is visible rather than
+         invented — and it is still the editor, so the number is the user's to
+         accept, change or ignore. Nothing is saved by tapping this. */
+      case 'goal-raise': {
+        const g = S.goalById(id);
+        if (!g) break;
+        const tl = S.goalTimeline(id);
+        /* Extend the ladder by as many rungs as it already had — the next
+           ceiling is the same distance again, which is a suggestion built from
+           this goal's own history rather than a number pulled from nowhere. */
+        const rungs = Math.max(1, (tl && tl.maxLevel) || 1);
+        const reach = Math.abs(A.Goals.stepFor(g, S.settings().mode)) * rungs;
+        const next = A.Goals.norm(g, g.target) + (g.direction === 'down' ? -reach : reach);
+        UI.openGoalEditor(id, { target: A.Goals.denorm(g, Math.max(0, next)) });
+        break;
+      }
+      case 'goal-templates':
+        UI.openGoalTemplates();
+        break;
+      /* The template carries the shape; the editor asks for the numbers. It does
+         NOT create the goal — nothing exists until the form is saved, which is
+         what keeps a mistap from putting a goal on Today with numbers nobody
+         chose. */
+      case 'goal-template': {
+        const t = (A.GOAL_TEMPLATES || []).find((x) => x.key === actEl.dataset.key);
+        if (!t) break;
+        UI.openGoalEditor(null, {
+          name: t.name, icon: t.icon, section: t.section, unit: t.unit,
+          direction: t.direction, baseline: t.baseline, target: t.target,
+          step: t.step, schedule: t.schedule
+        });
+        break;
+      }
       case 'habit-to-goal': {
         const h = S.habitById(id);
         if (!h) break;
@@ -1429,7 +1524,10 @@
     }
   });
 
-  const NUMERIC_SETTINGS = { completionPct: 1, dayBoundaryHour: 1 };
+  /* Selects hand back strings. Anything read as a number has to be named here or
+     it is stored as one, and `deloadEveryWeeks` would then never match the `< 2`
+     guard that turns the cycle off. */
+  const NUMERIC_SETTINGS = { completionPct: 1, dayBoundaryHour: 1, deloadEveryWeeks: 1 };
 
   document.addEventListener('change', (ev) => {
     const t = ev.target;

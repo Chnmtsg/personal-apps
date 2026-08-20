@@ -93,6 +93,11 @@
     { name: 'Jump Rope', category: 'Cardio', unit: 'time', minutes: 10, icon: '🪢', muscles: ['calves','cardio'] },
     { name: 'Burpees', category: 'Cardio', unit: 'reps', sets: 3, reps: 12, icon: '⚡', muscles: ['full','cardio'] },
     { name: 'Swimming', category: 'Cardio', unit: 'time', minutes: 30, icon: '🏊', muscles: ['lats','rear_delts','cardio'] },
+    /* Court sports. The built-in programme is dumbbells-only and fills the week,
+       so these exist to be dropped into a day by hand — a session you play is
+       not a session a programme can prescribe the sets and reps of. */
+    { name: 'Basketball', category: 'Cardio', unit: 'time', minutes: 60, icon: '🏀', muscles: ['quads','calves','glutes','cardio'] },
+    { name: 'Volleyball', category: 'Cardio', unit: 'time', minutes: 60, icon: '🏐', muscles: ['quads','calves','front_delts','cardio'] },
     { name: 'Walking', category: 'Cardio', unit: 'time', minutes: 30, icon: '🚶', muscles: ['calves','cardio'] },
     { name: 'Yoga Flow', category: 'Mobility', unit: 'time', minutes: 20, icon: '🧘', muscles: ['full'] },
     { name: 'Stretching', category: 'Mobility', unit: 'time', minutes: 10, icon: '🤸', muscles: ['full'] },
@@ -234,6 +239,60 @@
 
   const formatValue = (unit, v) => ((UNITS[unit] || UNITS.count).format)(v);
 
+  /* ---------- goal templates ----------
+
+     The SHAPE of a practice, not the practice itself. A template fills in the
+     things that are true of the activity — what it is measured in, which way it
+     goes, how big a step is, which area it belongs to — and leaves the two
+     numbers that are true of the PERSON to be typed in.
+
+     Those two are deliberately suggestions rather than answers. Rule 1 of
+     knowledge/project.md is that a goal runs from where the user actually is,
+     and the app already learned this the expensive way: it shipped five seed
+     goals as instructions, and somebody who really wakes at 09:00 was asked for
+     07:30 on their first morning and missed. The sheet says so in as many words.
+
+     There is no template for "become more mature" or "get better with people".
+     They are outcomes rather than practices, and a daily number invented for
+     them would be exactly the thing "This Is Not A Game" forbids — the app's own
+     invention sitting above the user's real record. What moves them is on this
+     list already: writing, reading, gratitude, and time spent with people. */
+
+  const GOAL_TEMPLATES = [
+    { key: 't_english', name: 'English practice', icon: '🗣️', section: 'craft',
+      unit: 'minutes', direction: 'up', baseline: 15, target: 60, step: 5,
+      schedule: { type: 'daily' },
+      blurb: 'Speaking, listening or writing — whichever you did least of yesterday.' },
+    { key: 't_ai', name: 'AI practice', icon: '🤖', section: 'craft',
+      unit: 'minutes', direction: 'up', baseline: 15, target: 60, step: 5,
+      schedule: { type: 'daily' },
+      blurb: 'Time actually building something with it, not time reading about it.' },
+    { key: 't_geo', name: 'Geology software', icon: '🛠️', section: 'craft',
+      unit: 'minutes', direction: 'up', baseline: 20, target: 90, step: 10,
+      schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] },
+      blurb: 'Weekdays, because this one is your trade rather than your evening.' },
+    { key: 't_income', name: 'Earning work', icon: '💹', section: 'craft',
+      unit: 'minutes', direction: 'up', baseline: 20, target: 90, step: 10,
+      schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] },
+      blurb: 'Time on the thing that might pay. The money is the outcome; this is the input.' },
+    { key: 't_gratitude', name: 'Gratitude', icon: '🙏', section: 'mind',
+      unit: 'count', direction: 'up', baseline: 1, target: 3, step: 1,
+      schedule: { type: 'daily' },
+      blurb: 'Things named, not minutes spent. Three is a ceiling, not a beginning.' },
+    { key: 't_basketball', name: 'Basketball', icon: '🏀', section: 'fitness',
+      unit: 'minutes', direction: 'up', baseline: 45, target: 120, step: 15,
+      schedule: { type: 'weekdays', days: [2, 6] },
+      blurb: 'Set the days you actually play — the two here are a guess.' },
+    { key: 't_volleyball', name: 'Volleyball', icon: '🏐', section: 'fitness',
+      unit: 'minutes', direction: 'up', baseline: 45, target: 120, step: 15,
+      schedule: { type: 'weekdays', days: [4] },
+      blurb: 'Set the days you actually play — the one here is a guess.' },
+    { key: 't_swimming', name: 'Swimming', icon: '🏊', section: 'fitness',
+      unit: 'minutes', direction: 'up', baseline: 20, target: 60, step: 5,
+      schedule: { type: 'weekdays', days: [3, 0] },
+      blurb: 'Set the days you actually swim — the two here are a guess.' }
+  ];
+
   /* ---------- seed goals ---------- */
 
   /**
@@ -356,7 +415,7 @@
 
   Object.assign(Arise, {
     DAY_MS, DAY_NAMES, DAY_SHORT, CATEGORIES, MUSCLES, MUSCLE_NAME, MUSCLE_UPGRADE, cleanMuscles,
-    SEED_EXERCISES, SEED_HABITS, SEED_GOALS, MILESTONES, RANKS, XP,
+    SEED_EXERCISES, SEED_HABITS, SEED_GOALS, GOAL_TEMPLATES, MILESTONES, RANKS, XP,
     SECTIONS, sectionById, MODES, MODE_IDS, UNITS, formatValue, READING_PROMPTS, promptForDay,
     key, fromKey, addDays, weekday, daysBetween, prettyDate, weekStart, uid,
     todayKey, minutesLeftToday, hhmmToMin, minToHhmm, prettyTime,

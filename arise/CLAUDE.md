@@ -386,6 +386,107 @@ interval, any tempo); the exercise's `how` carries the **technique**. A cue is
 true every time you do the lift, an RIR target is true on this day of this
 programme, so they do not live in the same field.
 
+**Stress plus recovery equals adaptation; stress without recovery equals damage.**
+Every feature in this app that raises the standard is only safe underneath that
+sentence, so the recovery half is a first-class thing rather than a footnote.
+
+`S.deloadWeek()` derives where a week sits in the cycle from `historyStart()`,
+counted in whole weeks — stable, no stored anchor, cannot drift. It deliberately
+does NOT rewrite the plan: `ensureLog` freezes a day's exercise list the first
+time the day is opened, so reducing sets here would put the screen and the record
+in disagreement, which is the exact seam `reconcileToday` exists to close on the
+run side. The app also has no weight field and therefore cannot compute anyone's
+volume. What it does honestly is name the week and say what to do.
+
+`settings.deloadEveryWeeks` is 0 (off) by default and must be registered in
+`NUMERIC_SETTINGS` in `js/app.js` — a select hands back a string, and `'4' < 2`
+is false, so an unregistered value would silently never switch the cycle off.
+
+**The training screen states a stopping rule, because the source material gives
+none.** Sharp pain, joint pain, chest symptoms, dizziness and numbness stop the
+session; performance falling while effort rises, three broken nights, an injury
+that will not resolve, or loss of interest mean the block gets reassessed. That
+text is the safety brief and is not decoration — if the push features are ever
+extended, this is the half that has to grow with them.
+
+**A bad-day floor logs the real number and buys nothing.** `goal.floor` is the
+reduced version the user defines in advance, offered on a day that is not already
+done. It records what was actually done and the day stays honestly short: a
+reduced version that scored as kept would be the first lie in a ledger whose
+entire value is that it does not flatter anybody. It exists because the failure
+that actually breaks people is doing nothing. Not offered on a `time` goal — the
+time input cannot render "unset", so a blank one would store 07:00 as a floor
+nobody chose.
+
+**The cookie jar is the user's own words, and the app writes none of it.**
+`state.cookies` is a list of specific hard things the user has already done,
+read before a hard effort rather than after one. The mechanism is retrieval, not
+inspiration: under acute stress memory access narrows and negative material
+dominates, so the evidence has to be written while calm and read while not.
+
+The app has plenty it *could* generate entries from — completed days, the best
+streak, claimed milestones — and generating any would defeat the whole thing. "I
+am tough" is not a cookie and neither is a sentence a program wrote about you.
+Empty is the honest default for a fresh account, and `addCookie` is the only way
+one ever appears. Additive in the migration, in the same shape as
+`customRewards`; no version bump.
+
+It surfaces on Today only while the day is still open — after the day is kept it
+would be a trophy cabinet, which is a much weaker object than a thing you reach
+into mid-effort — and on Stats as part of the record.
+
+**"Never miss twice" is the one moment the app used to be silent on.**
+`S.missedYesterday()` fires only when yesterday broke, today is still open, and
+today actually asks for something. A streak counter tells you what you have; it
+never tells you that the highest-leverage day of a year is the one straight after
+a miss. It is deliberately quiet on a rest day, a frozen day, a day before the
+account existed, and the instant today is complete — a warning that fires when
+there is nothing to fix is one people learn to ignore.
+
+Written as a fact and a next action, never as a reprimand. Harsh self-criticism
+measurably reduces follow-through: somebody who savages themselves after a miss
+abandons the domain, which is the opposite of what the line is for.
+
+**A reached target is an old estimate, not a ceiling.** `advanceHint` used to say
+"Target reached — now just hold it", which answers the moment somebody outgrows
+their own goal by telling them to stop. Plan now carries `goal-raise`, which
+opens the editor with the target extended by as many rungs as the ladder already
+had. The suggestion is built from that goal's own history rather than pulled from
+nowhere, and it is still the editor — the baseline-and-target pair is what stops
+a progression running away, so the ceiling only ever moves because the user moved
+it.
+
+**The journal can be one of the things a day asks for, and the switch is OFF.**
+`computeDayStatus` counts plan items, habits, goals, run entries — and, when
+`settings.journalCountsTowardDay` is on, one more item for the day's journal.
+It needs no frozen list the way `dayHabits` does: the thing being asked for and
+the thing that records it are the same object, so they cannot drift apart.
+
+It defaults to **false**, and that is load-bearing. Day status is derived rather
+than stored, so turning it on re-scores every day in the record — a day kept
+without a journal entry becomes a day missed. Every switch in that group behaves
+that way and it is the user's decision to make; shipping it ON would have made it
+the app's, silently, on an update nobody asked for.
+
+`setJournal` clears `dsCache` and `tlCache` while still not emitting. Those are
+two different things and only the second steals focus from the textarea — the
+first version cleared neither, so typing an entry completed nothing until some
+unrelated tap happened to commit. There is a test by name.
+
+**A goal template carries the shape of a practice, never the numbers.**
+`A.GOAL_TEMPLATES` fills in what is true of the ACTIVITY — unit, direction, step
+size, area, which weekdays — and leaves baseline and target to be typed in. They
+appear as placeholders and the sheet says so, because rule 1 of
+`knowledge/project.md` is that a goal runs from where the user actually is, and
+this app already learned that the expensive way: it shipped five seed goals as
+instructions and somebody who really wakes at 09:00 was asked for 07:30 on their
+first morning. Picking a template creates nothing — only saving the form does.
+
+There is deliberately no template for "become more mature" or "get better with
+people". They are outcomes rather than practices, and a daily number invented for
+one would be the app's own invention sitting above the user's real record, which
+is what "This Is Not A Game" forbids.
+
 **One commitment, one tick, one place — and a habit crosses to a goal by
 moving.** The app tracks daily things in three shapes: a **daily habit** is a
 tick that asks the same thing forever; a **goal** ramps from a baseline the user
@@ -498,7 +599,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v62`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v65`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

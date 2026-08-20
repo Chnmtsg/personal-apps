@@ -1956,3 +1956,58 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .dest > span { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--faint); line-height: 1.4; }
 /* Amber, because an uncollected reward is the app waiting on you. */
 .dest > span.is-ready { color: var(--gold); }
+
+/* The journal row on Today, once the setting makes it part of the day's score.
+   Amber while the day is still asking for it, teal once it is written — the
+   same two jobs those colours have everywhere else. */
+.linkrow.is-asked { border-color: color-mix(in srgb, var(--gold) 45%, transparent); }
+.linkrow.is-asked .body span { color: var(--gold); }
+.linkrow.is-done { border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+.linkrow-tick {
+  flex: none; width: 30px; height: 30px; border-radius: 999px;
+  display: grid; place-items: center;
+  background: var(--good); color: var(--on-good); font-size: var(--fs-sm); font-weight: 900;
+}
+
+/* --- "Never miss twice" ---
+   Amber, because it is the app waiting on you rather than telling you off. It
+   states the fact and the next action and stops; harsh self-criticism measurably
+   reduces follow-through, so nothing here is written to sting. */
+.misstwice {
+  border: 1px solid var(--gold); border-radius: var(--r);
+  padding: 14px var(--sp-lg); margin-bottom: var(--sp-md);
+  background: var(--surface);
+}
+.misstwice-head {
+  font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--gold);
+}
+.misstwice p {
+  margin: 6px 0 0; font-size: var(--fs-md); color: var(--muted); line-height: 1.55;
+}
+/* The jar sits with the day's work rather than with its scoreboard. */
+.linkrow.jarrow { margin-bottom: var(--sp-md); }
+
+/* --- the recovery half ---
+   Teal rather than amber: a deload week is not the app waiting on you, it is the
+   app telling you the week is working as designed. */
+.deload {
+  border: 1px solid var(--accent); border-radius: var(--r);
+  padding: 14px var(--sp-lg); margin-bottom: var(--sp-md); background: var(--surface);
+}
+.deload-head {
+  font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--accent);
+}
+.deload p { margin: 6px 0 0; font-size: var(--fs-md); color: var(--muted); line-height: 1.55; }
+
+/* Where this week sits in the cycle, at the top of the training week. */
+.cyclebar {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-md);
+  padding: 11px var(--sp-lg); margin-bottom: var(--sp-md);
+  background: var(--surface-2); border-radius: var(--r);
+  font-size: var(--fs-sm); color: var(--faint);
+}
+.cyclebar b { color: var(--text); font-size: var(--fs-base); }
+.cyclebar.is-deload { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); }
+.cyclebar.is-deload span:last-child { color: var(--accent); font-weight: 700; }

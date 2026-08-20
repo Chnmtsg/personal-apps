@@ -308,7 +308,16 @@
   /** What has to happen for the next step — the honest version. */
   function advanceHint(goal, tl) {
     if (!tl) return '';
-    if (tl.atTarget) return 'Target reached — now just hold it.';
+    /* NOT "now just hold it". A target you have reached is a ceiling you set
+       from an older, smaller estimate of yourself, and an app that answers the
+       moment you outgrow it with "hold" has made the standard a normal person's.
+       The standard is your own maximum, revised upward as you find it.
+
+       Revised by YOU, though. The baseline-and-target pair is what stops a
+       progression running away, and moving the ceiling automatically would take
+       that guarantee off — so this says the ceiling is reachable, and Plan
+       carries the control that moves it. */
+    if (tl.atTarget) return 'At the target you set. That was an older estimate of you — raise it.';
     const nxt = A.formatValue(goal.unit, tl.nextTarget);
     const n = tl.toAdvance;
     if (n <= 0) return `Next step ready → ${nxt}`;
@@ -627,6 +636,64 @@
       : `<div class="empty"><span class="big">🎯</span>No goals scheduled for this day.<br>
          <button class="link" data-nav="plan">Set some up →</button></div>`;
 
+    /* The recovery half. Every push this app makes is only safe underneath it,
+       which is why it is the first thing on the screen when the week comes
+       round — above the miss-twice line, because on a deload week "never miss
+       twice" must not read as "train through it". */
+    const dl = S.deloadWeek(k);
+    const deloadNote =
+      offset === 0 && dl.on && dl.isDeload
+        ? `<section class="deload">
+            <div class="deload-head">Deload week · ${dl.week} of ${dl.of}</div>
+            <p>Cut every working set by about 40% and stop there. Same sessions, same days,
+            far less of them. This is the half of the equation that turns the other three weeks
+            into adaptation instead of damage — it is not a week off and it is not optional.</p>
+          </section>`
+        : '';
+
+    /* "Never miss twice." The single highest-leverage day of a year is the one
+       straight after a broken one, and this app had nothing to say about it — a
+       streak counter tells you what you have, not that the chain is one day from
+       becoming a pattern.
+
+       Stated as a fact and a next action, never as a reprimand. Harsh
+       self-criticism measurably reduces follow-through: somebody who savages
+       themselves after a miss abandons the whole domain, which is the opposite
+       of what this line is for. */
+    const missed = offset === 0 ? S.missedYesterday(k) : null;
+    const missTwice = missed
+      ? `<section class="misstwice">
+          <div class="misstwice-head">Never miss twice</div>
+          <p>${esc(
+            missed.status === 'missed'
+              ? 'Yesterday went unlogged.'
+              : 'Yesterday came in at ' + missed.pct + '%.'
+          )} One miss is noise. Two is a new pattern, and today is the day that decides which
+          this was. ${esc(
+            missed.left === 1 ? 'One thing left.' : missed.left + ' things left.'
+          )} If today is falling apart, do the smallest version rather than none.</p>
+        </section>`
+      : '';
+
+    /* The jar goes where the book says to read it — before the hard thing, on the
+       screen where the hard thing is, and only while the day is still open. After
+       the day is kept it would be a trophy cabinet, which is a different and much
+       weaker object. */
+    const jarCount = S.cookies().length;
+    const jarRow =
+      offset === 0 && !future && st.total && st.status !== 'complete'
+        ? `<button type="button" class="linkrow jarrow" data-act="cookie-jar">
+            <span class="linkrow-plate" aria-hidden="true">${icon('trophy')}</span>
+            <span class="body"><b>${jarCount ? 'Reach into the jar' : 'Fill the cookie jar'}</b>
+              <span>${
+                jarCount
+                  ? jarCount + ' hard ' + (jarCount === 1 ? 'thing' : 'things') + ' you have already done'
+                  : 'Write down what you have already survived, while you are calm'
+              }</span></span>
+            ${icon('chev')}
+          </button>`
+        : '';
+
     // A gesture nobody is told about is a gesture nobody has. The wiring is in
     // js/app.js; this is the one line that makes it discoverable.
     const gestureHint =
@@ -716,6 +783,10 @@
              fixed strip. This is where it was plainly meant to go. -->
         <div class="dayline-headline">${esc(headline)}</div>
       </section>
+
+      ${deloadNote}
+      ${missTwice}
+      ${jarRow}
 
       <!-- Banners sit UNDER the header, not above it. Every screen now begins
            with a header that supplies the status-bar inset, so a banner rendered
@@ -817,13 +888,18 @@
           : ''
       }
 
-      <button type="button" class="linkrow" data-nav="read">
+      <!-- Once the journal counts toward the day it is a thing the day ASKS
+           for, so the row has to say whether it is done — a row that scores you
+           silently is the same bug as a tick that does nothing. -->
+      <button type="button" class="linkrow ${st.jrTotal ? (st.jrDone ? 'is-done' : 'is-asked') : ''}" data-nav="read">
         <span class="body"><b>Journal</b><span>${
           journal && (journal.text || '').trim()
             ? esc(previewOf({ summary: journal.text }))
+            : st.jrTotal
+            ? 'Not written yet — the day is asking for it'
             : 'Nothing written for this day yet'
         }</span></span>
-        ${icon('chev')}
+        ${st.jrTotal && st.jrDone ? `<span class="linkrow-tick" aria-hidden="true">✓</span>` : icon('chev')}
       </button>
 
       ${
@@ -888,7 +964,11 @@
         <button class="icon-btn" data-act="goal-edit" data-id="${g.id}" aria-label="Edit ${esc(g.name)}">✎</button>
       </div>
       <div class="goalcard-bar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div>
-      <div class="goalcard-hint">${esc(advanceHint(g, tl))}</div>
+      <div class="goalcard-hint">${esc(advanceHint(g, tl))}${
+      tl.atTarget && !g.archived
+        ? ` <button class="link" data-act="goal-raise" data-id="${g.id}">Raise it →</button>`
+        : ''
+    }</div>
     </article>`;
   }
 
@@ -914,6 +994,13 @@
           ? `<div class="label">Paused</div>${archived.map(goalManageRow).join('')}`
           : ''
       }
+      <button type="button" class="linkrow" data-act="goal-templates">
+        <span class="linkrow-plate" aria-hidden="true">${icon('level')}</span>
+        <span class="body"><b>Set up a practice</b>
+          <span>English, AI, a sport, gratitude — the shape filled in, the numbers left to you</span></span>
+        ${icon('chev')}
+      </button>
+
       <!-- The invariant, printed where the screen that can break it lives. It is
            the verbatim line from the artboard. -->
       <p class="footnote">Editing a goal never reaches back: every day you have
@@ -962,7 +1049,28 @@
       })
       .join('');
 
-    return days + `
+    const dl = S.deloadWeek(S.today());
+    return `${
+      dl.on
+        ? `<div class="cyclebar ${dl.isDeload ? 'is-deload' : ''}">
+            <span>Week <b>${dl.week}</b> of ${dl.of}</span>
+            <span>${dl.isDeload ? 'Deload — cut sets by ~40%' : 'Building'}</span>
+          </div>`
+        : ''
+    }${days}
+      <!-- The book gives no stopping rule. This app has to. -->
+      <div class="label">When to stop</div>
+      <div class="card">
+        <p class="footnote" style="margin-top:0">Stop the session immediately on <b>sharp pain,
+          joint pain, chest symptoms, dizziness or numbness</b>. These are not the same signal as
+          discomfort, fatigue or boredom — those are diffuse and fade afterwards, these are sharp,
+          localised and get worse under load.</p>
+        <p class="footnote">Reassess the whole block if any of these run for more than a week:
+          performance falling while effort rises, three or more nights of broken sleep, an injury
+          that will not resolve, or losing interest in things you used to enjoy. Every one of them
+          means less, not more.</p>
+      </div>
+
       <button type="button" class="linkrow" data-act="program-install">
         <span class="linkrow-plate" aria-hidden="true">${icon('dumbbell')}</span>
         <span class="body"><b>Install the built-in programme</b>
@@ -1396,6 +1504,17 @@
         </div>
       </div>
 
+      <button type="button" class="linkrow" data-act="cookie-jar">
+        <span class="linkrow-plate" aria-hidden="true">${icon('trophy')}</span>
+        <span class="body"><b>The cookie jar</b>
+          <span>${
+            S.cookies().length
+              ? S.cookies().length + ' hard things, in your own words'
+              : 'Empty — evidence you write while calm, to read when you are not'
+          }</span></span>
+        ${icon('chev')}
+      </button>
+
       <div class="label">Goal ladders</div>
       <div class="card">${
         S.activeGoals().length
@@ -1747,6 +1866,18 @@
         <div class="row">
           <div class="body"><div class="name">The run counts toward the day</div><div class="sub">Only days the run actually recorded — it never reaches back</div></div>
           <label class="switch"><input type="checkbox" data-set="runCountsTowardDay" ${s.runCountsTowardDay ? 'checked' : ''}><i></i></label>
+        </div>
+        <div class="row">
+          <div class="body"><div class="name">The journal counts toward the day</div><div class="sub">Writing an entry becomes one of the things the day asks for</div></div>
+          <label class="switch"><input type="checkbox" data-set="journalCountsTowardDay" ${s.journalCountsTowardDay ? 'checked' : ''}><i></i></label>
+        </div>
+        <div class="row">
+          <div class="body"><div class="name">Deload week</div><div class="sub">Every Nth week, cut training volume by ~40% — the recovery half of the equation</div></div>
+          <select data-set="deloadEveryWeeks">
+            ${[0, 3, 4, 5, 6].map((n) => `<option value="${n}" ${Number(s.deloadEveryWeeks) === n ? 'selected' : ''}>${
+              n === 0 ? 'Off' : 'Every ' + n + ' weeks'
+            }</option>`).join('')}
+          </select>
         </div>
         <div class="row">
           <div class="body"><div class="name">Rest days keep the streak</div><div class="sub">Days with nothing scheduled don't break it</div></div>
@@ -2361,12 +2492,99 @@
                 data-date="${key}" style="flex:1">${
               g.gate === 'summary' ? '📖 Write the summary' : '📝 Log this day'
             }</button>
-      </div>`
+      </div>
+      ${
+        /* The bad-day protocol, offered only on a day that is not already done.
+           It logs the real number and nothing more — the day stays honestly
+           short. What it is for is the other failure, the one that actually
+           breaks people: doing nothing at all. */
+        g.floor != null && g.gate !== 'summary' && !S.goalDone(key, goalId)
+          ? `<div class="btn-row" style="margin-top:8px">
+              <button class="btn ghost block" data-act="goal-floor" data-id="${goalId}" data-date="${key}">
+                Bad day — log the minimum, ${esc(A.formatValue(g.unit, g.floor))}
+              </button>
+            </div>
+            <p class="footnote">It will not mark the day kept. It is here so that the worst
+              version of today is still something.</p>`
+          : ''
+      }`
       }
       <div class="btn-row" style="margin-top:${S.isFuture(key) ? 14 : 8}px">
         <button class="btn" data-act="goal-edit" data-id="${goalId}" style="flex:1">Edit goal</button>
         <button class="btn ghost" data-act="goal-restart" data-id="${goalId}">Move the starting point</button>
       </div>
+    `);
+  }
+
+  /**
+   * Common practices, offered as a shape to fill in.
+   *
+   * It fills in what is true of the ACTIVITY — the unit, the direction, the step
+   * size, the area, which days — and leaves the two numbers that are true of the
+   * person. Those are shown as suggestions and labelled as such: a goal that
+   * starts where the app guessed rather than where you are is the mistake the
+   * onboarding banner exists to apologise for.
+   */
+  /**
+   * The cookie jar: what you have already survived, in your own words.
+   *
+   * Read before a hard thing, not after. The empty state carries the rule that
+   * makes it work — an entry has to be a specific event with a detail that
+   * proves it happened, because "I'm tough" is not evidence and cannot be
+   * reached for. The app writes none of them.
+   */
+  function openCookieJar() {
+    const list = S.cookies();
+    openSheet('The cookie jar', `
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Hard things you have already
+        done. Read it when you are about to quit something — under real strain your memory narrows
+        and hands you the worst of itself, so the evidence has to be written down while you are
+        calm and read while you are not.</p>
+      <label class="field"><span>Add one — a specific day, with a detail that proves it happened</span>
+        <textarea id="ck_text" rows="3" maxlength="240"
+          placeholder="Finished the third day of the rotation on four hours of sleep and still hit my numbers."></textarea></label>
+      <div class="btn-row"><button class="btn primary block" data-act="cookie-add">Put it in the jar</button></div>
+      ${
+        list.length
+          ? `<div class="label">${list.length} in the jar</div>
+             <div class="card flush">${list
+               .map(
+                 (c) => `<div class="row"><div class="body">
+                   <div class="sub" style="color:var(--text);font-size:var(--fs-base);line-height:1.5">${esc(c.text)}</div>
+                   <div class="sub">${esc(A.prettyDate(c.at))}</div>
+                 </div>
+                 <button class="icon-btn" data-act="cookie-rm" data-id="${esc(c.id)}" aria-label="Remove">✕</button></div>`
+               )
+               .join('')}</div>`
+          : `<p class="footnote">Nothing in it yet. "I am tough" is not a cookie — it cannot be
+             reached for and it proves nothing. "I finished the shift after the truck broke down and
+             still trained that night" is one. Write fifteen tonight while you are calm.</p>`
+      }
+    `);
+  }
+
+  function openGoalTemplates() {
+    const have = S.goals().map((g) => g.name.toLowerCase());
+    openSheet('Set up a practice', `
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Each one opens the goal form with
+        its shape already filled in — what it is measured in, which way it goes, how big a step is,
+        and which days it runs. <b>The two numbers are yours.</b> Set the first to what you can
+        honestly do today, not what you wish you could; the ladder is built from there.</p>
+      <div class="card flush">${A.GOAL_TEMPLATES.map(
+        (t) => `<div class="row">
+          <span class="emoji" style="font-size:20px">${esc(t.icon)}</span>
+          <div class="body">
+            <div class="name">${esc(t.name)}</div>
+            <div class="sub">${esc(t.blurb)}</div>
+          </div>
+          ${
+            have.indexOf(t.name.toLowerCase()) >= 0
+              ? `<span class="faint" style="font-size:var(--fs-xs)">have it</span>`
+              : `<button class="btn" data-act="goal-template" data-key="${esc(t.key)}">Set up</button>`
+          }
+        </div>`
+      ).join('')}</div>
+      <p class="footnote">Nothing here is created until you save the form it opens.</p>
     `);
   }
 
@@ -2416,6 +2634,21 @@
       </div>
       <label class="field"><span>Step size per level, at Normal</span>
         <input type="number" id="gg_step" min="0.25" step="0.25" value="${esc(v.step)}"></label>
+      <!-- The bad-day protocol, defined in advance while things are fine —
+           which is the only time anybody can define one.
+
+           Not offered on a clock goal: the time input has no way to render
+           "unset", so a blank one would come back as 07:00 and store a floor
+           nobody chose. -->
+      ${
+        v.unit === 'time'
+          ? ''
+          : valueInput('gg_floor', v.unit, v.floor == null ? '' : v.floor, 'Bad-day minimum (optional)')
+      }
+      <p class="footnote" style="margin-top:-4px" ${v.unit === 'time' ? 'hidden' : ''}>The reduced version you do when the day has
+        fallen apart. It will not score the day as kept — it is not a discount, and the record
+        stays honest. It exists because the real failure is doing nothing, and twenty minutes
+        beats zero permanently.</p>
       <label class="field"><span>Difficulty for this goal</span><select id="gg_mode">
         <option value="inherit" ${v.mode === 'inherit' ? 'selected' : ''}>Follow app setting (${esc(A.MODES[S.settings().mode].name)})</option>
         ${A.MODE_IDS.map((m) => `<option value="${m}" ${v.mode === m ? 'selected' : ''}>${A.MODES[m].icon} ${A.MODES[m].name}</option>`).join('')}
@@ -3558,6 +3791,8 @@
   };
   UI.removeDraftCustom = (key) => { draftCustoms = draftCustoms.filter((d) => d.key !== key); };
   UI.openGoalDetail = openGoalDetail;
+  UI.openCookieJar = openCookieJar;
+  UI.openGoalTemplates = openGoalTemplates;
   UI.openGoalEditor = openGoalEditor;
   UI.openGoalRestart = openGoalRestart;
   UI.openExerciseHow = openExerciseHow;

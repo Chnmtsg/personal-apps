@@ -459,6 +459,97 @@ console.log('\nwriting your own habit before the run exists, through app.js');
   ok('the list is cleared once the run has them', UIw.draftCustoms().length === 0);
 }
 
+console.log('\nthe bad-day floor and the +10% line, through app.js');
+{
+  S.resetAll();
+  const g = S.addGoal({ name: 'Floor wire', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10, floor: 5 });
+  const k = S.today();
+
+  click({ act: 'goal-floor', id: g.id, date: k });
+  ok('the minimum logs as the real number', (S.goalEntry(k, g.id) || {}).value === 5,
+     S.goalEntry(k, g.id));
+  ok('and buys nothing — the goal is still short', S.goalDone(k, g.id) === false);
+
+  /* A goal with no floor must not be loggable through this route at all, or the
+     button becomes a way to enter a number nobody chose. */
+  const plain = S.addGoal({ name: 'No floor wire', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10 });
+  click({ act: 'goal-floor', id: plain.id, date: k });
+  ok('a goal without a floor cannot be floored', S.goalEntry(k, plain.id) == null,
+     S.goalEntry(k, plain.id));
+
+  /* Logging short still goes through the ordinary path, and must not throw on
+     the way to naming the +10% number. */
+  resolve('#g_val').value = '20';
+  let threw = '';
+  try { click({ act: 'goal-save-val', id: g.id, date: k }); } catch (e) { threw = e.message; }
+  ok('logging short does not throw while working out ten percent more', !threw, threw);
+  ok('and the short value is what was stored', (S.goalEntry(k, g.id) || {}).value === 20,
+     S.goalEntry(k, g.id));
+
+  S.removeGoal(g.id);
+  S.removeGoal(plain.id);
+}
+
+console.log('\nthe cookie jar, through app.js');
+{
+  S.resetAll();
+  click({ act: 'cookie-jar' });
+  ok('the jar opens', resolve('#sheetBody').innerHTML.indexOf('data-act="cookie-add"') > 0);
+
+  resolve('#ck_text').value = '   ';
+  click({ act: 'cookie-add' });
+  ok('an empty entry is refused rather than stored', S.cookies().length === 0, S.cookies());
+
+  resolve('#ck_text').value = 'Ran the whole rotation on four hours a night and still trained.';
+  click({ act: 'cookie-add' });
+  ok('a real one goes in', S.cookies().length === 1, S.cookies().map((c) => c.text));
+  ok('in the user own words, unchanged',
+     S.cookies()[0].text.indexOf('four hours a night') > 0, S.cookies()[0].text);
+
+  const id = S.cookies()[0].id;
+  click({ act: 'cookie-rm', id: id });
+  ok('and can be taken back out', S.cookies().length === 0);
+  S.restoreCookie({ id: id, text: 'x', at: S.today() }, 0);
+  ok('the undo path puts one back', S.cookies().length === 1);
+}
+
+console.log('\nsetting up a practice from a template, through app.js');
+{
+  S.resetAll();
+  const before = S.goals().length;
+  const t = A.GOAL_TEMPLATES[0];
+
+  click({ act: 'goal-templates' });
+  ok('the sheet lists the templates',
+     resolve('#sheetBody').innerHTML.indexOf('data-act="goal-template"') > 0);
+
+  click({ act: 'goal-template', key: t.key });
+  ok('picking one creates nothing on its own', S.goals().length === before, S.goals().length);
+  ok('it opens the goal form instead',
+     resolve('#sheetBody').innerHTML.indexOf('data-act="goal-save"') > 0);
+
+  /* The form, filled the way a person would after correcting the placeholders to
+     where they actually are. */
+  resolve('#gg_name').value = t.name;
+  resolve('#gg_icon').value = t.icon;
+  resolve('#gg_unit').value = t.unit;
+  resolve('#gg_base').value = '5';
+  resolve('#gg_target').value = '40';
+  resolve('#gg_step').value = '5';
+  resolve('#gg_sched').value = 'daily';
+  click({ act: 'goal-save', id: '' });
+
+  const made = S.goals().find((g) => g.name === t.name);
+  ok('saving is what creates it', !!made, S.goals().map((g) => g.name));
+  ok('with the numbers the user typed, not the template placeholders',
+     !!made && made.baseline === 5 && made.target === 40, made && [made.baseline, made.target]);
+  ok('an unknown template key does nothing', (() => {
+    const n = S.goals().length;
+    click({ act: 'goal-template', key: 'nope' });
+    return S.goals().length === n;
+  })());
+}
+
 console.log('\na daily habit becomes a goal, through app.js');
 {
   /* The route the user actually takes: tap the control on More, fill the form,

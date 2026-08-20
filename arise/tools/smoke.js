@@ -607,6 +607,214 @@ ok('new settings get defaults', S.settings().dayBoundaryHour === 4 && S.settings
 ok('best streak is preserved', S.get().bestStreak >= 4, S.get().bestStreak);
 
 /* ------------------------------------------------------------------ */
+section('goal templates carry a shape, never a life');
+ok('there are templates at all', A.GOAL_TEMPLATES.length >= 5, A.GOAL_TEMPLATES.length);
+ok('each has the shape a goal needs to exist', A.GOAL_TEMPLATES.every(
+   (t) => t.name && t.unit && t.direction && t.section && t.step > 0 && t.schedule),
+   (A.GOAL_TEMPLATES.find((t) => !(t.name && t.unit && t.direction && t.section && t.step > 0 && t.schedule)) || {}).key);
+/* Every template must build a goal the engine accepts. A template whose numbers
+   do not make a ladder would open a form that cannot be saved. */
+ok('and every one of them builds a real ladder', A.GOAL_TEMPLATES.every((t) => {
+  const g = A.Goals.fromSeed(Object.assign({}, t), S.today());
+  return A.Goals.maxLevel(g, 'normal') >= 1 && A.Goals.norm(g, t.target) !== A.Goals.norm(g, t.baseline);
+}), A.GOAL_TEMPLATES.map((t) => t.key + ':' + A.Goals.maxLevel(A.Goals.fromSeed(Object.assign({}, t), S.today()), 'normal')).join(' '));
+ok('a weekday template names real weekdays', A.GOAL_TEMPLATES.every(
+   (t) => t.schedule.type !== 'weekdays' || (t.schedule.days || []).every((d) => d >= 0 && d <= 6)));
+/* The sports the plan cannot prescribe are in the library so they can be dropped
+   into any day by hand. */
+ok('the court sports are in the exercise library', ['Basketball', 'Volleyball', 'Swimming'].every(
+   (n) => A.SEED_EXERCISES.some((e) => e.name === n)));
+
+/* ------------------------------------------------------------------ */
+section('the recovery half: deload weeks and the bad-day floor');
+S.resetAll();
+ok('the cycle is off unless asked for', S.deloadWeek(S.today()).on === false, S.deloadWeek(S.today()));
+ok('and off means no week is a deload', S.deloadWeek(S.today()).isDeload === false);
+
+S.updateSettings({ deloadEveryWeeks: 4 });
+const dstart = S.historyStart();
+ok('week one of the cycle is the week you started',
+   S.deloadWeek(dstart).week === 1 && !S.deloadWeek(dstart).isDeload, S.deloadWeek(dstart));
+ok('the fourth week is the deload', (() => {
+  const w4 = A.addDays(A.weekStart(dstart), 21);
+  const d = S.deloadWeek(w4);
+  return d.week === 4 && d.isDeload;
+})(), S.deloadWeek(A.addDays(A.weekStart(dstart), 21)));
+ok('and the fifth starts the cycle again', (() => {
+  const w5 = A.addDays(A.weekStart(dstart), 28);
+  return S.deloadWeek(w5).week === 1 && !S.deloadWeek(w5).isDeload;
+})(), S.deloadWeek(A.addDays(A.weekStart(dstart), 28)));
+ok('every day inside a week gets the same answer', (() => {
+  const base = A.addDays(A.weekStart(dstart), 21);
+  return [0, 1, 2, 3, 4, 5, 6].every((i) => S.deloadWeek(A.addDays(base, i)).isDeload);
+})());
+/* A cycle of one would make every week a deload, which is not a programme. */
+S.updateSettings({ deloadEveryWeeks: 1 });
+ok('a cycle shorter than two is treated as off', S.deloadWeek(S.today()).on === false);
+S.updateSettings({ deloadEveryWeeks: 0 });
+
+/* ---- the bad-day floor ---- */
+S.resetAll();
+const fg = S.addGoal({ name: 'Floor test', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10, floor: 5 });
+ok('a goal can carry a bad-day minimum', S.goalById(fg.id).floor === 5, S.goalById(fg.id).floor);
+const fk = S.today();
+S.setGoalValue(fk, fg.id, 5);
+/* The point of the floor, and the line it must not cross: it is a real number in
+   the record, and it does NOT buy the day. A reduced version that scored as kept
+   would be the first lie in a ledger whose whole value is that it does not
+   flatter anybody. */
+ok('logging it records the real number', (S.goalEntry(fk, fg.id) || {}).value === 5, S.goalEntry(fk, fg.id));
+ok('and does not mark the goal done', S.goalDone(fk, fg.id) === false);
+ok('so the day is not kept on the strength of it', S.dayStatus(fk).status !== 'complete', S.dayStatus(fk).status);
+ok('a goal without one is unaffected', (() => {
+  const plain = S.addGoal({ name: 'No floor', unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5 });
+  const has = S.goalById(plain.id).floor;
+  S.removeGoal(plain.id);
+  return has == null;
+})());
+S.removeGoal(fg.id);
+
+/* ------------------------------------------------------------------ */
+section('the cookie jar, and never missing twice');
+S.resetAll();
+
+ok('a fresh account has an empty jar', S.cookies().length === 0);
+/* The app must never write one. A cookie somebody else composed is not evidence,
+   and the whole mechanism is retrieval of YOUR OWN mastery experiences. */
+ok('and nothing seeds it', JSON.stringify(S.get().cookies) === '[]', S.get().cookies);
+
+const ck = S.addCookie('  Finished the rotation on four hours of sleep and still hit my numbers.  ');
+ok('an entry goes in, trimmed', !!ck && ck.text.indexOf('Finished') === 0 &&
+   ck.text.slice(-1) === '.', ck && JSON.stringify(ck.text));
+ok('it is dated', !!ck && ck.at === S.today(), ck && ck.at);
+ok('newest first, because that is the order you reach in',
+   S.addCookie('Second one') && S.cookies()[0].text === 'Second one', S.cookies().map((c) => c.text));
+ok('an empty entry is refused', S.addCookie('   ') === null);
+ok('and so is nothing at all', S.addCookie() === null);
+
+const tookOut = S.removeCookie(ck.id);
+ok('one can be taken out', !!tookOut && !S.cookies().some((c) => c.id === ck.id));
+S.restoreCookie(tookOut.cookie, tookOut.index);
+ok('and put back where it was, as the same entry',
+   S.cookies()[tookOut.index] && S.cookies()[tookOut.index].id === ck.id,
+   S.cookies().map((c) => c.id));
+ok('restoring twice does not duplicate it', (() => {
+  const n = S.cookies().length;
+  S.restoreCookie(tookOut.cookie, tookOut.index);
+  return S.cookies().length === n;
+})());
+
+/* ---- never miss twice ---- */
+S.resetAll();
+S.get().habits = [];
+S.get().plan = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+S.commit({ type: 'fixture' });
+const mk = S.today();
+const yday = A.addDays(mk, -1);
+S.get().createdAt = A.addDays(mk, -10);
+/* The goals have to have been running yesterday, or yesterday asks for nothing
+   and scores as a rest day — which is not a miss and correctly raises nothing.
+   Straight onto the object: `updateGoal` refuses to move a startDate, and here
+   nothing has been logged yet so this is a fixture rather than an edit. */
+S.get().goals.forEach((g) => { g.startDate = A.addDays(mk, -10); });
+S.commit({ type: 'fixture' });
+ok('the fixture really does ask something of yesterday', S.dayStatus(yday).total > 0,
+   S.dayStatus(yday));
+
+ok('a day that was kept raises nothing', (() => {
+  S.goalsForDay(yday).forEach((e) => {
+    if (e.goal.gate === 'summary') S.setReading(yday, { book: 'B', minutes: 30, summary: 'Wrote it.' });
+    else S.hitGoalTarget(yday, e.goal.id);
+  });
+  return S.missedYesterday(mk) === null;
+})(), S.dayStatus(yday).status);
+
+/* Break yesterday and leave today open — the one moment the app used to have
+   nothing to say about. */
+/* `clearDay` clears the day LOG — exercises, habits, extras. The goals live in
+   `goalLogs` and the reading in `reading`, so breaking yesterday properly means
+   clearing those too. Getting this wrong is what made the first version of this
+   test pass against a day that was still complete. */
+S.clearDay(yday);
+delete S.get().goalLogs[yday];
+delete S.get().reading[yday];
+S.commit({ type: 'fixture' });
+ok('yesterday really is broken now', S.dayStatus(yday).status !== 'complete', S.dayStatus(yday).status);
+const warn = S.missedYesterday(mk);
+ok('a broken yesterday with today still open raises it', !!warn, [S.dayStatus(yday).status, S.dayStatus(mk).status]);
+ok('and it says how much of today is left', !!warn && warn.left === S.dayStatus(mk).total - S.dayStatus(mk).done,
+   warn && warn.left);
+
+ok('it goes quiet the moment today is complete', (() => {
+  S.goalsForDay(mk).forEach((e) => {
+    if (e.goal.gate === 'summary') S.setReading(mk, { book: 'B', minutes: 30, summary: 'Wrote it.' });
+    else S.hitGoalTarget(mk, e.goal.id);
+  });
+  return S.dayStatus(mk).status === 'complete' && S.missedYesterday(mk) === null;
+})(), S.dayStatus(mk).status);
+
+/* A day the user spent a freeze on is not a miss, and neither is a day before
+   the account existed. A warning that fires when there is nothing to fix is one
+   people learn to ignore. */
+S.clearDay(mk);
+// Straight onto the state: `applyFreeze` needs earned freezes and this fixture
+// has no completed days to have earned any. What is under test is the guard.
+S.get().freezes[yday] = true;
+S.commit({ type: 'fixture' });
+ok('a frozen yesterday is not a miss', S.missedYesterday(mk) === null, S.dayStatus(yday));
+delete S.get().freezes[yday];
+S.commit({ type: 'fixture' });
+S.get().createdAt = mk;
+S.commit({ type: 'fixture' });
+ok('and neither is the day before the account existed', S.missedYesterday(mk) === null);
+ok('it only ever speaks about today', S.missedYesterday(A.addDays(mk, -3)) === null);
+
+/* ------------------------------------------------------------------ */
+section('the journal can be one of the things a day asks for');
+S.resetAll();
+S.get().habits = [];
+S.get().plan = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+S.updateSettings({ goalsCountTowardDay: false });
+S.commit({ type: 'fixture' });
+const jk = S.today();
+
+/* Off by default, and that is the whole reason it can ship. Day status is
+   DERIVED, so a setting that counted the journal would re-score every day
+   already in the record — a day kept without a journal entry becomes a day
+   missed. That is the user's decision to make, not an update's. */
+ok('it is off unless the user asks for it', S.settings().journalCountsTowardDay === false);
+ok('so a day with nothing else scheduled is a rest day',
+   S.dayStatus(jk).status === 'rest', S.dayStatus(jk));
+
+S.updateSettings({ journalCountsTowardDay: true });
+ok('switched on, the day asks for one thing', S.dayStatus(jk).total === 1, S.dayStatus(jk));
+ok('and it is not done yet', S.dayStatus(jk).jrDone === 0 && S.dayStatus(jk).status !== 'complete',
+   S.dayStatus(jk).status);
+
+S.setJournal(jk, { text: 'Long shift. Read twenty pages anyway.' });
+ok('writing the entry completes it', S.dayStatus(jk).status === 'complete', S.dayStatus(jk));
+ok('and it is the journal that did it', S.dayStatus(jk).jrDone === 1 && S.dayStatus(jk).jrTotal === 1,
+   S.dayStatus(jk));
+
+/* A mood on its own is not a journal. `journalDays` counts either, because it
+   lists days with anything on them; what the DAY asks for is the writing. */
+const jk2 = A.addDays(jk, -1);
+S.setJournal(jk2, { mood: 3 });
+ok('a mood alone does not complete the day', S.dayStatus(jk2).jrDone === 0, S.dayStatus(jk2));
+S.setJournal(jk2, { text: '   ' });
+ok('and neither does whitespace', S.dayStatus(jk2).jrDone === 0, S.dayStatus(jk2));
+
+/* Nothing is stored against the day. The journal entry IS the record, so the
+   thing being asked for and the thing recording it cannot drift apart — which is
+   why this needs no frozen list the way the habits do. */
+S.setJournal(jk, { text: '' });
+ok('deleting the entry takes the day back off complete',
+   S.dayStatus(jk).status !== 'complete' && S.dayStatus(jk).jrDone === 0, S.dayStatus(jk));
+
+S.updateSettings({ journalCountsTowardDay: false });
+ok('switching it off stops the day asking', S.dayStatus(jk).jrTotal === 0, S.dayStatus(jk));
+
+/* ------------------------------------------------------------------ */
 section('a daily habit becomes a goal');
 S.resetAll();
 S.get().habits = [];

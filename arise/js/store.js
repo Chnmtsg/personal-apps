@@ -83,6 +83,8 @@
       weeklyClaims: {},
       // Rewards the user promises themselves: "14 days of workouts → new sneakers".
       customRewards: [],
+      /* The user's own evidence, and empty on purpose — see `addCookie`. */
+      cookies: [],
       // A fixed-length run — "66 days" — that the day counter counts against.
       challenges: [],
       /* The 66-day run, or null for the great majority of accounts that never
@@ -115,6 +117,18 @@
         requireHabits: false,
         goalsCountTowardDay: true,
         runCountsTowardDay: true,
+        /* OFF by default, and it has to be. Day status is derived rather than
+           stored, so switching this on re-scores every day in the record — a day
+           the user kept without writing a journal becomes a day they did not.
+           That is true of every switch in this group and is the user's decision
+           to make; defaulting it ON would make it the app's, silently, on an
+           update they did not ask for. */
+        journalCountsTowardDay: false,
+        /* Every Nth week is a deload. 0 is off, and off is the default for the
+           same reason as the switch above it — this changes what the app tells
+           you a week is for, and that is the user's call. 4 is the number the
+           training literature and "Can't Hurt Me"'s own safety section land on. */
+        deloadEveryWeeks: 0,
         restCountsAsStreak: true,
         completionPct: 100,
         reduceMotion: false,
@@ -252,6 +266,10 @@
     s.freezes = s.freezes || {};
     // Additive: an account written before custom rewards existed simply has none.
     s.customRewards = Array.isArray(s.customRewards) ? s.customRewards : [];
+    /* The cookie jar. Additive in the same shape as the two below it: an account
+       written before it existed simply has none, and the app must never write
+       one for them — a cookie somebody else composed is not evidence. */
+    s.cookies = Array.isArray(s.cookies) ? s.cookies : [];
     s.challenges = Array.isArray(s.challenges) ? s.challenges : [];
 
     /* v3 → v4: the 66-day run. Purely additive, and null is the honest default:
@@ -838,6 +856,15 @@
       next.updatedAt = Date.now();
       state.journal[dateKey] = next;
     }
+    /* The memo has to go even though the render does not. `dayStatus` is cached
+       per commit, and once `journalCountsTowardDay` is on the journal IS part of
+       the day's score — so leaving the cache alone meant typing an entry
+       completed nothing until some unrelated tap happened to commit. Clearing
+       the caches is not the same thing as re-rendering, and only the second one
+       steals focus. */
+    dsCache.clear();
+    tlCache.clear();
+
     // Deliberately no emit: re-rendering on every keystroke would steal focus
     // from the textarea the user is typing into.
     //
@@ -1399,6 +1426,31 @@
     commit({ type: 'unfreeze', dateKey });
   }
 
+  /**
+   * Where this week sits in the deload cycle.
+   *
+   * "Stress plus recovery equals adaptation; stress without recovery equals
+   * damage" is the sentence the rest of this app's push features are only safe
+   * underneath. Every fourth week the volume comes down on purpose.
+   *
+   * Derived from `historyStart()` and counted in whole weeks, so it is stable,
+   * needs no stored anchor date, and cannot drift. It deliberately does NOT
+   * touch the plan: `ensureLog` freezes a day's exercise list the first time the
+   * day is opened, so rewriting sets here would put the screen and the record in
+   * disagreement — the exact seam `reconcileToday` exists to close on the run
+   * side. The app also has no weight field, so it cannot compute your volume.
+   * What it can do honestly is tell you which week it is and what to do about it.
+   */
+  function deloadWeek(dateKey) {
+    const every = Number(settings().deloadEveryWeeks) || 0;
+    if (every < 2) return { on: false, week: 0, of: 0, isDeload: false };
+    const from = A.weekStart(historyStart());
+    const here = A.weekStart(dateKey || today());
+    const weeks = Math.floor(A.daysBetween(from, here) / 7);
+    const week = ((weeks % every) + every) % every;      // 0-based, negative-safe
+    return { on: true, week: week + 1, of: every, isDeload: week === every - 1 };
+  }
+
   /* ---------- day status ---------- */
 
   const isFuture = (dateKey) => A.daysBetween(today(), dateKey) > 0;
@@ -1448,16 +1500,22 @@
     const habits = settings().requireHabits ? dayHabits(dateKey) : [];
     const gl = settings().goalsCountTowardDay ? goalsForDay(dateKey) : [];
     const rn = settings().runCountsTowardDay ? runEntriesOn(dateKey) : [];
+    /* The journal, when the user has asked for it to count. One item, and it
+       needs no frozen list the way habits do: the thing being asked for and the
+       thing that records it are the same object, so they cannot drift apart. */
+    const jrTotal = settings().journalCountsTowardDay ? 1 : 0;
+    const jrDone = jrTotal && (((state.journal[dateKey] || {}).text || '').trim() ? 1 : 0);
     const exDone = plan.filter((i) => l && l.ex && l.ex[i.id]).length;
     const hbDone = habits.filter((h) => l && l.hb && l.hb[h.id]).length;
     const glDone = gl.filter((x) => x.done).length;
     const rnDone = rn.filter((e) => e.done).length;
     const extra = l && l.extra ? l.extra.length : 0;
-    const total = plan.length + habits.length + gl.length + rn.length;
-    const done = exDone + hbDone + glDone + rnDone;
+    const total = plan.length + habits.length + gl.length + rn.length + jrTotal;
+    const done = exDone + hbDone + glDone + rnDone + jrDone;
     const shape = {
       done, total, exDone, exTotal: plan.length, hbDone, hbTotal: habits.length,
       glDone, glTotal: gl.length, rnDone, rnTotal: rn.length,
+      jrDone, jrTotal,
       extra, frozen: !!state.freezes[dateKey]
     };
 
@@ -2174,6 +2232,77 @@
     commit({ type: 'exerciseRemove', id });
   }
 
+  /* ---------- the cookie jar ----------
+
+     From "Can't Hurt Me": a written inventory of specific hard things you have
+     already survived, kept so you can reach into it at the moment your
+     confidence is collapsing.
+
+     The mechanism is retrieval, not inspiration. Under acute stress memory
+     access narrows and negative material dominates — you lose access to your own
+     evidence exactly when you need it, which is why the list has to be written
+     while calm and read while not.
+
+     It is the user's own words and nothing else. The app has plenty of material
+     it could generate entries from — completed days, the best streak, claimed
+     milestones — and generating them would defeat the entire point: "I'm tough"
+     is not a cookie, and neither is a sentence a program wrote about you. Every
+     entry here was typed by the person it happened to. */
+
+  const cookies = () => state.cookies || [];
+
+  function addCookie(text) {
+    const t = String(text == null ? '' : text).trim().slice(0, 240);
+    if (!t) return null;
+    const c = { id: A.uid('ck'), text: t, at: today() };
+    state.cookies.unshift(c);
+    commit({ type: 'cookieAdd', id: c.id });
+    return c;
+  }
+
+  function removeCookie(id) {
+    const i = cookies().findIndex((c) => c.id === id);
+    if (i < 0) return null;
+    const gone = state.cookies[i];
+    state.cookies.splice(i, 1);
+    commit({ type: 'cookieRemove', id: id });
+    return { cookie: gone, index: i };
+  }
+
+  /** Undo, in the shape every other destructive verb here uses: the same object
+      back in the same place, never a fresh one built from its text. */
+  function restoreCookie(cookie, index) {
+    if (!cookie || cookies().some((c) => c.id === cookie.id)) return;
+    const at = Math.max(0, Math.min(index == null ? 0 : index, state.cookies.length));
+    state.cookies.splice(at, 0, cookie);
+    commit({ type: 'cookieRestore', id: cookie.id });
+  }
+
+  /**
+   * Did the previous day break, with today still open?
+   *
+   * "Never miss twice" is the consistency rule in the book, and it is the one
+   * moment this app had nothing to say about. A streak counter tells you what
+   * you have; it does not tell you that the single highest-leverage day of the
+   * whole year is the one immediately after a miss.
+   *
+   * Deliberately narrow. It is silent on a rest day, on a frozen day, before
+   * there is any history to miss, and the moment today is complete — a nag that
+   * fires when there is nothing to fix is a nag people learn to ignore.
+   */
+  function missedYesterday(dateKey) {
+    const k = dateKey || today();
+    if (k !== today()) return null;                     // only ever about now
+    const prev = A.addDays(k, -1);
+    if (A.daysBetween(historyStart(), prev) < 0) return null;
+    const y = dayStatus(prev);
+    if (y.status !== 'missed' && y.status !== 'partial') return null;
+    if (y.frozen) return null;
+    const t = dayStatus(k);
+    if (t.status === 'complete' || t.status === 'rest' || !t.total) return null;
+    return { date: prev, status: y.status, pct: y.pct, left: Math.max(0, t.total - t.done) };
+  }
+
   function addHabit(name, icon) {
     const h = { id: A.uid('hb'), name: (name || 'New habit').trim(), icon: icon || '✅' };
     state.habits.push(h);
@@ -2364,6 +2493,7 @@
     restoreExercises, restorePlanDay, restoreExtras, acknowledgeStart,
     addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan, reinstallProgram,
     takeRunRefusals, takeRunPaused, runCandidateGoals,
+    cookies, addCookie, removeCookie, restoreCookie, missedYesterday, deloadWeek,
     addExercise, updateExercise, removeExercise, addHabit, removeHabit, habitStreak,
     habitToGoal, restoreHabitFromGoal,
     goals, activeGoals, goalById, goalEntry, goalTimeline, goalTarget, goalTargetOn,

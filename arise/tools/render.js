@@ -1108,6 +1108,146 @@ behaves('the habit-to-goal sheet says the habit will be moved, not copied', () =
   return html.indexOf('Make it a goal') > 0 ? '' : 'the button still reads as a plain new goal';
 });
 
+behaves('a deload week says so on Today, above everything else', () => {
+  S.resetAll();
+  UI.setViewDate(S.today());
+  const off = renderRoute('today');
+  if (off.indexOf('class="deload"') >= 0) return 'it announces a deload with the cycle switched off';
+  /* Anchor the cycle so that this week IS the deload week, then look. */
+  S.updateSettings({ deloadEveryWeeks: 4 });
+  S.get().createdAt = A.addDays(A.weekStart(S.today()), -21);
+  S.commit({ type: 'fixture' });
+  const on = renderRoute('today');
+  const isDeload = S.deloadWeek(S.today()).isDeload;
+  S.updateSettings({ deloadEveryWeeks: 0 });
+  if (!isDeload) return 'the fixture did not land on a deload week';
+  if (on.indexOf('class="deload"') < 0) return 'the deload week is not announced';
+  /* Order matters: on a deload week "never miss twice" must not be the first
+     thing read, or the recovery instruction gets trained straight through. */
+  const d = on.indexOf('class="deload"');
+  const m = on.indexOf('class="misstwice"');
+  return m < 0 || d < m ? '' : 'the miss-twice line comes before the deload notice';
+});
+
+behaves('the training week states a stopping rule, because the book gives none', () => {
+  UI.setPlanTab('week');
+  const html = renderRoute('plan');
+  UI.setPlanTab('goals');
+  if (html.indexOf('sharp pain') < 0) return 'no stopping rule anywhere on the training screen';
+  return html.indexOf('performance falling while effort rises') > 0
+    ? '' : 'the overtraining signs are not stated';
+});
+
+behaves('a bad-day floor is offered without pretending it keeps the day', () => {
+  S.resetAll();
+  const g = S.addGoal({ name: 'Floor render', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10, floor: 5 });
+  sheetBody.innerHTML = '';
+  UI.openGoalDetail(g.id, S.today());
+  const html = sheetBody.innerHTML;
+  S.removeGoal(g.id);
+  if (html.indexOf('data-act="goal-floor"') < 0) return 'no way to log the minimum';
+  return html.indexOf('will not mark the day kept') > 0
+    ? '' : 'it does not say the day is still short';
+});
+
+behaves('and a goal without a floor is offered no such thing', () => {
+  const g = S.addGoal({ name: 'No floor render', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10 });
+  sheetBody.innerHTML = '';
+  UI.openGoalDetail(g.id, S.today());
+  const html = sheetBody.innerHTML;
+  S.removeGoal(g.id);
+  return html.indexOf('data-act="goal-floor"') < 0 ? '' : 'it invented a minimum nobody set';
+});
+
+behaves('the cookie jar holds the user own words, and nothing the app wrote', () => {
+  S.resetAll();
+  sheetBody.innerHTML = '';
+  UI.openCookieJar();
+  const empty = sheetBody.innerHTML;
+  if (empty.indexOf('data-act="cookie-add"') < 0) return 'no way to add one';
+  /* The rule that makes the tool work, stated in the empty state: an entry has
+     to be a specific event, because a slogan cannot be reached for. */
+  if (empty.indexOf('is not a cookie') < 0) return 'the empty state does not say what an entry is';
+
+  S.addCookie('Finished the shift after the truck broke down and still trained.');
+  sheetBody.innerHTML = '';
+  UI.openCookieJar();
+  const full = sheetBody.innerHTML;
+  if (full.indexOf('truck broke down') < 0) return 'the entry is not shown';
+  return full.indexOf('data-act="cookie-rm"') > 0 ? '' : 'no way to take one out';
+});
+
+behaves('Today reaches for the jar only while the day is still open', () => {
+  S.resetAll();
+  // Goals only, so that completing them completes the DAY — the plan ships a
+  // full training week and the habits count too.
+  S.get().habits = [];
+  S.get().plan = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+  S.commit({ type: 'fixture' });
+  S.addCookie('One specific hard day.');
+  UI.setViewDate(S.today());
+  const open = renderRoute('today');
+  if (open.indexOf('data-act="cookie-jar"') < 0) return 'the jar is unreachable from the day it is for';
+  S.goalsForDay(S.today()).forEach((e) => {
+    if (e.goal.gate === 'summary') S.setReading(S.today(), { book: 'B', minutes: 30, summary: 'Wrote it.' });
+    else S.hitGoalTarget(S.today(), e.goal.id);
+  });
+  const done = renderRoute('today');
+  /* After the day is kept it would be a trophy cabinet, which is a different and
+     much weaker object than a thing you reach into mid-effort. */
+  return done.indexOf('class="linkrow jarrow"') < 0 ? '' : 'it is still offering evidence after the work is done';
+});
+
+behaves('a goal at its target is told to raise it, not to hold it', () => {
+  S.resetAll();
+  const g = S.addGoal({ name: 'Hold test', unit: 'minutes', direction: 'up', baseline: 5, target: 10, step: 5 });
+  /* Walk it to the top so the timeline really reports atTarget. The startDate has
+     to move first — a goal only counts days from when it began, so logging days
+     before it existed advances nothing. */
+  g.startDate = A.addDays(S.today(), -60);
+  S.commit({ type: 'fixture' });
+  for (let i = 50; i >= 1; i--) S.hitGoalTarget(A.addDays(S.today(), -i), g.id);
+  const tl = S.goalTimeline(g.id);
+  UI.setPlanTab('goals');
+  const html = renderRoute('plan');
+  UI.setPlanTab('goals');
+  S.removeGoal(g.id);
+  if (!tl.atTarget) return 'the fixture never reached the target';
+  if (html.indexOf('now just hold it') >= 0) return 'it still tells you to hold';
+  return html.indexOf('data-act="goal-raise"') > 0 ? '' : 'no way to raise the ceiling';
+});
+
+behaves('the template sheet fills in the shape and not the numbers', () => {
+  sheetBody.innerHTML = '';
+  UI.openGoalTemplates();
+  const html = sheetBody.innerHTML;
+  if (html.indexOf('data-act="goal-template"') < 0) return 'no template is offered';
+  const offered = (html.match(/data-act="goal-template"/g) || []).length;
+  const already = (html.match(/>have it</g) || []).length;
+  if (offered + already !== A.GOAL_TEMPLATES.length) {
+    return `${offered + already} rows for ${A.GOAL_TEMPLATES.length} templates`;
+  }
+  /* The whole point of the sheet, and the sentence that keeps it honest. */
+  return html.indexOf('The two numbers are yours') > 0
+    ? '' : 'it does not say the numbers are the user to supply';
+});
+
+behaves('and a template opens the editor with its shape, not a created goal', () => {
+  const t = A.GOAL_TEMPLATES.find((x) => x.unit === 'count') || A.GOAL_TEMPLATES[0];
+  const before = S.goals().length;
+  sheetBody.innerHTML = '';
+  UI.openGoalEditor(null, {
+    name: t.name, icon: t.icon, section: t.section, unit: t.unit,
+    direction: t.direction, baseline: t.baseline, target: t.target,
+    step: t.step, schedule: t.schedule
+  });
+  const html = sheetBody.innerHTML;
+  if (S.goals().length !== before) return 'opening the editor created a goal';
+  if (html.indexOf('value="' + t.name + '"') < 0) return 'the name is not carried across';
+  if (html.indexOf('data-habit=""') < 0) return 'it should not look like a habit conversion';
+  return html.indexOf('value="' + t.step + '"') > 0 ? '' : 'the step size is not carried across';
+});
+
 behaves('a plain new goal carries no habit and no such promise', () => {
   sheetBody.innerHTML = '';
   UI.openGoalEditor(null);
@@ -1219,7 +1359,9 @@ behaves('every state class the run UI emits is actually styled', () => {
                   '.label', '.screenhead', '.headpill', '.dayhead.ember', '.dayhead-track > .kept',
                   '.week-strip.rail .wd.on', '.segbar.countline .seg.on', '.gcard-plate',
                   '.gcard.is-gated', '.gcard-tick.is-write', '.gcard.is-done', '.gcard.is-part',
-                  '.paycard', '.linkrow', '.segbar.tabs .seg.on', '.goalcard', '.goalcard-bar > i', '.footnote', '.gatecard.is-done', '.minifield', '.readprompt', '.archive[open] > summary .ico', '.ledgercard', '.statcard', '.lvlrow-bar > i', '.myreward.is-ready', '.btn.gold', '.promptrow', '.reward .claimed-mark', '.dest', '.dest > span.is-ready', '.label.split', '.mode-card.on'];
+                  '.paycard', '.linkrow', '.segbar.tabs .seg.on', '.goalcard', '.goalcard-bar > i', '.footnote', '.gatecard.is-done', '.minifield', '.readprompt', '.archive[open] > summary .ico', '.ledgercard', '.statcard', '.lvlrow-bar > i', '.myreward.is-ready', '.btn.gold', '.promptrow', '.reward .claimed-mark', '.dest', '.dest > span.is-ready', '.label.split', '.mode-card.on',
+                  '.misstwice', '.linkrow.jarrow', '.linkrow.is-asked', '.linkrow-tick',
+                  '.deload', '.cyclebar.is-deload'];
   const missing = needed.filter((sel) => css.indexOf(sel) < 0);
   if (missing.length) return 'no rule for: ' + missing.join(', ');
   return css.indexOf(':has(:checked)') < 0 ? '' : 'a dead :has(:checked) rule is still in the sheet';
