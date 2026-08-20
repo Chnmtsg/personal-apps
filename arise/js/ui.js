@@ -287,6 +287,167 @@
       .join('')}</div>`;
   }
 
+  /* ================= charts =================
+
+     Drawn as inline SVG, from the record, with no library — this app makes no
+     network calls and ships no dependencies.
+
+     The form was chosen before the colour, which is the order that matters.
+     The job here is "how much did I actually do, against what was being asked" —
+     change over time with a moving baseline. That is columns for what was logged
+     (each day is a discrete observation, and a line would invent continuity
+     across days nothing was recorded) plus a stepped line for the target. One
+     axis, in minutes. Never two.
+
+     TWO SERIES, SO TWO VALIDATED COLOURS. `--chart-did` and `--chart-ask` are
+     their own steps rather than `--accent` and `--gold`: the UI tokens sit at
+     OKLCH L 0.73 and 0.77, outside the 0.48–0.67 band a mark may occupy on a
+     dark surface, and read as glare at chart scale. The steps below were run
+     through the palette validator in both modes and pass all six checks —
+     lightness band, chroma floor, CVD separation, normal-vision separation and
+     contrast against the surface they are drawn on. Do not "tidy" them back to
+     the UI tokens; that reintroduces a failure the eye does not catch.
+
+     The two are also told apart by FORM — solid columns against a thin line — so
+     identity never rests on hue alone. */
+
+  const CHART_DAYS = 42;
+
+  /** Round to something a person would say out loud. */
+  const axisRound = (v) => {
+    if (v <= 10) return Math.ceil(v);
+    if (v <= 60) return Math.ceil(v / 5) * 5;
+    if (v <= 240) return Math.ceil(v / 15) * 15;
+    return Math.ceil(v / 30) * 30;
+  };
+
+  /**
+   * A goal's last six weeks: columns for what was logged, a step line for what
+   * was asked.
+   *
+   * @param {object} g     the goal
+   * @param {object[]} pts from `S.goalSeries`
+   */
+  function goalChart(g, pts) {
+    const asked = pts.filter((p) => p.asked);
+    if (asked.length < 2) {
+      return `<p class="footnote">Not enough logged yet to draw. Two days on the
+        record and the shape starts showing.</p>`;
+    }
+    const W = 320;
+    const H = 108;
+    const PAD_T = 12;
+    const PAD_B = 16;
+    const plot = H - PAD_T - PAD_B;
+
+    const values = pts.map((p) => p.value || 0).concat(pts.map((p) => p.target || 0));
+    const top = axisRound(Math.max(1, Math.max.apply(null, values)));
+    const y = (v) => PAD_T + plot - (Math.max(0, v) / top) * plot;
+
+    const slot = W / pts.length;
+    /* Cap the column and let the leftover be air. The 2px surface gap is what
+       separates neighbours — never a stroke, which would add ink that is not
+       data. */
+    const bw = Math.max(2, Math.min(24, slot - 2));
+
+    const cols = pts
+      .map((p, i) => {
+        if (!p.asked || p.value == null || p.value <= 0) return '';
+        const x = i * slot + (slot - bw) / 2;
+        const h = Math.max(1.5, PAD_T + plot - y(p.value));
+        /* 4px rounded data-end, square at the baseline: draw the radius only
+           when the column is tall enough to show one. */
+        const r = h > 6 ? Math.min(4, bw / 2) : 0;
+        return `<rect x="${x.toFixed(1)}" y="${y(p.value).toFixed(1)}" width="${bw.toFixed(1)}"
+          height="${h.toFixed(1)}" rx="${r}" ry="${r}" fill="var(--chart-did)"
+          ><title>${esc(A.prettyDate(p.date))} · ${esc(A.formatValue(g.unit, p.value))}${
+          p.target != null ? ' of ' + esc(A.formatValue(g.unit, p.target)) : ''
+        }</title></rect>`;
+      })
+      .join('');
+
+    /* The target, as a step rather than a slope: it changes on the day it
+       changes, and drawing it as a ramp would claim the ask moved gradually. */
+    let d = '';
+    pts.forEach((p, i) => {
+      if (!p.asked || p.target == null) return;
+      const x0 = i * slot;
+      const x1 = x0 + slot;
+      const yy = y(p.target).toFixed(1);
+      d += (d ? ` L${x0.toFixed(1)},${yy}` : `M${x0.toFixed(1)},${yy}`) + ` L${x1.toFixed(1)},${yy}`;
+    });
+
+    const last = asked[asked.length - 1];
+    const best = asked.reduce((a, b) => ((b.value || 0) > (a.value || 0) ? b : a), asked[0]);
+
+    return `
+      <div class="chart">
+        <svg viewBox="0 0 ${W} ${H}" role="img" preserveAspectRatio="none"
+             aria-label="${esc(g.name)} over the last ${asked.length} days it was asked for. ${esc(
+      'Logged between ' + A.formatValue(g.unit, Math.min.apply(null, asked.map((p) => p.value || 0))) +
+      ' and ' + A.formatValue(g.unit, best.value || 0) + '.'
+    )}">
+          <line x1="0" y1="${PAD_T + plot}" x2="${W}" y2="${PAD_T + plot}" class="chart-base"></line>
+          ${cols}
+          ${d ? `<path d="${d}" class="chart-ask" fill="none"></path>` : ''}
+        </svg>
+        <div class="chart-foot">
+          <span>${esc(A.prettyDate(pts[0].date))}</span>
+          <span>${esc(A.prettyDate(pts[pts.length - 1].date))}</span>
+        </div>
+        <!-- Labelled selectively: the most recent and the best. A number on every
+             column is chaos and goes unread. -->
+        <div class="chart-keys">
+          <span class="chart-key did">Logged${
+            last.value != null ? ' · latest ' + esc(A.formatValue(g.unit, last.value)) : ''
+          }</span>
+          <span class="chart-key ask">Asked${
+            last.target != null ? ' · now ' + esc(A.formatValue(g.unit, last.target)) : ''
+          }</span>
+          <span class="chart-key best">Best ${esc(A.formatValue(g.unit, best.value || 0))}</span>
+        </div>
+      </div>`;
+  }
+
+  /**
+   * One small multiple per practice, on Stats.
+   *
+   * Small multiples rather than a multi-line chart on purpose. Six series would
+   * need six validated categorical hues, and this app has three colours with
+   * fixed jobs — generating three more would break that and put two
+   * indistinguishable hues on screen under CVD. Faceting keeps one hue and lets
+   * the LABEL carry identity, which is the honest fix.
+   */
+  function goalSparks() {
+    const live = S.activeGoals();
+    if (!live.length) return '';
+    return live
+      .map((g) => {
+        const pts = S.goalSeries(g.id, 28).filter((p) => p.asked);
+        if (pts.length < 2) return '';
+        const top = Math.max(1, Math.max.apply(null, pts.map((p) => Math.max(p.value || 0, p.target || 0))));
+        const W = 120;
+        const H = 26;
+        const slot = W / pts.length;
+        const bw = Math.max(1.5, Math.min(24, slot - 1));
+        const cols = pts
+          .map((p, i) => {
+            if (p.value == null || p.value <= 0) return '';
+            const h = Math.max(1, (p.value / top) * H);
+            return `<rect x="${(i * slot).toFixed(1)}" y="${(H - h).toFixed(1)}"
+              width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1" fill="var(--chart-did)"></rect>`;
+          })
+          .join('');
+        const kept = pts.filter((p) => p.done).length;
+        return `<button type="button" class="spark" data-act="goal-detail" data-id="${g.id}">
+          <span class="spark-name">${esc(g.name)}</span>
+          <svg class="spark-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${cols}</svg>
+          <span class="spark-val">${kept}/${pts.length}</span>
+        </button>`;
+      })
+      .join('');
+  }
+
   /* ================= goal fragments ================= */
 
   /** "by 6:30" / "at least 20 min" — an instruction, not a number.
@@ -972,6 +1133,35 @@
     </article>`;
   }
 
+  /**
+   * What the goals are asking for, in hours, today and at their targets.
+   *
+   * The run refuses to build a day somebody cannot physically do — it checks
+   * every one of its 66 days against a minutes budget. Goals have never had that
+   * check, so six practices can quietly ramp to six hours a day and nothing
+   * anywhere says so until the days start being missed.
+   *
+   * This is not a limit and it does not refuse anything. It is the accountability
+   * mirror pointed at time: here is the number, and it is the one number nobody
+   * works out for themselves.
+   */
+  function minuteBudget() {
+    const live = S.activeGoals().filter((g) => g.unit === 'minutes');
+    if (!live.length) return '';
+    const k = S.today();
+    const now = live.reduce((n, g) => {
+      const t = S.goalTargetOn(g.id, k);
+      return n + (t == null ? 0 : t);
+    }, 0);
+    const full = live.reduce((n, g) => n + (Number(g.target) || 0), 0);
+    if (!now && !full) return '';
+    const hrs = (m) => (m >= 90 ? Math.round((m / 60) * 10) / 10 + ' h' : Math.round(m) + ' min');
+    return `<div class="minsum">
+      <span>Today these ask <b>${esc(hrs(now))}</b></span>
+      <span>At their targets, <b>${esc(hrs(full))}</b> a day</span>
+    </div>`;
+  }
+
   /** The goals half of Plan: a section label per area, then the cards. */
   function goalManageBlock() {
     const all = S.goals();
@@ -988,12 +1178,20 @@
       .join('');
 
     return `
+      ${minuteBudget()}
       ${body || `<div class="empty">No goals yet.<br><button class="link" data-act="goal-new">Add the first one →</button></div>`}
       ${
         archived.length
           ? `<div class="label">Paused</div>${archived.map(goalManageRow).join('')}`
           : ''
       }
+      <button type="button" class="linkrow" data-act="practices-install">
+        <span class="linkrow-plate" aria-hidden="true">${icon('target')}</span>
+        <span class="body"><b>Only my practices</b>
+          <span>Pause everything else and put the six back on the list</span></span>
+        ${icon('chev')}
+      </button>
+
       <button type="button" class="linkrow" data-act="goal-templates">
         <span class="linkrow-plate" aria-hidden="true">${icon('level')}</span>
         <span class="body"><b>Set up a practice</b>
@@ -1491,6 +1689,12 @@
         <div class="statcard"><span class="statcard-label">Exercises</span>
           <b>${totalEx}</b><small>${life.sessions} session${life.sessions === 1 ? '' : 's'}</small></div>
       </div>
+
+      <div class="label">Every practice · 4 weeks</div>
+      <div class="card">${
+        goalSparks() ||
+        '<div class="empty">Log a few days and the shape of each one shows up here.</div>'
+      }</div>
 
       <div class="label">Last 18 weeks</div>
       <div class="card">
@@ -2400,6 +2604,19 @@
     `);
   }
 
+  /** A handful of round numbers around the ask — halves and doubles of it, plus
+      the ask itself, deduplicated and in order. */
+  function quickValues(target) {
+    const t = Number(target);
+    const raw = [Math.round(t * 0.25), Math.round(t / 2), Math.round(t * 0.75), Math.round(t), Math.round(t * 1.5)];
+    return raw
+      .map((v) => (v > 20 ? Math.round(v / 5) * 5 : v))
+      .filter((v) => v > 0)
+      .filter((v, i, all) => all.indexOf(v) === i)
+      .sort((a, b) => a - b)
+      .slice(0, 5);
+  }
+
   function openGoalLog(goalId, dateKey) {
     const g = S.goalById(goalId);
     if (!g) return;
@@ -2410,6 +2627,20 @@
       A.prettyDate(dateKey)
     )}. Log what actually happened — the honest number is what makes the graph worth having.</p>
       ${valueInput('g_val', g.unit, e.value != null ? e.value : target, 'What you actually did')}
+      ${
+        /* Some days it is ten minutes, some days fifteen. Typing that is four
+           taps and a keyboard; these are one. Built around the ask rather than
+           from a fixed list, so a goal asking 45 offers useful numbers and one
+           asking 5 does not offer 60. Nothing is logged by tapping one — it
+           fills the box, and Save is still Save. */
+        g.unit !== 'time' && target != null && target > 0
+          ? `<div class="chips quick">${quickValues(target).map(
+              (v) => `<button type="button" class="chip-pick" data-act="goal-quick" data-v="${v}">${esc(
+                A.formatValue(g.unit, v)
+              )}</button>`
+            ).join('')}</div>`
+          : ''
+      }
       <div class="btn-row">
         <button class="btn primary" data-act="goal-save-val" data-id="${goalId}" data-date="${dateKey}" style="flex:1">Save</button>
         <button class="btn ghost" data-act="goal-skip" data-id="${goalId}" data-date="${dateKey}">${
@@ -2482,6 +2713,9 @@
             : ''
         }
       </div>
+      <div class="section-head" style="margin-top:6px"><h2>The last six weeks</h2></div>
+      ${goalChart(g, S.goalSeries(goalId, CHART_DAYS))}
+
       <div class="section-head" style="margin-top:6px"><h2>The ladder</h2></div>
       <div class="rungs">${rungs.join('')}</div>
       ${

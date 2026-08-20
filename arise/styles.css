@@ -76,6 +76,15 @@
   --ember: #e2542b;
   --ember-2: #c94620;
 
+  /* Chart marks. Their own steps, NOT --accent and --gold: a mark on a dark
+     surface has to sit inside OKLCH L 0.48-0.67, and the UI tokens are 0.73 and
+     0.77 — bright enough to glare at chart scale. These two were run through the
+     palette validator in both modes and pass all six checks (lightness band,
+     chroma floor, CVD separation, normal-vision separation, contrast). Changing
+     them back to the UI tokens reintroduces a failure the eye does not catch. */
+  --chart-did: #239c8a;
+  --chart-ask: #c4861f;
+
   /* Type scale. Every piece of TEXT picks a rung — there were 21 sizes before
      this, with 11.5 and 12 sitting next to each other in one card, so no two
      screens could agree. Emoji and medals are sized literally and on purpose:
@@ -164,6 +173,11 @@
     --bad: #b03a2c;
     --ember: #b8431c;
     --ember-2: #a03714;
+    /* Light-mode steps, validated against #ffffff. The teal is a touch more
+       saturated than --accent because at this lightness the hue runs out of
+       chroma and drops below the 0.10 floor — it would read as grey. */
+    --chart-did: #008f7e;
+    --chart-ask: #8a5f10;
     --on-accent: #ffffff;
     --on-good: #ffffff;
     --on-gold: #ffffff;
@@ -2011,3 +2025,60 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .cyclebar b { color: var(--text); font-size: var(--fs-base); }
 .cyclebar.is-deload { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); }
 .cyclebar.is-deload span:last-child { color: var(--accent); font-weight: 700; }
+
+/* The minutes the goals actually ask for. The run checks its 66 days against a
+   budget; goals never had that check, so six practices can ramp to six hours a
+   day with nothing anywhere saying so. This refuses nothing — it states the
+   number, which is the one nobody works out for themselves. */
+.minsum {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-md);
+  padding: 11px var(--sp-lg); margin-bottom: var(--sp-md);
+  background: var(--surface-2); border-radius: var(--r);
+  font-size: var(--fs-sm); color: var(--faint);
+}
+.minsum b { color: var(--text); font-size: var(--fs-base); }
+
+/* ================= charts =================
+   Thin marks, a hairline solid baseline, and no gridlines at all — at this size
+   the axis labels and the two direct values carry the reading, and gridlines
+   would be more ink than data. Never dashed: dashing reads as noise. */
+.chart { margin-bottom: var(--sp-sm); }
+.chart svg { display: block; width: 100%; height: 108px; }
+.chart-base { stroke: var(--stroke); stroke-width: 1; }
+/* 2px, round join and cap. It steps because the ask steps — a slope would claim
+   the target moved gradually, which it never does. */
+.chart-ask {
+  stroke: var(--chart-ask); stroke-width: 2;
+  stroke-linejoin: round; stroke-linecap: round;
+}
+.chart-foot {
+  display: flex; justify-content: space-between;
+  font-size: var(--fs-xs); color: var(--faint); margin-top: 2px;
+}
+/* Two series, so a legend is always present — identity never rests on hue alone.
+   The key swatches carry the colour; the text stays in text tokens. */
+.chart-keys { display: flex; flex-wrap: wrap; gap: var(--sp-md); margin-top: 7px; }
+.chart-key {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: var(--fs-xs); color: var(--muted);
+}
+.chart-key::before { content: ''; width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.chart-key.did::before { background: var(--chart-did); }
+.chart-key.ask::before { background: var(--chart-ask); height: 2px; border-radius: 0; }
+.chart-key.best::before { display: none; }
+.chart-key.best { color: var(--faint); }
+
+/* Small multiples: one hue, the label carries identity. */
+.spark {
+  display: flex; align-items: center; gap: var(--sp-md); width: 100%; text-align: left;
+  padding: 9px 2px; background: none; border: 0; color: inherit;
+  border-bottom: 1px solid var(--stroke);
+}
+.spark:last-child { border-bottom: 0; }
+.spark-name { flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spark-svg { flex: none; width: 120px; height: 26px; }
+.spark-val { flex: none; font-size: var(--fs-sm); color: var(--faint); font-variant-numeric: tabular-nums; }
+
+/* Quick minute values on the log sheet. One tap fills the box; Save still saves. */
+.chips.quick { margin: -4px 0 12px; }

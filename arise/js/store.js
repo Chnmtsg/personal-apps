@@ -62,7 +62,6 @@
     const start = A.todayKey(4);
     const goals = A.SEED_GOALS.filter((s) => s.enabled !== false).map((s) => {
       const g = G.fromSeed(s, start);
-      if (s.key === 'sleep') g.wrapAt = 720; // a 00:30 bedtime is later than 23:30, not earlier
       delete g.enabled;
       return g;
     });
@@ -2232,6 +2231,136 @@
     commit({ type: 'exerciseRemove', id });
   }
 
+  /**
+   * One goal's last N days: what was logged, and what was asked.
+   *
+   * Both come from the record rather than from the goal as it stands today.
+   * `goalEntry` carries the target the day was judged against, and
+   * `goalTargetOn` falls back to it, so a chart of last month shows the ladder
+   * as it actually was — raising a target tomorrow cannot redraw a month the
+   * user already lived. That is the same rule the whole app runs on, and a graph
+   * is the one place it would be easiest to break without anybody noticing.
+   *
+   * `asked: false` on a day the schedule never asked for — a Saturday on a
+   * weekday goal is not a zero, and plotting it as one would draw a fortnightly
+   * sawtooth that means nothing.
+   */
+  function goalSeries(goalId, days) {
+    const g = goalById(goalId);
+    if (!g) return [];
+    const n = Math.max(1, days || 42);
+    const end = today();
+    const out = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const k = A.addDays(end, -i);
+      if (A.daysBetween(historyStart(), k) < 0) continue;
+      const asked = G.isScheduled(g, k) && A.daysBetween(g.startDate, k) >= 0 && !isFuture(k);
+      const e = asked ? goalEntry(k, goalId) : null;
+      const v = e && e.value != null && e.value !== '' ? Number(e.value) : null;
+      out.push({
+        date: k,
+        asked: asked,
+        value: isNaN(v) ? null : v,
+        target: asked ? goalTargetOn(goalId, k) : null,
+        done: asked ? goalDone(k, goalId) : false,
+        skipped: !!(e && e.skipped)
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Strip the app back to the seeded practices.
+   *
+   * A seed reaches a fresh install and nobody else, so this is how an account
+   * that already exists gets there — the same problem `reinstallProgram` solves
+   * for the training week, and the same answer: a tap the user makes, never a
+   * migration.
+   *
+   * Three rules, and the first is the one that matters.
+   *
+   *   Goals are PAUSED, never removed. `removeGoal` also deletes every entry
+   *   ever logged against that goal, so wiping five seeded goals would take
+   *   months of somebody's record with them. Archiving keeps all of it, dates
+   *   the stop in `activeHistory` so no past day is re-judged, and Plan resumes
+   *   any of them in one tap.
+   *
+   *   A practice that is ALREADY on the goal list is left exactly as it is.
+   *   Creating a second "Read" beside the one carrying a year of summaries would
+   *   move the reading gate onto an empty goal and orphan the history behind it.
+   *
+   *   Habits are removed, and that is safe in a way goals are not: `dayHabits`
+   *   returns `log.habits` for any day that has a log, so every day already
+   *   opened keeps the list it froze and is still scored out of the same total.
+   */
+  function installPractices() {
+    const wanted = (A.SEED_GOALS || []).filter((seed) => seed.enabled !== false);
+    /* Matched against EVERY goal, not only the live ones. A practice the user
+       had paused must be resumed rather than recreated: a second "Read" beside a
+       paused one carrying a year of summaries would move the reading gate onto
+       an empty goal and strand the history behind it. */
+    const byName = {};
+    goals().forEach((g) => { byName[g.name.toLowerCase()] = g; });
+
+    const kept = [];
+    const added = [];
+    const resumed = [];
+    wanted.forEach((seed) => {
+      const have = byName[String(seed.name).toLowerCase()];
+      if (have) {
+        if (have.archived) {
+          have.archived = false;
+          recordActiveChange(have, false);
+          resumed.push(have.name);
+        } else {
+          kept.push(have.name);
+        }
+        return;
+      }
+      const g = G.fromSeed(Object.assign({}, seed), today());
+      delete g.enabled;
+      state.goals.push(g);
+      added.push(g.name);
+    });
+
+    const wantedNames = wanted.map((w) => String(w.name).toLowerCase());
+    const paused = [];
+    activeGoals().forEach((g) => {
+      if (wantedNames.indexOf(g.name.toLowerCase()) >= 0) return;
+      g.archived = true;
+      recordActiveChange(g, true);
+      paused.push(g.name);
+    });
+
+    const droppedHabits = (state.habits || []).slice();
+    state.habits = [];
+
+    commit({ type: 'installPractices' });
+    return { added: added, kept: kept, resumed: resumed, paused: paused, habits: droppedHabits };
+  }
+
+  /** Undo it in one move: the paused goals come back, the ones this created go,
+      and the habits return under their own ids so their logs still match. */
+  function undoInstallPractices(result) {
+    if (!result) return;
+    (result.resumed || []).forEach((name) => {
+      const g = goals().find((x) => x.name === name && !x.archived);
+      if (!g) return;
+      g.archived = true;
+      recordActiveChange(g, true);
+    });
+    (result.paused || []).forEach((name) => {
+      const g = goals().find((x) => x.name === name && x.archived);
+      if (!g) return;
+      g.archived = false;
+      recordActiveChange(g, false);
+    });
+    const made = (result.added || []).map((n) => String(n).toLowerCase());
+    state.goals = goals().filter((g) => made.indexOf(g.name.toLowerCase()) < 0 || g.archived);
+    if (Array.isArray(result.habits) && result.habits.length) state.habits = result.habits.slice();
+    commit({ type: 'installPracticesUndo' });
+  }
+
   /* ---------- the cookie jar ----------
 
      From "Can't Hurt Me": a written inventory of specific hard things you have
@@ -2494,6 +2623,7 @@
     addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan, reinstallProgram,
     takeRunRefusals, takeRunPaused, runCandidateGoals,
     cookies, addCookie, removeCookie, restoreCookie, missedYesterday, deloadWeek,
+    installPractices, undoInstallPractices, goalSeries,
     addExercise, updateExercise, removeExercise, addHabit, removeHabit, habitStreak,
     habitToGoal, restoreHabitFromGoal,
     goals, activeGoals, goalById, goalEntry, goalTimeline, goalTarget, goalTargetOn,

@@ -386,6 +386,75 @@ interval, any tempo); the exercise's `how` carries the **technique**. A cue is
 true every time you do the lift, an RIR target is true on this day of this
 programme, so they do not live in the same field.
 
+**Charts are inline SVG drawn from the record, and their two colours are
+VALIDATED steps rather than the UI tokens.** `--chart-did` and `--chart-ask`
+exist because a mark on a dark surface has to sit inside OKLCH L 0.48-0.67, and
+`--accent` and `--gold` are 0.73 and 0.77 — bright enough to glare at chart
+scale. Both pairs were run through the dataviz palette validator in both modes
+and pass all six checks: lightness band, chroma floor, CVD separation,
+normal-vision separation and contrast against the surface. The light-mode teal is
+a touch more saturated than `--accent` because the hue runs out of chroma at that
+lightness and would otherwise read as grey. **Do not tidy them back to the UI
+tokens** — that reintroduces a failure the eye does not catch.
+
+The form was picked before the colour, which is the order that matters. The job
+is "what did I do against what was asked" — change over time with a moving
+baseline — so it is columns for what was logged plus a STEPPED line for the
+target. A line for the logged value would invent continuity across days nothing
+was recorded; a sloped target would claim the ask moved gradually. **One axis, in
+minutes, ever.** The two series are told apart by form as well as hue, and a
+legend is always present.
+
+`S.goalSeries` reads what each day was judged against, not the goal as it stands
+— so raising a target tomorrow cannot redraw a month already lived. A graph is
+the easiest place in this app to break that rule without anybody noticing, and
+`tools/smoke.js` asserts it by name. A day the schedule never asked for comes
+back `asked: false` rather than zero: a Saturday on a weekday goal is not a zero,
+and plotting it as one would draw a weekly sawtooth that means nothing.
+
+Stats uses **small multiples, one hue**, never a multi-line chart. Six practices
+would need six validated categorical hues; this palette has three colours with
+fixed jobs, and generating three more would put two indistinguishable hues on
+screen under CVD. Faceting lets the label carry identity instead.
+
+**The seed is the owner's own practice list, and it seeds no habits at all.**
+`SEED_GOALS` is six minutes-a-day ladders — English, AI practice, Read (summary
+gated), Gratitude, Geology software, Earning work — each stepping up when it is
+EARNED rather than when a week passes. `SEED_HABITS` is empty: every habit this
+app used to ship duplicated something it now tracks properly, and a habit nobody
+chose is a tick nobody meant.
+
+Three things on the owner's list are deliberately not seeded. "Become more
+mature" and "improve interpersonal skills" are outcomes rather than practices,
+and a daily number invented for either would be the app's own invention above the
+user's real record. Basketball, volleyball and swimming live in `GOAL_TEMPLATES`
+instead, because a seed cannot know which days somebody plays and guessing would
+put a missed session on the record for a day they were never on a court.
+
+A seed reaches a fresh install and nobody else, so `S.installPractices()` is how
+an existing account gets there — a tap behind a confirm, never a migration, the
+same answer `reinstallProgram` gives for the training week. Three rules, and the
+first is the one that matters:
+
+- Goals are **paused, never removed**. `removeGoal` also deletes every entry ever
+  logged against that goal, so clearing five of them would take months of record
+  with them. Archiving dates the stop in `activeHistory`, so no past day is
+  re-judged, and Plan resumes any of them in one tap.
+- A practice that already exists is left alone, and one that was **paused is
+  resumed rather than recreated** — matched against every goal, not only the live
+  ones. A second "Read" beside a paused one holding a year of summaries would
+  move the reading gate onto an empty goal and strand the history behind it.
+- Habits are cleared, which is safe in a way goals are not: `dayHabits` returns
+  `log.habits` for any day that has a log.
+
+**Goals have no minutes budget, and `minuteBudget()` on Plan is why that is
+survivable.** The run refuses to build a day nobody could physically do — it
+checks all 66 against a budget. Goals never had that check, so six practices can
+quietly ramp to six hours a day and nothing says so until the days start being
+missed. The line refuses nothing; it states what today asks and what the targets
+would cost. It is the accountability mirror pointed at time, and it is the one
+number nobody works out for themselves.
+
 **Stress plus recovery equals adaptation; stress without recovery equals damage.**
 Every feature in this app that raises the standard is only safe underneath that
 sentence, so the recovery half is a first-class thing rather than a footnote.
@@ -599,7 +668,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v65`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v67`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

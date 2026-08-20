@@ -1217,6 +1217,73 @@ behaves('a goal at its target is told to raise it, not to hold it', () => {
   return html.indexOf('data-act="goal-raise"') > 0 ? '' : 'no way to raise the ceiling';
 });
 
+behaves('a goal draws what it actually did, against what was asked', () => {
+  S.resetAll();
+  const g = S.addGoal({ name: 'Chart me', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10 });
+  S.goalById(g.id).startDate = A.addDays(S.today(), -20);
+  S.commit({ type: 'fixture' });
+  [2, 4, 6, 8].forEach((back, i) => S.setGoalValue(A.addDays(S.today(), -back), g.id, 10 + i * 5));
+  sheetBody.innerHTML = '';
+  UI.openGoalDetail(g.id, S.today());
+  const html = sheetBody.innerHTML;
+  S.removeGoal(g.id);
+  if (html.indexOf('<svg') < 0) return 'no chart drawn at all';
+  if (html.indexOf('var(--chart-did)') < 0) return 'the columns are not on the validated chart token';
+  if (html.indexOf('class="chart-ask"') < 0) return 'the target line is missing — there is no baseline to read against';
+  /* Two series means a legend is always present; identity must never rest on
+     hue alone. */
+  if (html.indexOf('chart-key did') < 0 || html.indexOf('chart-key ask') < 0) return 'no legend for two series';
+  /* One axis, always. A second scale would invent a relationship. */
+  if (/viewBox="0 0 \d+ \d+"[\s\S]{0,400}viewBox/.test(html)) return 'more than one plot in the chart';
+  return html.indexOf('<title>') > 0 ? '' : 'no per-column values anywhere, not even on hover';
+});
+
+behaves('and it says so plainly when there is not enough to draw', () => {
+  const g = S.addGoal({ name: 'Too new', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10 });
+  sheetBody.innerHTML = '';
+  UI.openGoalDetail(g.id, S.today());
+  const html = sheetBody.innerHTML;
+  S.removeGoal(g.id);
+  /* An empty chart is worse than a sentence: it reads as a bug. */
+  return html.indexOf('Not enough logged yet') > 0 ? '' : 'it drew an empty plot instead of saying why';
+});
+
+behaves('Stats facets the practices rather than inventing hues for them', () => {
+  S.resetAll();
+  S.activeGoals().forEach((g) => {
+    S.goalById(g.id).startDate = A.addDays(S.today(), -20);
+  });
+  S.commit({ type: 'fixture' });
+  S.activeGoals().forEach((g) => {
+    [2, 3, 5].forEach((back) => S.setGoalValue(A.addDays(S.today(), -back), g.id, 12));
+  });
+  const html = renderRoute('progress');
+  if (html.indexOf('class="spark"') < 0) return 'no per-practice graphs on Stats';
+  /* Small multiples, one hue. Six categorical hues would need six validated
+     steps and this palette has three colours with fixed jobs. */
+  const hues = (html.match(/fill="var\(--chart-[a-z]+\)"/g) || [])
+    .filter((x, i, all) => all.indexOf(x) === i);
+  return hues.length === 1 ? '' : 'the small multiples use ' + hues.length + ' hues: ' + hues.join(' ');
+});
+
+behaves('Plan states what the goals actually cost in time', () => {
+  S.resetAll();
+  UI.setPlanTab('goals');
+  const html = renderRoute('plan');
+  if (html.indexOf('class="minsum"') < 0) return 'nothing says what the day asks for in minutes';
+  if (html.indexOf('At their targets') < 0) return 'it does not say what the targets would cost';
+  /* The run checks its 66 days against a budget; goals never had that check, so
+     six practices can ramp to six hours a day with nothing saying so. */
+  return html.indexOf('Today these ask') > 0 ? '' : 'it does not say what today asks';
+});
+
+behaves('the route back to only-my-practices is on Plan', () => {
+  UI.setPlanTab('goals');
+  const html = renderRoute('plan');
+  return html.indexOf('data-act="practices-install"') > 0
+    ? '' : 'no way for an existing account to get to the seeded practices';
+});
+
 behaves('the template sheet fills in the shape and not the numbers', () => {
   sheetBody.innerHTML = '';
   UI.openGoalTemplates();
@@ -1361,7 +1428,8 @@ behaves('every state class the run UI emits is actually styled', () => {
                   '.gcard.is-gated', '.gcard-tick.is-write', '.gcard.is-done', '.gcard.is-part',
                   '.paycard', '.linkrow', '.segbar.tabs .seg.on', '.goalcard', '.goalcard-bar > i', '.footnote', '.gatecard.is-done', '.minifield', '.readprompt', '.archive[open] > summary .ico', '.ledgercard', '.statcard', '.lvlrow-bar > i', '.myreward.is-ready', '.btn.gold', '.promptrow', '.reward .claimed-mark', '.dest', '.dest > span.is-ready', '.label.split', '.mode-card.on',
                   '.misstwice', '.linkrow.jarrow', '.linkrow.is-asked', '.linkrow-tick',
-                  '.deload', '.cyclebar.is-deload'];
+                  '.deload', '.cyclebar.is-deload', '.minsum',
+                  '.chart-ask', '.chart-key.did', '.chart-key.ask', '.spark', '.chips.quick'];
   const missing = needed.filter((sel) => css.indexOf(sel) < 0);
   if (missing.length) return 'no rule for: ' + missing.join(', ');
   return css.indexOf(':has(:checked)') < 0 ? '' : 'a dead :has(:checked) rule is still in the sheet';
@@ -1434,6 +1502,9 @@ behaves('a habit written before the run starts is listed, and removable', () => 
 
 behaves('the start screen offers the goals the run could actually hold', () => {
   S.resetAll();
+  /* A mix is the whole point of this test, and the seed is all ascending now —
+     so the ineligible half is created here rather than borrowed. */
+  S.addGoal({ name: 'Up earlier', unit: 'time', direction: 'down', baseline: 450, target: 360, step: 15 });
   UI.resetRunPicks();
   const html = renderRoute('run');
   if (html.indexOf('From your goals') < 0) return 'goals are not offered at all';

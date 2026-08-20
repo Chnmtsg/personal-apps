@@ -223,14 +223,26 @@ console.log('\nevery tap the views emit is actually handled');
   click({ act: 'toggle-ex', id: first.id });
   ok('and tapping it again takes it back off', !(S.log(S.today()) || { ex: {} }).ex[first.id]);
 
-  const habit = S.dayHabits(S.today())[0];
-  if (habit) {
-    click({ act: 'toggle-hb', id: habit.id });
-    ok('tapping a daily habit logs it', !!(S.log(S.today()) || { hb: {} }).hb[habit.id],
-       (S.log(S.today()) || {}).hb);
-    click({ act: 'toggle-hb', id: habit.id });
-    ok('and tapping it again takes it back off', !(S.log(S.today()) || { hb: {} }).hb[habit.id]);
-  }
+  /* Made here, not taken from the seed. This used to read `dayHabits()[0]` and
+     skip the whole block when it came back empty — so when the seed stopped
+     shipping habits, the two assertions this FILE was written for stopped
+     running and the suite still said 0 failed. A guarded `if` around a test is a
+     test that can disappear without telling anybody.
+
+     `delete logs[today]` first: `dayHabits` returns the day's own frozen list
+     once a log exists, and the log was frozen by the exercise taps above, before
+     this habit existed. */
+  delete S.get().logs[S.today()];
+  const habit = S.addHabit('Wire test habit', '🧪');
+  S.commit({ type: 'fixture' });
+  ok('the habit fixture really is on today', S.dayHabits(S.today()).some((h) => h.id === habit.id),
+     S.dayHabits(S.today()).map((h) => h.name));
+  click({ act: 'toggle-hb', id: habit.id });
+  ok('tapping a daily habit logs it', !!(S.log(S.today()) || { hb: {} }).hb[habit.id],
+     (S.log(S.today()) || {}).hb);
+  click({ act: 'toggle-hb', id: habit.id });
+  ok('and tapping it again takes it back off', !(S.log(S.today()) || { hb: {} }).hb[habit.id]);
+  S.removeHabit(habit.id);
 
   /* Read the emitted names out of ui.js and the handled ones out of app.js
      rather than listing either by hand, so a new control is covered the day it
@@ -356,7 +368,9 @@ console.log('\nbringing a goal into the run, through app.js');
   resolve('#run_budget').value = '90';
 
   const readGoal = S.activeGoals().find((g) => g.name === 'Read');
-  const wakeGoal = S.activeGoals().find((g) => g.name === 'Wake up');
+  /* Its own descending goal. The seed is the owner's practice list now and none
+     of them count down, so a test that needs one has to make one. */
+  const wakeGoal = S.addGoal({ name: 'Up earlier', unit: 'time', direction: 'down', baseline: 450, target: 360, step: 15 });
 
   /* A goal that counts down cannot exist in a run at all, so the tap must be a
      no-op rather than half-adding something the engine will reject later. */
@@ -459,6 +473,28 @@ console.log('\nwriting your own habit before the run exists, through app.js');
   ok('the list is cleared once the run has them', UIw.draftCustoms().length === 0);
 }
 
+console.log('\none-tap minute values, through app.js');
+{
+  S.resetAll();
+  const g = S.addGoal({ name: 'Quick log', unit: 'minutes', direction: 'up', baseline: 20, target: 20, step: 5 });
+  const k = S.today();
+  resolve('#g_val').value = '';
+  click({ act: 'goal-quick', v: '15' });
+  ok('a chip fills the box', resolve('#g_val').value === '15', resolve('#g_val').value);
+  /* A chip that logged straight away would turn a mis-tap into a record. */
+  ok('and logs nothing on its own', S.goalEntry(k, g.id) == null, S.goalEntry(k, g.id));
+
+  click({ act: 'goal-save-val', id: g.id, date: k });
+  ok('saving is what records it', (S.goalEntry(k, g.id) || {}).value === 15, S.goalEntry(k, g.id));
+  ok('and 15 against an ask of 20 is honestly short', S.goalDone(k, g.id) === false);
+
+  resolve('#g_val').value = '';
+  click({ act: 'goal-quick', v: '20' });
+  click({ act: 'goal-save-val', id: g.id, date: k });
+  ok('a fuller day meets it', S.goalDone(k, g.id) === true, S.goalEntry(k, g.id));
+  S.removeGoal(g.id);
+}
+
 console.log('\nthe bad-day floor and the +10% line, through app.js');
 {
   S.resetAll();
@@ -511,6 +547,25 @@ console.log('\nthe cookie jar, through app.js');
   ok('and can be taken back out', S.cookies().length === 0);
   S.restoreCookie({ id: id, text: 'x', at: S.today() }, 0);
   ok('the undo path puts one back', S.cookies().length === 1);
+}
+
+console.log('\nstripping back to only the practices, through app.js');
+{
+  S.resetAll();
+  const extra = S.addGoal({ name: 'Something else', unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5 });
+  S.addHabit('Old habit', '🧪');
+
+  click({ act: 'practices-install' });
+  ok('the tap alone changes nothing',
+     !S.goalById(extra.id).archived && S.get().habits.length === 1,
+     [S.goalById(extra.id).archived, S.get().habits.length]);
+
+  UI.resolveConfirm(true);
+  ok('confirming pauses what is not a practice', S.goalById(extra.id).archived === true);
+  ok('and it is paused, not deleted — the goal still exists', !!S.goalById(extra.id));
+  ok('the habits are cleared', S.get().habits.length === 0, S.get().habits.map((h) => h.name));
+  ok('and the live goals are exactly the practices',
+     S.activeGoals().length === A.SEED_GOALS.length, S.activeGoals().map((g) => g.name));
 }
 
 console.log('\nsetting up a practice from a template, through app.js');

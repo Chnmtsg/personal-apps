@@ -246,9 +246,9 @@ ok('history was not rewritten — same completed days', afterSwitch.doneDays ===
 const nextSat = (() => { let k = A.addDays(t, 1); while (A.weekday(k) !== 6) k = A.addDays(k, 1); return k; })();
 ok('a future Saturday is no longer scheduled', !G.isScheduled(S.goalById(sch.id), nextSat), nextSat);
 // A goal saved before scheduleHistory existed must behave exactly as it used to.
-const legacy = S.addGoal({ name: 'Legacy', unit: 'minutes', direction: 'up', baseline: 5, target: 20, step: 5, schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] } });
-delete S.goalById(legacy.id).scheduleHistory;
-ok('a goal with no history falls back to its current schedule', !G.isScheduled(S.goalById(legacy.id), pastSat) && G.isScheduled(S.goalById(legacy.id), A.addDays(pastSat, 2)));
+const oldGoal = S.addGoal({ name: 'Legacy', unit: 'minutes', direction: 'up', baseline: 5, target: 20, step: 5, schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] } });
+delete S.goalById(oldGoal.id).scheduleHistory;
+ok('a goal with no history falls back to its current schedule', !G.isScheduled(S.goalById(oldGoal.id), pastSat) && G.isScheduled(S.goalById(oldGoal.id), A.addDays(pastSat, 2)));
 
 /* ------------------------------------------------------------------ */
 section('the reading gate');
@@ -624,6 +624,125 @@ ok('a weekday template names real weekdays', A.GOAL_TEMPLATES.every(
    into any day by hand. */
 ok('the court sports are in the exercise library', ['Basketball', 'Volleyball', 'Swimming'].every(
    (n) => A.SEED_EXERCISES.some((e) => e.name === n)));
+
+/* ------------------------------------------------------------------ */
+section('what a goal actually did, day by day');
+S.resetAll();
+const sg = S.addGoal({ name: 'Series', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10,
+                       schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] } });
+S.goalById(sg.id).startDate = A.addDays(S.today(), -20);
+S.commit({ type: 'fixture' });
+[3, 5, 8].forEach((back, i) => S.setGoalValue(A.addDays(S.today(), -back), sg.id, 10 + i * 5));
+
+const series = S.goalSeries(sg.id, 14);
+ok('it returns one point per day asked for', series.length > 0 && series.length <= 14, series.length);
+ok('and every point is dated in order',
+   series.every((p, i) => i === 0 || p.date > series[i - 1].date), series.map((p) => p.date));
+/* A Saturday on a weekday goal is not a zero. Plotting one would draw a weekly
+   sawtooth that means nothing at all. */
+ok('a day the schedule never asked for is not a zero', (() => {
+  const off = series.filter((p) => !p.asked);
+  return off.length > 0 && off.every((p) => p.value === null && p.target === null);
+})(), series.filter((p) => !p.asked).map((p) => p.date + ':' + p.value));
+ok('a day with nothing logged is null, never 0',
+   series.filter((p) => p.asked).some((p) => p.value === null), series.map((p) => p.value));
+ok('what was logged comes back as the number logged', (() => {
+  const hit = series.find((p) => p.date === A.addDays(S.today(), -3));
+  return hit && hit.value === 10;
+})(), series.find((p) => p.date === A.addDays(S.today(), -3)));
+ok('each point carries the target that day was judged against',
+   series.filter((p) => p.asked).every((p) => p.target != null), series.map((p) => p.target));
+
+/* The rule a graph is the easiest place to break: raising the target must not
+   redraw a month already lived. Every entry stores the target it was judged
+   against, and the series reads that rather than the goal as it stands. */
+const before = JSON.stringify(S.goalSeries(sg.id, 14).map((p) => p.target));
+S.updateGoal(sg.id, { target: 240 });
+ok('raising the target does not redraw the days already logged',
+   JSON.stringify(S.goalSeries(sg.id, 14).filter((p) => p.value != null).map((p) => p.target)) ===
+   JSON.stringify(JSON.parse(before).filter((_, i) => S.goalSeries(sg.id, 14)[i].value != null)),
+   [before, JSON.stringify(S.goalSeries(sg.id, 14).map((p) => p.target))]);
+ok('a goal that does not exist charts nothing rather than throwing',
+   S.goalSeries('nope', 14).length === 0);
+S.removeGoal(sg.id);
+
+/* ------------------------------------------------------------------ */
+section('the app seeds the practices, and nothing else');
+S.resetAll();
+ok('no daily habits are seeded', S.get().habits.length === 0, S.get().habits.map((h) => h.name));
+ok('the seeded goals are the practices',
+   S.activeGoals().map((g) => g.name).sort().join(', ') ===
+   A.SEED_GOALS.map((g) => g.name).sort().join(', '),
+   S.activeGoals().map((g) => g.name));
+/* "Each has several minutes, and each week it goes up." Every seeded practice
+   has to be a real minutes ladder or that sentence is not true of it. */
+ok('every one is measured in minutes', A.SEED_GOALS.every((g) => g.unit === 'minutes'),
+   A.SEED_GOALS.filter((g) => g.unit !== 'minutes').map((g) => g.name));
+ok('and every one climbs', A.SEED_GOALS.every((g) => g.target > g.baseline && g.step > 0),
+   A.SEED_GOALS.filter((g) => !(g.target > g.baseline && g.step > 0)).map((g) => g.name));
+ok('the reading gate survived the reseed',
+   !!S.activeGoals().find((g) => g.gate === 'summary'), S.activeGoals().map((g) => g.gate));
+
+/* ---- getting an existing account there ---- */
+S.resetAll();
+const priorGoal = S.addGoal({ name: 'Wake up', unit: 'time', direction: 'down', baseline: 450, target: 360, step: 15 });
+const priorHabit = S.addHabit('Drink 3L water', '💧');
+const priorDay = A.addDays(S.today(), -2);
+S.setGoalValue(priorDay, priorGoal.id, 430);
+const priorEntry = JSON.stringify(S.goalEntry(priorDay, priorGoal.id));
+S.ensureLog(priorDay);
+S.toggleHabit(priorDay, priorHabit.id);
+const frozenList = JSON.stringify(S.dayHabits(priorDay).map((h) => h.id));
+
+const out = S.installPractices();
+ok('a goal that is not a practice is paused', S.goalById(priorGoal.id).archived === true);
+/* The line that matters most. `removeGoal` deletes every entry ever logged
+   against a goal, so wiping the old ones would take months of record with them. */
+ok('and NOT deleted — its entries are all still there',
+   JSON.stringify(S.goalEntry(priorDay, priorGoal.id)) === priorEntry,
+   S.goalEntry(priorDay, priorGoal.id));
+ok('a practice already on the list is left alone, not duplicated',
+   S.goals().filter((g) => g.name === 'Read').length === 1,
+   S.goals().filter((g) => g.name === 'Read').length);
+ok('and the live list is exactly the practices',
+   S.activeGoals().length === A.SEED_GOALS.length, S.activeGoals().map((g) => g.name));
+ok('the habits are cleared', S.get().habits.length === 0, S.get().habits.map((h) => h.name));
+ok('but a day already opened keeps the habits it froze',
+   JSON.stringify(S.dayHabits(priorDay).map((h) => h.id)) === frozenList,
+   S.dayHabits(priorDay).map((h) => h.id));
+
+S.undoInstallPractices(out);
+ok('undo brings the paused goal back', S.goalById(priorGoal.id).archived === false);
+ok('and takes the created ones away',
+   !S.activeGoals().some((g) => out.added.indexOf(g.name) >= 0), S.activeGoals().map((g) => g.name));
+ok('and restores the habit under its own id, so its log still matches',
+   S.get().habits.some((h) => h.id === priorHabit.id) &&
+   !!(S.log(priorDay) || { hb: {} }).hb[priorHabit.id],
+   S.get().habits.map((h) => h.id));
+
+/* A practice the user had PAUSED is resumed, never recreated. A second "Read"
+   beside a paused one holding a year of summaries would move the reading gate
+   onto an empty goal and strand every entry behind it. */
+S.resetAll();
+const pausedRead = S.activeGoals().find((g) => g.name === 'Read');
+S.setReading(A.addDays(S.today(), -3), { book: 'B', minutes: 30, summary: 'Something I kept.' });
+S.archiveGoal(pausedRead.id, true);
+const back = S.installPractices();
+ok('a paused practice comes back as itself', (() => {
+  const now = S.activeGoals().filter((g) => g.name === 'Read');
+  return now.length === 1 && now[0].id === pausedRead.id;
+})(), S.goals().filter((g) => g.name === 'Read').map((g) => g.id + (g.archived ? ' (paused)' : '')));
+ok('and it is reported as resumed rather than added',
+   back.resumed.indexOf('Read') >= 0 && back.added.indexOf('Read') < 0, back);
+ok('so the reading gate still points at the goal with the history',
+   (S.activeGoals().find((g) => g.gate === 'summary') || {}).id === pausedRead.id);
+
+/* Running it twice must not create a second copy of anything. */
+S.resetAll();
+S.installPractices();
+const once = S.activeGoals().length;
+S.installPractices();
+ok('running it again changes nothing', S.activeGoals().length === once, [once, S.activeGoals().length]);
 
 /* ------------------------------------------------------------------ */
 section('the recovery half: deload weeks and the bad-day floor');
@@ -1614,14 +1733,23 @@ ok('while every legal day before it does not',
 /* ------------------------------------------------------------------ */
 section('a goal offered to the run');
 S.resetAll();
+/* Its own descending goal rather than whichever the seed happens to hold. The
+   first version of this leaned on a seeded "Wake up", and reseeding the app to
+   the owner's own practices — none of which count down — took the fixture out
+   from under it. A test for "a descending goal is refused" should own one. */
+S.addGoal({ name: 'Up earlier', unit: 'time', direction: 'down', baseline: 450, target: 360, step: 15 });
+S.addGoal({ name: 'Fewer smokes', unit: 'count', direction: 'down', baseline: 20, target: 0, step: 2 });
 const cands = S.runCandidateGoals();
 ok('every active goal is judged, none silently missing',
    cands.length === S.activeGoals().length, [cands.length, S.activeGoals().length]);
 
 /* The two rules, and both come from the run engine rather than from taste: a
    run's dose only ever rises, and a clock reading is not an amount. */
-const wakeCand = cands.find((r) => r.goal.name === 'Wake up');
+const wakeCand = cands.find((r) => r.goal.name === 'Up earlier');
+const countDown = cands.find((r) => r.goal.name === 'Fewer smokes');
 const readCandidate = cands.find((r) => r.goal.name === 'Read');
+ok('a countdown in a plain unit is refused too, and not only clock goals',
+   !!countDown && !countDown.eligible && /counts down/.test(countDown.why), countDown && countDown.why);
 ok('a goal that counts down is refused', !!wakeCand && !wakeCand.eligible, wakeCand && wakeCand.why);
 ok('and says why rather than just vanishing', !!wakeCand && /counts down|time of day/.test(wakeCand.why), wakeCand && wakeCand.why);
 ok('a goal that counts up is offered', !!readCandidate && readCandidate.eligible, readCandidate && readCandidate.why);
@@ -1667,7 +1795,8 @@ ok('one tap resumes it', !S.goalById(readSrc.id).archived);
 
 /* A goal whose habit did not fit must NOT be paused — the run never took it. */
 S.resetAll();
-const deepGoal = S.activeGoals().find((g) => g.name === 'Deep work');
+// Its own, and deliberately huge, so the budget below has no chance of taking it.
+const deepGoal = S.addGoal({ name: 'Deep work', unit: 'minutes', direction: 'up', baseline: 60, target: 240, step: 20 });
 const deepDraft = S.runCandidateGoals().find((r) => r.goal.id === deepGoal.id).draft;
 S.startRun(['walk', 'stretch', 'floss'], 30, true, null, [deepDraft]);
 ok('a goal the run could not fit is left running',

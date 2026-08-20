@@ -173,12 +173,14 @@
       .filter((x, i, all) => MUSCLE_NAME[x] && all.indexOf(x) === i);
   }
 
-  const SEED_HABITS = [
-    { name: 'Drink 3L water', icon: '💧' },
-    { name: 'Sleep 7+ hours', icon: '😴' },
-    { name: 'Read 10 pages', icon: '📖' },
-    { name: 'No junk food', icon: '🥗' }
-  ];
+  /* Empty on purpose. A daily habit is a tick that asks the same thing forever,
+     and every one this app used to ship duplicated something it now tracks
+     properly: water and sleep are things to measure rather than tick, reading is
+     a goal with a summary gate, and "no junk food" is a rule rather than a
+     practice. The concept stays — More adds one in a tap, and `habitToGoal`
+     promotes it the moment it deserves a ladder — but nothing is seeded, because
+     a habit nobody chose is a tick nobody meant. */
+  const SEED_HABITS = [];
 
   /* ---------- clock values ---------- */
 
@@ -298,19 +300,40 @@
   /**
    * Every goal carries a baseline AND a target, so no progression can run away.
    * steps are per level, in the goal's unit, at normal difficulty.
+   *
+   * These are the practices the app is FOR — the trackable half of the owner's
+   * own "things I want to improve" list, each measured in minutes a day and
+   * stepping up when it is earned rather than when a week passes.
+   *
+   * Three things on that list are deliberately absent.
+   *
+   *   "Become more mature" and "improve interpersonal skills" are outcomes, not
+   *   practices. A daily number invented for either would be the app's own
+   *   invention sitting above the user's real record, which is the one thing
+   *   "This Is Not A Game" in knowledge/project.md forbids. What moves them is
+   *   already here: writing, reading and gratitude.
+   *
+   *   Basketball, volleyball and swimming are in GOAL_TEMPLATES rather than
+   *   seeded, because a seed cannot know which days somebody plays and guessing
+   *   would put a missed session on the record for a day they were never on a
+   *   court. The template asks.
+   *
+   * The numbers are starting points and the app says so — see the "These are
+   * starting numbers, not yours" banner. Rule 1 is that a goal runs from where
+   * the user actually is, and only they know that.
    */
   const SEED_GOALS = [
     {
-      key: 'wake', name: 'Wake up', icon: '⏰', section: 'sleep',
-      unit: 'time', direction: 'down', baseline: 450, target: 360, step: 15,
+      key: 'english', name: 'English', icon: '🗣️', section: 'craft',
+      unit: 'minutes', direction: 'up', baseline: 15, target: 45, step: 5,
       schedule: { type: 'daily' }, track: 'value',
-      blurb: 'Earlier mornings, earned one step at a time.'
+      blurb: 'Speaking, listening or writing — whichever you did least of yesterday.'
     },
     {
-      key: 'sleep', name: 'Lights out', icon: '🌙', section: 'sleep',
-      unit: 'time', direction: 'down', baseline: 1410, target: 1350, step: 15,
+      key: 'ai', name: 'AI practice', icon: '🤖', section: 'craft',
+      unit: 'minutes', direction: 'up', baseline: 15, target: 45, step: 5,
       schedule: { type: 'daily' }, track: 'value',
-      blurb: 'An earlier wake-up only works if bedtime moves too.'
+      blurb: 'Time spent building something with it, not time spent reading about it.'
     },
     {
       key: 'read', name: 'Read', icon: '📖', section: 'reading',
@@ -319,28 +342,22 @@
       blurb: 'Write what you took from it — that is where the learning sticks.'
     },
     {
-      key: 'meditate', name: 'Meditate', icon: '🧘', section: 'mind',
-      unit: 'minutes', direction: 'up', baseline: 5, target: 20, step: 2,
+      key: 'gratitude', name: 'Gratitude', icon: '🙏', section: 'mind',
+      unit: 'minutes', direction: 'up', baseline: 2, target: 10, step: 2,
       schedule: { type: 'daily' }, track: 'value',
-      blurb: 'Attention is a muscle.'
+      blurb: 'Name them rather than think them. Two minutes is a real practice.'
     },
     {
-      key: 'deepwork', name: 'Deep work', icon: '🛠️', section: 'craft',
-      unit: 'minutes', direction: 'up', baseline: 25, target: 120, step: 10,
+      key: 'geology', name: 'Geology software', icon: '🛠️', section: 'craft',
+      unit: 'minutes', direction: 'up', baseline: 20, target: 60, step: 10,
       schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] }, track: 'value',
-      blurb: 'One unbroken block on the thing that matters.'
+      blurb: 'Weekdays. This one is the trade, not the evening.'
     },
     {
-      key: 'cold', name: 'Cold shower', icon: '🚿', section: 'health',
-      unit: 'seconds', direction: 'up', baseline: 15, target: 180, step: 15,
-      schedule: { type: 'daily' }, track: 'value', enabled: false,
-      blurb: 'Voluntary discomfort, in measured doses.'
-    },
-    {
-      key: 'water', name: 'Water', icon: '💧', section: 'health',
-      unit: 'litres', direction: 'up', baseline: 1.5, target: 3, step: 0.25,
-      schedule: { type: 'daily' }, track: 'value', enabled: false,
-      blurb: 'Boring, and it works.'
+      key: 'earning', name: 'Earning work', icon: '💹', section: 'craft',
+      unit: 'minutes', direction: 'up', baseline: 20, target: 60, step: 10,
+      schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] }, track: 'value',
+      blurb: 'Time on the thing that might pay. The money is the outcome; this is the input.'
     }
   ];
 

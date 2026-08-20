@@ -333,6 +333,13 @@
         // The day being viewed, so the sheet's day-level actions land on it.
         UI.openGoalDetail(id, sheetDate);
         break;
+      /* Fills the box; it does not save. One tap to put 15 in, another to commit
+         it — a chip that logged straight away would make a mis-tap a record. */
+      case 'goal-quick': {
+        const box = $('#g_val');
+        if (box) box.value = actEl.dataset.v;
+        break;
+      }
       case 'goal-save-val': {
         const g = S.goalById(id);
         const el = $('#g_val');
@@ -907,6 +914,33 @@
         UI.openGoalEditor(id, { target: A.Goals.denorm(g, Math.max(0, next)) });
         break;
       }
+      /* The seed reaches a fresh install and nobody else, so this is how an
+         account that already exists gets to the same place. Behind a confirm,
+         because it pauses goals — and the sheet has to say that they are PAUSED
+         rather than deleted, since the difference is every day ever logged
+         against them. */
+      case 'practices-install':
+        UI.openConfirm({
+          title: 'Only your practices?',
+          body: 'Every goal that is not one of your practices is PAUSED — not deleted. Everything ' +
+                'those goals have already earned stays exactly as it is, no day you have logged ' +
+                'changes, and Plan resumes any of them in one tap. A practice you already have is ' +
+                'left alone rather than duplicated. Your daily habits are cleared; days you have ' +
+                'already opened keep the habits they froze.',
+          confirmLabel: 'Do it',
+          onConfirm: () => {
+            const out = S.installPractices();
+            const parts = [];
+            if (out.added.length) parts.push(out.added.length + ' added');
+            if (out.paused.length) parts.push(out.paused.length + ' paused');
+            if (out.habits.length) parts.push(out.habits.length + ' habits cleared');
+            offerUndo(
+              '🎯 <span>' + esc(parts.join(' · ') || 'Nothing to change') + '.</span>',
+              () => S.undoInstallPractices(out)
+            );
+          }
+        });
+        break;
       case 'goal-templates':
         UI.openGoalTemplates();
         break;
