@@ -80,6 +80,7 @@ Always use these project references.
 - `knowledge/project.md` — what the app is for, the three rules, hard constraints
 - `knowledge/coding-standards.md` — layers, migrations, rendering, tests
 - `knowledge/ui-guidelines.md`
+- `knowledge/colour-direction-plumage.md` — why the palette is what it is
 - `knowledge/review-conventions.md` — the vocabulary for any review of this app
 
 ---
@@ -490,13 +491,20 @@ programme, so they do not live in the same field.
 **Charts are inline SVG drawn from the record, and their two colours are
 VALIDATED steps rather than the UI tokens.** `--chart-did` and `--chart-ask`
 exist because a mark on a dark surface has to sit inside OKLCH L 0.48-0.67, and
-`--accent` and `--gold` are 0.73 and 0.77 — bright enough to glare at chart
-scale. Both pairs were run through the dataviz palette validator in both modes
-and pass all six checks: lightness band, chroma floor, CVD separation,
-normal-vision separation and contrast against the surface. The light-mode teal is
-a touch more saturated than `--accent` because the hue runs out of chroma at that
-lightness and would otherwise read as grey. **Do not tidy them back to the UI
-tokens** — that reintroduces a failure the eye does not catch.
+the UI tokens sit outside it — bright enough to glare at chart scale. Both pairs
+were run through the dataviz palette validator in both modes and pass all six
+checks: lightness band, chroma floor, CVD separation, normal-vision separation
+and contrast against the surface. The light-mode jade is more saturated than
+`--accent` because the hue runs out of chroma at that lightness and would
+otherwise read as grey. **Do not tidy them back to the UI tokens** — that
+reintroduces a failure the eye does not catch.
+
+That is not a hypothetical. The Plumage colour direction (2026-08-21) proposed
+`#0B7A67` for the light `--chart-did`, which is `--accent` exactly, and the
+validator failed it on the chroma floor at 0.094; its dark `--chart-ask` failed
+the lightness band at 0.674. Both were snapped to the nearest passing step
+before landing. A colour direction is not a substitute for the validator — run
+it every time either mark moves.
 
 The form was picked before the colour, which is the order that matters. The job
 is "what did I do against what was asked" — change over time with a moving
@@ -735,14 +743,37 @@ Decode it with:
 JSON.parse(fs.readFileSync('Arise Redesign (standalone).html','utf8').split('\n')[388])
 ```
 
-The system it draws: a charcoal header with a 26px-radius base on every screen,
-11px letterspaced section labels, cards with a 38px icon plate, and three colours
-with fixed jobs — teal for the live action and for anything done, amber for
-anything that pays out or is waiting on you, and **ember for a block whose
+The system it draws: a header with a 26px-radius base on every screen, 11px
+letterspaced section labels, cards with a 38px icon plate, and three colours
+with fixed jobs — the accent for the live action and for anything done, the gold
+for anything that pays out or is waiting on you, and **ember for a block whose
 subject is progress through a fixed length of time, and for nothing else**. Ember
 is on exactly three things: Today's header while a countdown runs, the strip
 carrying today's next ask, and the run screen's header. See
 `knowledge/ui-guidelines.md`.
+
+**The brief's structure survived a repaint; its colours did not.** The palette is
+Plumage since 2026-08-21 — a peacock ground, jade accent, saffron gold, magenta
+ember — and it adds one concept the brief has no equivalent for. See the invariant
+below.
+
+**Hue means one of two things, and the app must never let it mean both.** A
+header BAND carries location: five screens, five hues, teal through plum, and a
+band says which screen you are on and nothing else. Everything else carries
+meaning: three hues, four jobs, listed above. **No meaning hue may be used as a
+band and no band hue may be promoted into a meaning** — the day violet is both
+"Stats" and a state, neither means anything and the app has eleven colours and no
+argument. It is why the active tab is jade on every screen rather than the band's
+hue: nothing but the band may claim to tell you where you are.
+
+The band costs the view layer nothing. `js/ui.js` already writes the route to
+`#view[data-route]` for scroll restoration, so `styles.css` resolves `--band`
+from that and no second source of truth exists about which screen is up. Two
+things follow and both are in the stylesheet: `--surface` and `--surface-2` are
+CARD colours and may not sit on a band — a chip inside a header is transparent
+with a `currentColor` hairline — and `--faint` clears AA on no band in either
+mode (3.59:1 on the dark teal), so a header steps it up to `--muted` for its own
+subtree.
 
 An artboard is a picture, not an authority. Two of its decisions were not taken,
 and both are written down where they were made: the value column keeps its
@@ -769,7 +800,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v71`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v72`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

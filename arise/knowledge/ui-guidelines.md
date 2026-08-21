@@ -18,8 +18,16 @@ the interface should read the same way.
 
 ## Colors
 
-Maintain consistent themes. Dark by default, light-aware via
-`prefers-color-scheme`.
+Dark by default, light-aware via `prefers-color-scheme`. **One theme, in two
+blocks** — the ground, the cards, the strokes, the type colours and every
+meaning hue are identical on all five screens. The one thing that varies by
+screen is the header band, and that is the deviation described below.
+
+> This sentence used to read "maintain consistent themes", and read strictly,
+> five header hues is five themes and the Plumage direction fails. The argument
+> that it does not is the paragraph above: a single slab moves and nothing else.
+> But it *is* a deviation from the sentence as it was written, and amending the
+> sentence is more honest than claiming it still holds.
 
 Avoid excessive colors. Everything comes from the tokens at the top of
 `styles.css` — never hard-code a hex in a view.
@@ -29,26 +37,70 @@ High contrast.
 Neither an icon nor a colour may carry two meanings. The flame is the streak; it
 is not also Hard mode. That rule cost three sites and one whole glyph set.
 
-Semantic colours have fixed jobs, and since the 2026-08 redesign there are only
-three that carry an argument:
+### Two colour systems, kept apart
 
-- `--accent` (teal) is **the live action, and anything done**. `--good` is the
-  same teal on purpose: a thing you can do now and a thing you have done are the
+The palette is **Plumage** (2026-08-21) — the decision record, including the four
+things the direction proposed that did not land as written, is in
+`colour-direction-plumage.md`. A peacock ground, an iridescent jade
+accent, violet in the ramp, one magenta→saffron gradient. Its whole idea is
+that on a feather, hue tells you *where on the bird you are* — it does not tell
+you how the bird is doing. Without that split a colourful app either dilutes the
+meaning of its accent or ends up with eleven colours and no argument.
+
+**Location colour is free.** Five header bands, one per tab — `--band-today`
+teal, `--band-plan` cyan, `--band-read` indigo, `--band-stats` violet,
+`--band-more` plum. A band says which screen you are on and nothing else, so it
+can be as saturated as it likes.
+
+**Meaning colour is rationed: three hues carrying four jobs.**
+
+- `--accent` (jade) is **the live action, and anything done**. `--good` is the
+  same jade on purpose: a thing you can do now and a thing you have done are the
   two ends of one idea, and giving them separate colours was what made a screen
   of ticks read as a fairground.
-- `--gold` (amber) is **anything that pays out or is waiting on you** — an earned
-  reward, a summary not yet written, a freeze you still hold.
-- `--ember` is **only a block whose subject is progress through a fixed length of
-  time**. It is on exactly three things: the two ends of Today, and the run
-  screen's header. A fourth use takes the meaning back off it.
+- `--gold` (saffron) is **anything that pays out or is waiting on you** — an
+  earned reward, a summary not yet written, a freeze you still hold.
+- `--ember` (magenta) is **only a block whose subject is progress through a fixed
+  length of time**, in two forms — see below.
+- `--flame` is **the streak**, and it is ember's hue lifted rather than a hue of
+  its own, so it is a fourth *job* inside three hues.
 
-`--bad` stays destructive-only and `--flame` stays the streak's own hue. Do not
-add a sixth.
+`--bad` stays destructive-only. **Do not add a fourth meaning hue, and do not
+promote a band hue into a meaning.** The moment violet is both "Stats" and a
+state, the split collapses. It is also why the active tab is jade on every
+screen rather than the band's hue: nothing but the band may claim to tell you
+where you are.
 
-The palette itself is **cool near-black with a light surface** — `#0d0f12` under
-`#171a1f` cards, one `--cream` panel per screen at most. It replaced a warm
-paper-on-charcoal palette; if you find a warm hex anywhere outside `--ember`, it
-is a leftover.
+### Ember's two forms, still on exactly three things
+
+- the **gradient** (`--ember-grad`) on **the run counter** — Today's header
+  while a challenge is running;
+- the **solid** (`--ember`) on **the pinned strip** and on **the run screen's
+  own header**.
+
+Same count as before; the rule now just names a gradient as one of the two
+forms. Putting the gradient on both headers would make it a texture instead of a
+statement. `--on-ember` is near-black in dark mode because white on that magenta
+is 3.7:1.
+
+### Measured
+
+Every band was checked against every header ink, in both blocks — ten pairs.
+
+- `--text` on a band: 8.69:1 worst (dark teal). `--muted` on a band: 5.10:1
+  worst (dark plum), 5.36:1 worst in light.
+- `--faint` clears AA on **no** band in either block — 3.59:1 on the dark teal,
+  4.21:1 on the pale violet. So `.screenhead` and `.dayhead` step `--faint` up
+  to `--muted` for their own subtree. Darkening five bands to suit one line of
+  label would have been the wrong end to fix.
+- `--faint` on `--surface-2`: 4.81:1 dark, 4.85:1 light — the light block was
+  4.46:1 before Plumage, so that one got better.
+- `--on-ember` across the dark gradient: 5.03:1 → 9.08:1. White across the light
+  gradient: 6.68:1 → 8.79:1.
+- The two chart marks were re-run through the six-check dataviz validator in
+  both modes and pass. **They are not `--accent` and `--gold`** — see the note
+  in `styles.css`, which records the two steps the direction proposed that
+  failed and why.
 
 Never carry meaning in colour alone — pair it with a label, an icon or a shape.
 
@@ -227,12 +279,29 @@ Most important information first.
 On Today that order is: what today asks, then the tick to record it, then progress
 toward the next step. A streak is context, never the headline.
 
-**Every screen carries its own header** — a charcoal slab with a 26px-radius
+**Every screen carries its own header** — a coloured band with a 26px-radius
 base, the screen's name in it, and one line under that saying what the screen is
 for. There is no persistent top bar; a brand bar above a screen header is two
 headers, and the app's name belongs on the install icon rather than on every
 screen. A section inside a screen is announced by an 11px letterspaced `.label`,
 not by a card.
+
+**The band is the screen's own hue, and it means location and nothing else.**
+Today teal, Plan cyan, Read indigo, Stats violet, More plum — the ramp is in the
+token block. Rewards and the run screen have no tab of their own and light
+More's, so they take More's band. It replaced five identical charcoal slabs,
+which gave no sense of place when you paged between screens at speed.
+
+Two rules hang off it and neither is optional:
+
+- **No meaning hue may be used as a band, and no band hue may be promoted into a
+  meaning.** The day the band and the accent share a hue is the day neither means
+  anything.
+- **Nothing card-coloured sits on a band.** `--surface` and `--surface-2` are
+  card colours; a teal chip dropped on the plum band reads as a foreign object.
+  A chip inside a header — the day stepper, the segmented tray, the round plate,
+  a quiet pill — is transparent with a hairline of `currentColor`, so it insets
+  into whichever band it lands on and no band owes a chip colour of its own.
 
 Five tabs: Today, Plan, Read, Stats, More. Rewards is reached from the top of
 More — it is the one screen you open after the fact rather than to do something,

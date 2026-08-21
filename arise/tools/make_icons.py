@@ -3,7 +3,7 @@ from PIL import Image, ImageDraw
 import os
 
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "icons")
-BG = (11, 13, 23, 255)
+BG = (7, 30, 29, 255)   # --bg, the Plumage peacock ground
 C1 = (124, 108, 255)
 C2 = (53, 214, 255)
 SS = 4  # supersample factor for smooth edges

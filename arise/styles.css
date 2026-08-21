@@ -36,54 +36,99 @@
 
 /* ============ Arise — design tokens ============ */
 :root {
-  /* Cool, near-black and high contrast, sampled from the redesign brief's
-     artboards. It replaced a warm paper-on-charcoal palette in 2026-08: the
-     brief drew all six screens on these surfaces, and carrying its structure in
-     the old colours would have been half the design.
+  /* ============ Plumage ============
+     A peacock ground with an iridescent jade accent, adopted 2026-08-21. It
+     replaced the cool near-black the redesign brief was drawn on; the brief's
+     STRUCTURE — the 26px-radius header base, the 38px icon plate, the 11px
+     letterspaced label — is untouched. Only its colours moved.
 
-     Three colours with fixed jobs, and the discipline is in the third:
-       --accent (teal)  the live action, and anything done
-       --gold  (amber)  anything that pays out or is waiting on you
-       --ember          ONLY a block whose subject is progress through a fixed
-                        length of time
-     Ember is what the whole palette used to be built on. It survives on three
-     things: the two ends of Today — the header while a countdown is running,
-     and the strip carrying the next ask — and the run screen's header, which is
-     literally called "day 12 of 66". Nothing else may take it. A fourth use
-     would take the meaning back off it, and then the app would have a warm
-     accent again rather than a rule. */
-  --bg: #0d0f12;
-  --surface: #171a1f;
-  --surface-2: #1f242a;
-  --stroke: #2a3037;
-  --stroke-strong: #39414a;
-  --text: #eef1f5;
-  --muted: #a9b2bd;
+     The idea the palette is built on: on a feather, hue tells you WHERE ON THE
+     BIRD you are. It does not tell you how the bird is doing. So the app runs
+     two colour systems and keeps them apart, and that is what lets it be
+     colourful without losing its argument.
+
+     LOCATION colour is free. Five header bands, one per tab, stepping through
+     the ramp — teal, cyan, indigo, violet, plum. A band says which screen you
+     are on and nothing else, so it can be as saturated as it likes. It also
+     answers a real problem: every screen header used to be the same charcoal
+     slab, so paging between them at speed gave no sense of place.
+
+     MEANING colour is rationed — three hues carrying four jobs:
+       --accent (jade)    the live action, and anything done
+       --gold (saffron)   anything that pays out or is waiting on you
+       --ember (magenta)  ONLY a block whose subject is progress through a fixed
+                          length of time, in two forms: the solid on the pinned
+                          strip and the run screen's header, the gradient on the
+                          run counter
+       --flame            the streak — ember's hue, lifted, so it is a fourth
+                          JOB rather than a fourth hue
+     plus --bad, destructive only.
+
+     THE HARD RULE BETWEEN THEM: no meaning hue may ever be used as a header
+     band, and no band hue may be promoted into a meaning. The moment violet is
+     both "Stats" and a state, the split collapses and the app has eleven
+     colours and no argument. It is also why the active tab is jade on every
+     screen rather than the band's hue — nothing but the band may claim to tell
+     you where you are. */
+  --bg: #071E1D;
+  --surface: #0D2B29;
+  --surface-2: #143A37;
+  --stroke: #1D4B47;
+  --stroke-strong: #2A6660;
+  --text: #ECFBF7;
+  --muted: #A8C9C3;
   /* WCAG AA (4.5:1) is measured against --surface-2, the lightest card a faint
-     label ever sits on — not against --bg, which flatters the ratio. */
-  --faint: #8e98a3;
+     label ever sits on — not against --bg, which flatters the ratio. 4.81:1.
+     A header BAND is the one surface --faint cannot clear, in either mode; see
+     `.screenhead`, which steps it up one rung for the header's own subtree
+     rather than darkening five bands to suit the quietest label on them. */
+  --faint: #86A8A2;
 
-  --accent: #2fbfa8;
-  --accent-2: #29a894;
-  --accent-grad: #2fbfa8;
-  /* A streak is time, so the flame keeps the ember hue rather than going teal. */
-  --flame: #e2542b;
-  --gold: #e8a33c;
-  --good: #2fbfa8;    /* done is the same teal as the live action, per the brief */
-  --warn: #e8a33c;
-  --bad: #e0685c;
-  --cream: #e7ecf2;   /* the light surface: real totals, the selected segment */
-  --ember: #e2542b;
-  --ember-2: #c94620;
+  --accent: #35E0C0;
+  --accent-2: #22C3A6;
+  --accent-grad: #35E0C0;
+  /* A streak is time, so the flame keeps the ember hue rather than going jade. */
+  --flame: #F27CBA;
+  --gold: #F5A524;
+  --good: #35E0C0;    /* done is the same jade as the live action, per the brief */
+  --warn: #F5A524;
+  --bad: #F4726B;
+  --cream: #DFF3EF;   /* the light surface: real totals, the selected segment */
+  --ember: #E5479B;
+  --ember-2: #C93382;
+  /* Ember's second FORM, and the only iridescent thing in the app: the run
+     counter, whose subject is literally progress through a fixed length of
+     time, so the gradient IS ember rather than decoration beside it. Held as a
+     whole gradient rather than as two stops, because the two modes ramp
+     differently on purpose — see the light block for why. */
+  --ember-grad: linear-gradient(135deg, #E5479B, #F5A524);
+
+  /* --- location colour: the five header bands ---
+     Selected by `--band`, which the route rules further down resolve from the
+     `data-route` `js/ui.js` already writes on `#view`. Hue here means "which
+     screen", never a state. */
+  --band-today: #10504A;
+  --band-plan:  #0E4457;
+  --band-read:  #1B2E6E;
+  --band-stats: #3A2470;
+  --band-more:  #4A2049;
+  --band: var(--surface);
 
   /* Chart marks. Their own steps, NOT --accent and --gold: a mark on a dark
-     surface has to sit inside OKLCH L 0.48-0.67, and the UI tokens are 0.73 and
-     0.77 — bright enough to glare at chart scale. These two were run through the
+     surface has to sit inside OKLCH L 0.48-0.67, and the UI tokens are outside
+     it — bright enough to glare at chart scale. Both pairs were run through the
      palette validator in both modes and pass all six checks (lightness band,
-     chroma floor, CVD separation, normal-vision separation, contrast). Changing
-     them back to the UI tokens reintroduces a failure the eye does not catch. */
-  --chart-did: #239c8a;
-  --chart-ask: #c4861f;
+     chroma floor, CVD separation, normal-vision separation, contrast).
+
+     The Plumage document proposed #C48A1E here and #0B7A67 in the light block,
+     and both FAILED. The saffron sat at OKLCH L 0.674, just outside the dark
+     band. The light jade was #0B7A67 — which is --accent, i.e. precisely the
+     tidying-back this comment has always warned about — at chroma 0.094, under
+     the 0.10 floor, so it would have read as grey. Each was snapped to the
+     nearest passing step. Do not tidy them back to the UI tokens; that
+     reintroduces a failure the eye does not catch. */
+  --chart-did: #1FA98F;
+  --chart-ask: #C2891A;
 
   /* Type scale. Every piece of TEXT picks a rung — there were 21 sizes before
      this, with 11.5 and 12 sitting next to each other in one card, so no two
@@ -126,13 +171,16 @@
      --on-art is fixed in both themes because the .gcard artwork is: the scrim
      is painted from literal rgba, so its text cannot follow the theme.
      --on-cream flips with --cream, which does. */
-  --on-accent: #06231f;
-  --on-good: #06231f;
-  --on-gold: #06231f;
-  --on-ember: #1a0b05;
+  --on-accent: #04231E;
+  --on-good: #04231E;
+  --on-gold: #06231F;
+  /* Near-black rather than white: white on this magenta is 3.7:1. It carries
+     the whole dark --ember-grad as well — 5.03:1 at the magenta end, 9.08:1 at
+     the saffron one. */
+  --on-ember: #2A0518;
   --on-art: #f4efe7;
   --on-art-muted: #b0a79b;
-  --on-cream: #10151a;
+  --on-cream: #06201E;
   /* The side padding of a screen. Named because the headers have to break out
      of it to reach the edge of the viewport, and a header that is 1px off the
      edge is worse than one that never tried. */
@@ -149,45 +197,59 @@
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #f4f6f9;
-    --surface: #ffffff;
-    --surface-2: #eef1f5;
-    --stroke: #dde3ea;
-    --stroke-strong: #c2cbd5;
-    --text: #10151a;
+    /* Plumage in light: peacock-tinted whites rather than neutral ones, and
+       the five bands become pale washes of the same five hues. */
+    --bg: #F0F7F5;
+    --surface: #FFFFFF;
+    --surface-2: #E3EFEC;
+    --stroke: #D2E3DF;
+    --stroke-strong: #A9C5BF;
+    --text: #06201E;
     /* --muted darkens with --faint so the two stay a visible step apart once
-       --faint is dark enough to clear AA on --surface-2. */
-    --muted: #5a6472;
-    --faint: #64707d;
-    --cream: #1b2027;
+       --faint is dark enough to clear AA on --surface-2. 4.85:1, up from the
+       4.46:1 the previous light palette actually measured. */
+    --muted: #3F5C58;
+    --faint: #4F6C67;
+    --cream: #0D2B29;
     /* --cream inverts here, so its foreground must invert with it. --on-art and
        --on-art-muted deliberately do not appear in this block: the surface they
        sit on is the same dark artwork in both themes. */
-    --on-cream: #eef1f5;
-    /* Teal and amber both have to clear 4.5:1 against white here, so both drop
-       several steps darker than the artboards' dark-mode values. --ember does
-       the same, and takes white text rather than the near-black ink it uses on
-       a dark ground. */
-    --accent: #12796a;
-    --accent-2: #0e6255;
-    --accent-grad: #12796a;
-    --flame: #b8431c;
-    --gold: #8a5f10;
-    --good: #12796a;
-    --warn: #8a5f10;
-    --bad: #b03a2c;
-    --ember: #b8431c;
-    --ember-2: #a03714;
-    /* Light-mode steps, validated against #ffffff. The teal is a touch more
-       saturated than --accent because at this lightness the hue runs out of
-       chroma and drops below the 0.10 floor — it would read as grey. */
-    --chart-did: #008f7e;
-    --chart-ask: #8a5f10;
-    --on-accent: #ffffff;
-    --on-good: #ffffff;
-    --on-gold: #ffffff;
-    --on-ember: #ffffff;
-    --shadow: 0 10px 30px rgba(20, 30, 45, 0.14);
+    --on-cream: #ECFBF7;
+    /* Jade and saffron both have to clear 4.5:1 against white here, so both drop
+       several steps darker than the dark block's values. --ember does the same,
+       and takes white text rather than the near-black ink it uses on a dark
+       ground. */
+    --accent: #0B7A67;
+    --accent-2: #075F51;
+    --accent-grad: #0B7A67;
+    --flame: #C0417F;
+    --gold: #8A5A05;
+    --good: #0B7A67;
+    --warn: #8A5A05;
+    --bad: #B03A2C;
+    --ember: #A8256B;
+    --ember-2: #8C1B57;
+    /* The cool ramp, and it is not the dark block's ramp darkened. In light mode
+       both ends have to stay dark enough to carry white text, and a dark magenta
+       ramping to a dark saffron passes through brown. Going magenta → violet →
+       indigo instead stays iridescent, echoes the band ramp, and holds white at
+       6.68:1, 8.13:1 and 8.79:1 across the three stops. */
+    --ember-grad: linear-gradient(135deg, #A8256B, #7B2F84 55%, #4A3A9E);
+    --band-today: #CDE9E4;
+    --band-plan:  #CFE5EE;
+    --band-read:  #D8DEF5;
+    --band-stats: #E2D9F4;
+    --band-more:  #EFD9EE;
+    /* Light-mode steps, validated against #ffffff. The jade is more saturated
+       than --accent because at this lightness the hue runs out of chroma and
+       drops below the 0.10 floor — it would read as grey. See the dark block. */
+    --chart-did: #027C64;
+    --chart-ask: #8A5A05;
+    --on-accent: #FFFFFF;
+    --on-good: #FFFFFF;
+    --on-gold: #FFFFFF;
+    --on-ember: #FFFFFF;
+    --shadow: 0 10px 30px rgba(6, 32, 30, 0.14);
     color-scheme: light;
   }
 }
@@ -1527,6 +1589,12 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 
    The surfaces in that sentence are the palette in :root now, so everything here
    is written in tokens and none of the artboards' literal hexes appear below.
+   Two of the brief's words have since been overtaken by the Plumage direction
+   and the quote is left as it was written rather than edited under it: the
+   header is a coloured band, not a charcoal slab, and the accent is jade rather
+   than teal. The STRUCTURE the quote describes — where an ember block is
+   allowed, the 26px base, the 38px plate, the 11px label — is unchanged, which
+   is why the rules below did not move when the colours did.
 
    It replaces a hairline direction (artboard 1a) that had been applied to Today
    alone. Both cannot be right at once: 1a's rows have no cards and no icon
@@ -1557,15 +1625,49 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   top: 50%; height: 44px; transform: translateY(-50%);
 }
 
+/* --- location colour: one band per tab ---
+   `js/ui.js` already writes the route onto `#view` as a data attribute, for
+   scroll restoration, so the band needs nothing new from the view layer — no
+   inline style, no class, no second source of truth about which screen is up.
+   Rewards and the run screen have no tab of their own and light More's, so they
+   take More's band; anything unrouted falls back to `--surface`, which is what
+   every header used to be. */
+.view[data-route="today"]    { --band: var(--band-today); }
+.view[data-route="plan"]     { --band: var(--band-plan); }
+.view[data-route="read"]     { --band: var(--band-read); }
+.view[data-route="progress"] { --band: var(--band-stats); }
+.view[data-route="more"],
+.view[data-route="rewards"],
+.view[data-route="run"]      { --band: var(--band-more); }
+
 /* --- the screen header ---
-   A charcoal slab with a 26px-radius base, breaking the full width of the
+   A coloured band with a 26px-radius base, breaking the full width of the
    viewport. It has to escape the page's own side padding to do that, which is
-   what the negative margins are for. */
+   what the negative margins are for.
+
+   The band is LIGHTER than --surface in dark mode and DARKER than it in light,
+   so --faint clears AA on neither: 3.59:1 on the dark teal band, 4.21:1 on the
+   pale violet one. The quietest ink inside a header therefore steps up one rung
+   for the header's own subtree. Measured on all ten band × ink pairs: the worst
+   is --muted on the dark teal band at 5.21:1, and --text never drops below
+   8.69:1. Scoped here rather than solved by darkening five bands, because the
+   bands are the design and the label is one line under a title. */
+.screenhead, .dayhead { --faint: var(--muted); }
 .screenhead {
   margin: 0 calc(-1 * var(--pagepad)) var(--sp-lg);
   padding: calc(var(--sp-xl) + var(--safe-t)) var(--pagepad) var(--sp-lg);
-  background: var(--surface); border-bottom: 1px solid var(--stroke);
+  background: var(--band); border-bottom: 1px solid var(--stroke);
   border-radius: 0 0 26px 26px;
+}
+/* A chip that sits ON the band — the day stepper's plate, the segmented tray,
+   the round icon plate, a quiet pill — used --surface or --surface-2. Those are
+   CARD colours: a teal card dropped on the plum band reads as a foreign object
+   rather than as part of the header. Each becomes transparent with a hairline of
+   the header's own ink, so it insets into whichever band it lands on and no band
+   owes a chip colour of its own. */
+.screenhead .icon-btn::before,
+.dayhead .icon-btn::before {
+  background: none; border-color: color-mix(in srgb, currentColor 26%, transparent);
 }
 .screenhead-top { display: flex; align-items: center; gap: var(--sp-md); }
 .screenhead h1 {
@@ -1578,7 +1680,8 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 /* The round plate beside a title — Rewards uses it. */
 .screenhead-plate {
   flex: none; width: 36px; height: 36px; border-radius: 999px;
-  display: grid; place-items: center; background: var(--surface-2); color: var(--gold);
+  display: grid; place-items: center; color: var(--gold);
+  border: 1px solid color-mix(in srgb, currentColor 38%, transparent);
 }
 .screenhead-plate .ico { width: 19px; height: 19px; }
 /* A pill action in the header: teal when it is the screen's live action, quiet
@@ -1590,7 +1693,10 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   font-size: var(--fs-md); font-weight: 700;
 }
 .headpill .ico { width: 1.15em; height: 1.15em; }
-.headpill.quiet { background: var(--surface-2); color: var(--muted); }
+.headpill.quiet {
+  background: none; color: var(--muted);
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+}
 
 /* --- Today's header: the one ember block in the app ---
    Ember only while a challenge is running, which is the brief's rule: the
@@ -1599,13 +1705,20 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .dayhead {
   margin: 0 calc(-1 * var(--pagepad)) var(--sp-md);
   padding: calc(var(--sp-xl) + var(--safe-t)) var(--pagepad) var(--sp-md);
-  background: var(--surface); border-bottom: 1px solid var(--stroke);
+  background: var(--band); border-bottom: 1px solid var(--stroke);
   border-radius: 0 0 26px 26px;
 }
+/* Ember has two forms and they are not interchangeable. The SOLID is on the run
+   screen's own header and on the pinned strip. The GRADIENT is on the run
+   counter — Today's header while a challenge is running — which is the one
+   block in the app whose whole subject is progress through a fixed length of
+   time, so the iridescence is ember rather than decoration next to it. Putting
+   it on both would make it a texture instead of a statement. */
 .dayhead.ember {
-  background: linear-gradient(var(--ember), var(--ember-2));
+  background: var(--ember);
   color: var(--on-ember); border-bottom: 0;
 }
+.view[data-route="today"] .dayhead.ember { background: var(--ember-grad); }
 .dayhead-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-md); }
 .dayhead-id { min-width: 0; }
 .dayhead-label {
@@ -1646,8 +1759,11 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .dayhead.ember .dayhead-foot { color: inherit; opacity: 0.72; }
 .dayhead .daynum { color: inherit; }
 .dayhead .daynum i { color: inherit; opacity: 0.6; }
+/* The stepper's border lives on `.icon-btn::before` — `.icon-btn` itself is
+   `border: 0` — so the rule that used to sit here, recolouring the button's own
+   border on the ember header, painted nothing at all. The band treatment above
+   handles it for every header including this one, from `currentColor`. */
 .dayhead .dayline-nav .icon-btn { color: inherit; }
-.dayhead.ember .dayline-nav .icon-btn { border-color: color-mix(in srgb, var(--on-ember) 28%, transparent); }
 /* The day's state in words. On the ember header it rides the ink it is printed
    on rather than --muted, which would be invisible there. */
 .dayhead .dayline-headline { margin-top: var(--sp-sm); }
@@ -1821,7 +1937,8 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
    "this is the one you are on", used twice. */
 .segbar.tabs {
   gap: var(--sp-xs); margin: 14px 0 0; padding: var(--sp-xs);
-  background: var(--surface-2); border-radius: var(--r-xs);
+  background: none; border-radius: var(--r-xs);
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
 }
 .segbar.tabs .seg {
   flex: 1; min-height: 40px; padding: 0 var(--sp-sm); border: 0; border-radius: 9px;

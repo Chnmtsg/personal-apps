@@ -89,6 +89,7 @@ All of it lives under `arise/`:
 - `arise/knowledge/project.md` — what the app is for, the three rules, hard constraints
 - `arise/knowledge/coding-standards.md` — vanilla JS, layers, migrations, tests
 - `arise/knowledge/ui-guidelines.md`
+- `arise/knowledge/colour-direction-plumage.md` — the palette decision record
 - `arise/knowledge/review-conventions.md`
 
 ---
