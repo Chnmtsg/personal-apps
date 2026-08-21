@@ -699,6 +699,20 @@ console.log('\ninstalling the built-in programme through app.js');
   UI.resolveConfirm(true);
   ok('confirming rebuilds the week', S.get().plan[1].length > 0 && S.get().plan[2].length > 0,
      [S.get().plan[1].length, S.get().plan[2].length]);
+
+  /* Two contexts now, and the row carries which one. A handler that ignored
+     data-context would install the same week from either row and nothing would
+     look wrong until you were on site with a barbell programme. */
+  click({ act: 'program-install', context: 'home' });
+  UI.resolveConfirm(true);
+  ok('the home row installs the home week', S.programContext() === 'home' &&
+     S.get().plan[1].some((i) => S.exerciseById(i.exerciseId).name === 'Barbell Bench Press'),
+     S.get().plan[1].map((i) => S.exerciseById(i.exerciseId).name));
+  click({ act: 'program-install', context: 'site' });
+  UI.resolveConfirm(true);
+  ok('and the site row installs the site week', S.programContext() === 'site' &&
+     S.get().plan[1].some((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Floor Press'),
+     S.programContext());
   ok('and every day of it, rest days included',
      [0, 1, 2, 3, 4, 5, 6].every((d) => S.get().plan[d].length > 0),
      [0, 1, 2, 3, 4, 5, 6].map((d) => S.get().plan[d].length).join(' '));

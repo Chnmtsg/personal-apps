@@ -134,23 +134,30 @@
    * anybody picked it, and seven goals all showing the same target is exactly
    * the noise this replaces.
    */
-  const STOCK_EX_ICON = '🏋️';
-  let stockByName = null;
+  /* Membership in the set of every stock icon, NOT a lookup keyed by name.
+     Keyed by name it was defeated by an ordinary rename: `stockExIcon('Press-ups')`
+     returns nothing for a renamed 'Push-ups', so the seed's own glyph — which
+     nobody chose — passed both tests and was rendered. One sentinel covered one
+     of seventeen distinct seed icons.
 
-  function stockExIcon(name) {
-    if (!stockByName) {
-      stockByName = new Map();
-      (A.SEED_EXERCISES || []).forEach((e) => stockByName.set(e.name, e.icon));
-      (A.PROGRAM_EXERCISES || []).forEach((e) => stockByName.set(e.name, e.icon));
+     A set cannot be renamed out of. Nothing stored changes, nothing is migrated,
+     and the derivation stays derived: "did the user pick this, or did a seed hand
+     it to them" is still answered by comparing, never by a flag. */
+  let stockIcons = null;
+
+  function isStockIcon(glyph) {
+    if (!stockIcons) {
+      stockIcons = new Set();
+      (A.SEED_EXERCISES || []).forEach((e) => { if (e.icon) stockIcons.add(e.icon); });
+      (A.PROGRAM_EXERCISES || []).forEach((e) => { if (e.icon) stockIcons.add(e.icon); });
     }
-    return stockByName.get(name);
+    return stockIcons.has(glyph);
   }
 
-  /** @returns {string} ready-to-insert HTML — an escaped emoji, or an inline SVG. */
+  /** @returns {string} ready-to-insert HTML — an escaped glyph, or an inline SVG. */
   function exGlyph(ex) {
     if (!ex) return icon('dumbbell');
-    const stock = stockExIcon(ex.name);
-    const chosen = ex.icon && ex.icon !== stock && ex.icon !== STOCK_EX_ICON;
+    const chosen = ex.icon && !isStockIcon(ex.icon);
     return chosen ? esc(ex.icon) : icon(CATEGORY_ICON[ex.category] || 'dumbbell');
   }
 
@@ -1238,7 +1245,7 @@
                 </div>`;
               })
               .join('')
-          : `<div class="empty" style="padding:14px">Rest day — nothing scheduled.</div>`;
+          : `<div class="empty tight">Rest day — nothing scheduled.</div>`;
 
         return `<section class="card flush plan-day ${d === todayWd ? 'is-today' : ''}" id="plan-day-${d}">
           <div class="plan-day-head">
@@ -1277,12 +1284,23 @@
           means less, not more.</p>
       </div>
 
-      <button type="button" class="linkrow" data-act="program-install">
-        <span class="linkrow-plate" aria-hidden="true">${icon('dumbbell')}</span>
-        <span class="body"><b>Install the built-in programme</b>
-          <span>Four dumbbell sessions, warm-ups and stretches, across the week</span></span>
-        ${icon('chev')}
-      </button>
+      <!-- One row per context. The app stores one weekly plan, so these are
+           alternatives rather than a pair: you are on site or you are at home,
+           and installing one replaces the week. -->
+      <div class="label">Install a programme</div>
+      ${(A.PROGRAM_CONTEXTS || [])
+        .map(
+          (c) => `<button type="button" class="linkrow ${
+            S.programContext() === c.id ? 'is-done' : ''
+          }" data-act="program-install" data-context="${esc(c.id)}">
+            <span class="linkrow-plate" aria-hidden="true">${icon('dumbbell')}</span>
+            <span class="body"><b>${esc(c.name)}${
+            S.programContext() === c.id ? ' · installed' : ''
+          }</b><span>${esc(c.blurb)}</span></span>
+            ${icon('chev')}
+          </button>`
+        )
+        .join('')}
       <p class="footnote">Today's list shows up on the Today tab by
       itself, and changing a day here never rewrites one you have already
       logged — every day's log freezes its own exercise list.</p>`;
@@ -1985,7 +2003,7 @@
       : exs
       .map(
         (e) => `<div class="row">
-          <span class="emoji" style="font-size:20px">${exGlyph(e)}</span>
+          <span class="emoji">${exGlyph(e)}</span>
           <div class="body"><div class="name">${esc(e.name)}</div><div class="sub">${esc(e.category)} · ${esc(
           e.unit === 'time' ? (e.minutes || 10) + ' min' : e.unit === 'distance' ? (e.km || 1) + ' km' : (e.sets || 3) + ' × ' + (e.reps || 10)
         )}</div></div>
@@ -2972,13 +2990,13 @@
         <label class="field"><span>Good days needed</span><input type="number" id="gg_succ" min="1" max="30" value="${esc(adv.successes)}"></label>
         <label class="field"><span>…out of the last</span><input type="number" id="gg_win" min="1" max="30" value="${esc(adv.window)}"></label>
       </div>
-      <div class="row" style="padding:10px 0">
+      <div class="row tight">
         <div class="body"><div class="name">Step back after misses</div><div class="sub">Stops the app outrunning you</div></div>
         <label class="switch"><input type="checkbox" id="gg_reg" ${reg ? 'checked' : ''}><i></i></label>
       </div>
       <label class="field" ${reg ? '' : 'hidden'}><span>Consecutive misses before stepping back</span>
         <input type="number" id="gg_miss" min="2" max="14" value="${esc(reg ? reg.misses : 3)}"></label>
-      <div class="row" style="padding:10px 0">
+      <div class="row tight">
         <div class="body"><div class="name">Require a written summary</div><div class="sub">Can't be completed until you write one</div></div>
         <label class="switch"><input type="checkbox" id="gg_gate" ${v.gate === 'summary' ? 'checked' : ''}><i></i></label>
       </div>

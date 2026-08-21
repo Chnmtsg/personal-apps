@@ -46,11 +46,19 @@
     };
   }
 
+  /** The week for a context id, falling back to the default. */
+  function programWeek(contextId) {
+    const list = A.PROGRAM_CONTEXTS || [];
+    const found = list.find((c) => c.id === contextId);
+    return (found && found.week) || (list[0] && list[0].week) || A.PROGRAM_WEEK || {};
+  }
+
   /** The built-in program laid out across the seven days. */
-  function programPlan(exercises) {
+  function programPlan(exercises, contextId) {
+    const week = programWeek(contextId);
     const plan = {};
     for (let d = 0; d <= 6; d++) {
-      const day = (A.PROGRAM_WEEK && A.PROGRAM_WEEK[d]) || { items: [] };
+      const day = week[d] || { items: [] };
       plan[d] = (day.items || [])
         .map((spec) => {
           const ex = exercises.find((x) => x.name === spec.name);
@@ -405,7 +413,13 @@
    * but no logged day changes, because `ensureLog` freezes a day's exercises
    * into that day's log the first time it is touched.
    */
-  function installProgram(s) {
+  /**
+   * @param {string} [contextId] which context's week to lay down. The programme
+   *   names itself "Context 1", so there was always meant to be more than one;
+   *   the app stores ONE plan, which is the right shape — you are on site or you
+   *   are at home, not both — so installing a context replaces the week.
+   */
+  function installProgram(s, contextId) {
     (A.PROGRAM_EXERCISES || []).forEach((p) => {
       const existing = s.exercises.find((e) => e.name === p.name);
       if (!existing) {
@@ -417,7 +431,8 @@
       if (existing.repsMax == null && p.repsMax != null) existing.repsMax = p.repsMax;
       if (!Array.isArray(existing.muscles) && p.muscles) existing.muscles = p.muscles.slice();
     });
-    s.plan = programPlan(s.exercises);
+    s.plan = programPlan(s.exercises, contextId);
+    if (contextId) s.meta.programContext = contextId;
   }
 
   function save() {
@@ -2178,12 +2193,15 @@
    * logged day moves, because `ensureLog` froze each day's exercises into that
    * day's log the first time it was touched.
    */
-  function reinstallProgram() {
-    installProgram(state);
+  function reinstallProgram(contextId) {
+    installProgram(state, contextId);
     state.meta.programInstalled = true;
-    commit({ type: 'programReinstall' });
+    commit({ type: 'programReinstall', context: contextId });
     return state.plan;
   }
+
+  /** Which context is laid down right now, for the screen that offers them. */
+  const programContext = () => (state.meta && state.meta.programContext) || 'site';
 
   function addToPlan(dayIndex, exerciseId, overrides) {
     const ex = exerciseById(exerciseId);
@@ -2689,7 +2707,7 @@
     customRewardProgress, claimCustomReward,
     toggleExercise, toggleHabit, completeAll, toggleWorkout, muscleTally, clearDay, addExtra, removeExtra,
     restoreExercises, restorePlanDay, restoreExtras, acknowledgeStart,
-    addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan, reinstallProgram,
+    addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan, reinstallProgram, programContext,
     takeRunRefusals, takeRunPaused, runCandidateGoals,
     cookies, addCookie, removeCookie, restoreCookie, missedYesterday, deloadWeek,
     lines, addLine, removeLine, restoreLine, lineForDay,

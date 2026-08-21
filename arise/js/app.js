@@ -751,9 +751,11 @@
          migration: `installProgram` replaces the weekly plan, and doing that to
          somebody silently on an update would throw away a week they built by
          hand. So the sheet says exactly what goes and exactly what stays. */
-      case 'program-install':
+      case 'program-install': {
+        const ctxId = actEl.dataset.context || 'site';
+        const ctx = (A.PROGRAM_CONTEXTS || []).find((c) => c.id === ctxId);
         UI.openConfirm({
-          title: 'Install the built-in programme?',
+          title: 'Install ' + (ctx ? ctx.name.toLowerCase() : 'the programme') + '?',
           body: 'The seven days of your weekly plan are replaced by the built-in dumbbell programme — ' +
                 'Upper A, Lower A, Upper B, Lower B, the daily mobility, and their warm-ups and stretches. ' +
                 'Anything you have arranged in the weekly plan yourself is overwritten. ' +
@@ -761,11 +763,13 @@
                 'already logged changes — every logged day froze its own exercise list when you opened it.',
           confirmLabel: 'Install it',
           onConfirm: () => {
-            S.reinstallProgram();
-            UI.toast('<span>The programme is installed across the week.</span>');
+            S.reinstallProgram(ctxId);
+            UI.toast('<span>' + esc(ctx ? ctx.name : 'The programme') +
+                     ' is installed across the week.</span>');
           }
         });
         break;
+      }
       case 'plan-copy-from': {
         const fromDay = Number(actEl.dataset.from);
         const copy = () => {

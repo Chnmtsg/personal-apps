@@ -1084,6 +1084,58 @@ ok('the prescription rides the plan item, not the exercise', (() => {
   return row && /RIR/.test(row.note || '');
 })(), (S.get().plan[1].find((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Lateral Raise') || {}).note);
 
+/* Saturday used to carry the daily mobility and nothing else, because the
+   programme document pointed at a section that never arrived. It is drafted now,
+   and the app says so where the user reads it rather than only in a comment. */
+ok('Saturday is a real session in both contexts', A.PROGRAM_CONTEXTS.every(
+   (c) => (c.week[6].items || []).length >= 8), A.PROGRAM_CONTEXTS.map((c) => c.id + ':' + c.week[6].items.length));
+ok('and it says it was drafted rather than supplied', A.PROGRAM_CONTEXTS.every(
+   (c) => /drafted/i.test(c.week[6].title)), A.PROGRAM_CONTEXTS.map((c) => c.week[6].title));
+/* It sits between Lower B and a rest day. A fifth hard session there would eat
+   the recovery that makes the other four work, so it must stay the LIGHTEST
+   training day of the week. */
+const dayWeight = (day) => (day.items || []).reduce((n, i) => n + (i.sets || 0), 0);
+ok('and it is the lightest training day of the week', A.PROGRAM_CONTEXTS.every((c) => {
+  const sat = dayWeight(c.week[6]);
+  return [1, 2, 4, 5].every((d) => dayWeight(c.week[d]) >= sat);
+}), A.PROGRAM_CONTEXTS.map((c) => c.id + ' sat=' + dayWeight(c.week[6]) + ' vs ' +
+    [1, 2, 4, 5].map((d) => dayWeight(c.week[d])).join('/')));
+
+/* Both contexts run the same pattern — that is what makes them contexts of one
+   programme rather than two programmes. */
+ok('both weeks keep the same shape', A.PROGRAM_CONTEXTS.every((c) =>
+   [3, 0].every((d) => (c.week[d].items || []).length === 1) &&
+   [1, 2, 4, 5, 6].every((d) => (c.week[d].items || []).length > 1)),
+   A.PROGRAM_CONTEXTS.map((c) => c.id + ':' + [1, 2, 3, 4, 5, 6, 0].map((d) => c.week[d].items.length).join(',')));
+ok('every day of both ends with the daily mobility', A.PROGRAM_CONTEXTS.every((c) =>
+   [0, 1, 2, 3, 4, 5, 6].every((d) => c.week[d].items.slice(-1)[0].name === 'Daily Shift Mobility')));
+/* The home context is the one with a barbell in it; that is the whole point of
+   it being a separate context. */
+const homeWeek = A.PROGRAM_CONTEXTS.find((c) => c.id === 'home').week;
+const siteWeek = A.PROGRAM_CONTEXTS.find((c) => c.id === 'site').week;
+const barbells = (w) => [0, 1, 2, 4, 5, 6].reduce(
+  (n, d) => n + (w[d].items || []).filter((i) => /^Barbell |^Pull-up$/.test(i.name)).length, 0);
+ok('the home context uses the barbell and the site one does not',
+   barbells(homeWeek) >= 5 && barbells(siteWeek) === 0, [barbells(homeWeek), barbells(siteWeek)]);
+
+/* Installing one lays that week down, and says which is on. */
+S.resetAll();
+S.reinstallProgram('home');
+ok('installing a context lays down its week', S.programContext() === 'home', S.programContext());
+ok('and the plan really is the home one',
+   S.get().plan[1].some((i) => S.exerciseById(i.exerciseId).name === 'Barbell Bench Press'),
+   S.get().plan[1].map((i) => S.exerciseById(i.exerciseId).name));
+S.reinstallProgram('site');
+ok('switching back lays down the other', S.programContext() === 'site' &&
+   S.get().plan[1].some((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Floor Press'),
+   S.get().plan[1].map((i) => S.exerciseById(i.exerciseId).name));
+ok('an unknown context falls back rather than emptying the week', (() => {
+  S.reinstallProgram('nope');
+  return [0, 1, 2, 3, 4, 5, 6].every((d) => S.get().plan[d].length > 0);
+})(), [0, 1, 2, 3, 4, 5, 6].map((d) => S.get().plan[d].length).join(','));
+S.reinstallProgram('site');
+
+/* ------------------------------------------------------------------ */
 section('installing the program over an existing account');
 // An account that predates the program: its own exercise, its own plan.
 const legacyState = {

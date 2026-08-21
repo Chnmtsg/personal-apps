@@ -53,12 +53,12 @@ only bridge is More → Export on the old origin, Import on the new one.
 
 ```bash
 cd arise
-npm test          # smoke 598, render 221, wire 116 — all green
+npm test          # smoke 608, render 228, wire 118 — all green
 npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
-- `sw.js` VERSION → **`discipline-v69`**
+- `sw.js` VERSION → **`discipline-v71`**
 - `js/` is **eight** files, loaded in this order:
   `data.js` → `program.js` → `goals.js` → `run.js` → `photos.js` → `store.js` →
   `ui.js` → `app.js`
@@ -150,7 +150,15 @@ the tree beside it.
    than the warm ember one. What that cost and what it bought is in
    `arise/CLAUDE.md` under the design-brief invariant. Two artboard decisions
    were deliberately not taken and both say so in the code.
-3. **The SITE programme is missing its sixth day, and its second context.**
+3. **The drafted training content is mine, not the owner's document.** Saturday's
+   accessory session in both contexts, and the whole HOME context, were written
+   for this app because the source material was asked for twice and never
+   supplied. Both are labelled "drafted, not from the programme" in the day
+   title, the context blurb and the code, and a smoke test asserts that wording
+   survives. The HOME context assumes barbell + rack + bench + pull-up bar; if
+   that is wrong, the week table is the only thing to change. Replace either with
+   the real thing whenever it arrives.
+4. ~~**The SITE programme is missing its sixth day, and its second context.**~~
    `js/program.js` now holds Context 1 (SITE, dumbbells only) — Mon Upper A, Tue
    Lower A, Wed rest, Thu Upper B, Fri Lower B, Sat accessory, Sun rest. The
    source document lists an accessory-and-mobility session on the Saturday and

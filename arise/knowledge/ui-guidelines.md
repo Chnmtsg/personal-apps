@@ -64,13 +64,28 @@ Consistent sizing. Every piece of **text** takes a rung on the scale — never a
 literal `px`:
 
 `--fs-xs` 11 · `--fs-sm` 12 · `--fs-md` 13 · `--fs-base` 14 · `--fs-lg` 15 ·
-`--fs-xl` 17 · `--fs-2xl` 20 · `--fs-3xl` 26
+`--fs-xl` 17 · `--fs-2xl` 20 · `--fs-3xl` 26 · `--fs-4xl` 38 · `--fs-5xl` 54
+
+The last two are display rungs, for the day counter and nothing else. They exist
+because the scale used to stop at 26 while the largest numeral on screen was 54,
+so the two biggest things in the app had nowhere to sit and became literals. A
+scale that cannot express the largest thing on the screen invites the next one.
 
 `--fs-xs` is the floor for anything carrying meaning, including navigation
-labels. Drawn icons are sized in `em` so they track the label beside them; the
-few fixed icon boxes — the medal, the icon plate — are sized literally on
-purpose, because they are iconography and putting a graphic on a text scale is a
-category error.
+labels.
+
+**Every icon that sits beside a label is sized in `em`**, so it grows with that
+label when the reader raises their system text size — the likeliest
+accessibility setting on a phone. Exactly seven rules may use pixels, and they
+are all fixed boxes a graphic sits inside rather than icons tracking type:
+`.gcard-plate`, `.linkrow-plate`, `.screenhead-plate`, `.lvlrow-plate`,
+`.promptrow-plate`, `.dest-plate`, and the medal. Anything else in pixels is a
+finding. There were eleven once, and a 12px flame beside 15px text is a smudge.
+
+The four glyph BOXES — `.empty .big`, `.item .emoji`, `.plan-main .emoji`,
+`.myreward-icon` — are literal for the same reason and say so in a comment.
+Putting a graphic on a text scale is a category error; letting text off the scale
+is drift.
 
 ---
 
@@ -172,7 +187,12 @@ needs it:
 
 Container-level values — card, row, banner and section padding and margins — must
 come from these. That is what carries the visible rhythm. Optical nudges inside a
-chip or a pill may stay literal, and should say why.
+chip or a pill may stay literal, and should say why: an unexplained literal is
+indistinguishable from a mistake.
+
+**Never in the view layer.** A literal padding or font-size in a `style=` attribute
+in `js/ui.js` is a finding even when the number is on the scale — that is how the
+last drift started. Give it a class.
 
 Avoid cramped layouts.
 
@@ -186,8 +206,13 @@ Consistent border radius — use the `--r` tokens. `--r` is the standard row and
 card, `--r-xs` is every control (buttons, inputs, small chrome), `--r-sm` and
 `--r-lg` are the tighter and looser variants. Pills stay `999px`.
 
-Consistent shadows: `--shadow` for a raised surface, `--shadow-sm` for the accent
-glows. Nothing else defines its own.
+One shadow token: `--shadow`, for a raised surface. Nothing else defines its own.
+
+There was a second, `--shadow-sm`, described here as "the accent glows" — the
+flat-card redesign removed the glow and left the token behind resolving to
+`none` in both themes, with one call site that drew nothing. Someone told there
+are two shadow tokens reaches for the dead one and concludes shadows are broken.
+The redesign's decision was that the accent does not glow; both files say so now.
 
 Text on a filled background uses `--on-accent`, `--on-good`, `--on-gold`,
 `--on-ember` or `--on-cream`, never a hex — a repainted accent must not strand
@@ -231,7 +256,16 @@ graphic: give the button the full 44px and paint the smaller chrome on an inner
 pseudo-element. Never grow a hit area so far that it overlaps its neighbour — two
 overlapping targets are worse than one small one.
 
-No horizontal scrolling.
+No horizontal scrolling — with exactly one written exception, because a rule with
+two silent violations is weaker than a rule with one stated one.
+
+**Data plots may scroll sideways; controls may not.** `.heat` (eighteen weeks)
+and `.rungs` (the full ladder) have no honest form at 360px, and clipping either
+would hide the data the screen exists to show. Both carry an edge fade so the
+overflow is visible rather than silent. Everything else wraps: the category
+filter used to scroll with its scrollbar hidden in both engines, which made its
+off-screen entries undiscoverable on the screen you reach while adding an
+exercise. `body` stays `overflow-x: hidden` regardless.
 
 Respect `env(safe-area-inset-bottom)` for anything fixed to the bottom.
 

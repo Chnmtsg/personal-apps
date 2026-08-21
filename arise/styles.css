@@ -98,6 +98,11 @@
   --fs-xl: 17px;
   --fs-2xl: 20px;
   --fs-3xl: 26px;
+  /* Display rungs. The scale stopped at 26 and the day counter is 54, so the two
+     biggest numerals in the app had nowhere to sit and became literals. A scale
+     that cannot express the largest thing on the screen invites the next one. */
+  --fs-4xl: 38px;
+  --fs-5xl: 54px;
 
   /* Spacing, on a 4px sub-grid of the 8px system the guidelines ask for. Applied
      at container level — card, row and section padding — which is what carries
@@ -113,7 +118,7 @@
   --r: 16px;      /* the standard row and card */
   --r-lg: 18px;
   --shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
-  --shadow-sm: none;
+
   /* Foreground colours for the filled backgrounds, so a theme change cannot
      leave black text stranded on a repainted accent. One convention, read as
      "the foreground for surface X" — every fixed surface owes one of these, and
@@ -204,7 +209,12 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  /* One body font, declared once, beside the @font-face blocks that load it.
+     There were two of these 777 lines apart: this `font` shorthand set family,
+     size and line-height, and a later rule overrode the family only — so the
+     stack a reader finds first was dead, while its size and line-height stayed
+     live, which is exactly what made it easy to miss. */
+  font: var(--fs-lg)/1.5 Archivo, "Segoe UI", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overflow-x: hidden;
@@ -300,7 +310,7 @@ button { cursor: pointer; }
   transition: transform 0.12s ease, filter 0.2s;
 }
 .btn:active { transform: scale(0.97); }
-.btn.primary { background: var(--accent-grad); border-color: transparent; color: var(--on-accent); box-shadow: var(--shadow-sm); }
+.btn.primary { background: var(--accent-grad); border-color: transparent; color: var(--on-accent); }
 .btn.ghost { background: none; }
 .btn.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
 .btn.block { width: 100%; }
@@ -340,7 +350,18 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 
 .muted { color: var(--muted); }
 .faint { color: var(--faint); }
-.empty { text-align: center; color: var(--faint); padding: 22px 12px; font-size: var(--fs-base); }
+/* Inside a card that already has padding, the empty state must not add a second
+   helping of it. This replaces an inline `style="padding:14px"` in js/ui.js — a
+   literal in the view layer is how the last drift started. */
+.empty.tight { padding: var(--sp-md); }
+/* A switch row inside a sheet, where the surrounding form already supplies the
+   side padding. Replaces an inline `style="padding:10px 0"` on two rows in the
+   goal editor — a literal in the view layer is how the last drift started. */
+.row.tight { padding: var(--sp-sm) 0; }
+.empty { text-align: center; color: var(--faint); padding: var(--sp-xl) var(--sp-md); font-size: var(--fs-base); }
+/* The four glyph boxes below are sized LITERALLY on purpose: each is a box a
+   graphic sits in, not a piece of text, and putting a graphic on a text scale is
+   a category error. Everything that is text takes a rung. */
 .empty .big { font-size: 30px; display: block; margin-bottom: 8px; }
 
 /* ============ hero (today) ============ */
@@ -479,7 +500,7 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 .recovery h1 { font-size: var(--fs-xl); margin-bottom: 8px; }
 .recovery p { font-size: var(--fs-md); color: var(--muted); line-height: 1.6; margin: 0 0 12px; }
 .recovery pre {
-  margin: 0 0 14px; padding: 10px 12px; overflow-x: auto;
+  margin: 0 0 var(--sp-lg); padding: var(--sp-md); overflow-x: auto;
   background: var(--surface-2); border-radius: var(--r-sm);
   font-size: var(--fs-sm); color: var(--faint); white-space: pre-wrap; word-break: break-word;
 }
@@ -488,7 +509,7 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 
 .how-dose {
   display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  padding: 10px 12px; margin-bottom: 12px;
+  padding: var(--sp-md); margin-bottom: var(--sp-md);
   background: var(--surface); border: 1px solid var(--stroke); border-radius: var(--r-sm);
 }
 .how-dose b { font-size: var(--fs-lg); }
@@ -557,8 +578,11 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 
 /* exercise picker */
 .picker-search { position: sticky; top: 0; padding-bottom: 10px; background: var(--bg); }
-.cat-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
-.cat-tabs::-webkit-scrollbar { display: none; }
+/* Wraps rather than scrolls. Seven categories fit two rows, and a control strip
+   whose off-screen entries are undiscoverable — with the scrollbar hidden in
+   both engines, so nothing signals more exists — is a different thing from a
+   data plot that genuinely cannot fit at 360px. See `.heat` and `.rungs`. */
+.cat-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: var(--sp-sm); }
 .cat-tab {
   display: inline-flex; align-items: center; white-space: nowrap;
   min-height: 44px; padding: 7px 14px; border-radius: 999px;
@@ -579,6 +603,15 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 .stat.gold b { color: var(--gold); }
 .stat.good b { color: var(--good); }
 
+/* `.heat` and `.rungs` are the two exceptions to "no horizontal scrolling", and
+   they are data plots: eighteen weeks and a full ladder have no honest form at
+   360px, and clipping either would hide the data the screen exists to show. The
+   rule now names that exception, and requires the affordance below — an edge
+   fade, so the overflow is visible rather than silent. */
+.heat, .rungs {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent 100%);
+}
 .heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 1fr); gap: 3px; overflow-x: auto; padding-bottom: 4px; }
 .heat i {
   width: 13px; height: 13px; border-radius: 3.5px; background: var(--surface-2);
@@ -615,7 +648,13 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
    state can change `currentColor` instead of relying on `grayscale()` behaving
    the same way on a colour emoji across platforms, which it does not. */
 .next-reward .medal { display: grid; place-items: center; width: 34px; height: 34px; color: var(--gold); }
-.next-reward .medal .ico { width: 26px; height: 26px; }
+.next-reward .medal /* Every icon that sits BESIDE A LABEL is sized in `em` so it grows with the
+   label when the reader raises their system text size — the likeliest
+   accessibility setting on a phone, and the one that used to leave a 12px flame
+   next to 15px text. The literal sizes that remain are the six `*-plate` rules
+   and the medal: those are fixed boxes a graphic sits inside, not icons tracking
+   type. */
+.ico { width: 26px; height: 26px; }
 .next-reward h3 { font-size: var(--fs-xl); }
 .next-reward p { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--muted); }
 
@@ -824,7 +863,7 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 /* ============ Today: day line, segments, goal cards ============ */
 
 .daynum {
-  font-size: 38px; font-weight: 900; letter-spacing: -0.03em; line-height: 1;
+  font-size: var(--fs-4xl); font-weight: 900; letter-spacing: -0.03em; line-height: 1;
   text-transform: uppercase; color: var(--text);
 }
 .daynum b { font-weight: 900; }
@@ -890,7 +929,7 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 .entry:last-child { border-bottom: 0; }
 .entry > summary {
   display: flex; justify-content: space-between; gap: 10px; align-items: baseline;
-  min-height: 44px; padding: 9px 2px; cursor: pointer; font-size: var(--fs-md); list-style: none;
+  min-height: 44px; padding: var(--sp-sm) 2px; cursor: pointer; font-size: var(--fs-md); list-style: none;
 }
 .entry > summary::-webkit-details-marker { display: none; }
 /* The native triangle is removed, so something has to say these open. Without a
@@ -957,7 +996,7 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 /* --- ladders --- */
 .rungs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
 .rung {
-  flex: none; min-width: 62px; text-align: center; padding: 9px 6px; border-radius: var(--r-xs);
+  flex: none; min-width: 62px; text-align: center; padding: var(--sp-sm) 6px; border-radius: var(--r-xs);
   background: var(--surface); border: 1px solid var(--stroke);
 }
 .rung b { display: block; font-size: var(--fs-xs); color: var(--faint); letter-spacing: 0.06em; }
@@ -981,7 +1020,6 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 
 
 /* ============ 2026 redesign — type, flat cards, monograms ============ */
-body { font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif; }
 
 /* Numerals carry the hierarchy, so every figure that is the point of its card
    gets the expanded cut. */
@@ -989,7 +1027,7 @@ body { font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif; }
 .reward .medal + h4, .dayhead-streak b {
   font-family: Archivo, sans-serif; font-stretch: 125%; letter-spacing: -0.02em;
 }
-.daynum { font-size: 54px; font-weight: 800; line-height: 0.86; }
+.daynum { font-size: var(--fs-5xl); font-weight: 800; line-height: 0.86; }
 .daynum i { font-size: var(--fs-2xl); color: var(--faint); }
 
 /* ============ line icons ============
@@ -1009,16 +1047,16 @@ body { font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif; }
 .chip { border-radius: 10px; padding: 6px 11px; gap: 7px; font-size: var(--fs-xs); }
 /* An item's glyph keeps its existing box whether it is an emoji or a drawn
    icon, so rows do not reflow depending on which one an item happens to carry. */
-.emoji .ico { width: 22px; height: 22px; color: var(--muted); }
-.plan-main .emoji .ico { width: 18px; height: 18px; }
-.plan-day-head .ico, .goalrow .ico { width: 16px; height: 16px; vertical-align: -0.16em; }
+.emoji .ico { width: 1.5em; height: 1.5em; color: var(--muted); }
+.plan-main .emoji .ico { width: 1.3em; height: 1.3em; }
+.plan-day-head .ico, .goalrow .ico { width: 1.15em; height: 1.15em; vertical-align: -0.16em; }
 
-.chip .ico { width: 15px; height: 15px; color: var(--faint); }
+.chip .ico { width: 1.15em; height: 1.15em; color: var(--faint); }
 .chip b { font-family: Archivo, sans-serif; font-stretch: 125%; font-size: var(--fs-md); }
 
 /* Tabs: a drawn icon over its label, both lit by the active state. */
 .tab { gap: 4px; }
-.tab .ico { width: 21px; height: 21px; stroke-width: 1.8; filter: none; transition: color 0.18s; }
+.tab .ico { width: 1.9em; height: 1.9em; stroke-width: 1.8; filter: none; transition: color 0.18s; }
 .tab i { font-size: var(--fs-xs); font-weight: 600; }
 .tab.active { color: var(--text); }
 .tab.active .ico { color: var(--accent); }
@@ -1038,12 +1076,12 @@ body { font-family: Archivo, "Segoe UI", system-ui, -apple-system, sans-serif; }
    two pieces the redesign kept are still declared here: the meta row separates
    on whitespace rather than on interpuncts, and the streak badge. */
 .gcard-meta span { display: inline-flex; align-items: center; gap: 4px; }
-.gcard-meta .ico { width: 13px; height: 13px; opacity: 0.75; }
+.gcard-meta .ico { width: 1.08em; height: 1.08em; opacity: 0.75; }
 .gcard-streak {
   display: inline-flex; align-items: center; gap: 4px;
   border-radius: 8px; background: color-mix(in srgb, var(--accent) 16%, var(--surface-2)); color: var(--accent-2);
 }
-.gcard-streak .ico { width: 12px; height: 12px; }
+.gcard-streak .ico { width: 1.1em; height: 1.1em; }
 
 /* Segments and switches follow the accent flat, not the gradient. */
 .seg { border-radius: 11px; border-color: var(--stroke); background: var(--surface); }
@@ -1114,7 +1152,7 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 /* --- undo, inside the toast that announced the thing ---
    .toasts is pointer-events:none so a toast never eats a tap; a toast that
    carries an action has to take its own taps back. */
-.toast.has-action { pointer-events: auto; padding: 9px 9px 9px 15px; gap: 12px; }
+.toast.has-action { pointer-events: auto; padding: var(--sp-sm) var(--sp-sm) var(--sp-sm) var(--sp-lg); gap: var(--sp-md); }
 .toast .undo-btn {
   flex: none; min-height: 36px; padding: 0 12px;
   border: 1px solid var(--stroke-strong); border-radius: 10px;
@@ -1187,7 +1225,7 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   padding: var(--sp-lg); border-radius: var(--r); text-align: center;
   background: var(--surface); border: 1px dashed var(--stroke-strong); color: var(--muted);
 }
-.how-photo-add .ico { width: 22px; height: 22px; opacity: 0.8; }
+.how-photo-add .ico { width: 1.6em; height: 1.6em; opacity: 0.8; }
 .how-photo-add b { font-size: var(--fs-base); color: var(--text); font-weight: 700; }
 .how-photo-add small { font-size: var(--fs-xs); color: var(--faint); line-height: 1.45; }
 .how-photo-add:active { transform: scale(0.99); }
@@ -1551,7 +1589,7 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   background: var(--accent); color: var(--on-accent);
   font-size: var(--fs-md); font-weight: 700;
 }
-.headpill .ico { width: 15px; height: 15px; }
+.headpill .ico { width: 1.15em; height: 1.15em; }
 .headpill.quiet { background: var(--surface-2); color: var(--muted); }
 
 /* --- Today's header: the one ember block in the app ---
@@ -1770,7 +1808,7 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   display: block; margin-top: 1px; font-size: var(--fs-sm); color: var(--faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.linkrow > .ico { flex: none; width: 18px; height: 18px; color: var(--faint); }
+.linkrow > .ico { flex: none; width: 1.3em; height: 1.3em; color: var(--faint); }
 .linkrow-plate {
   flex: none; width: 38px; height: 38px; border-radius: 11px;
   display: grid; place-items: center; background: var(--surface-2); color: var(--muted);
@@ -1843,9 +1881,14 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   background: var(--surface-2); border-radius: var(--r-xs); padding: 9px 12px 10px;
 }
 .minifield.wide { flex: 2; }
+/* `--fs-xs` is the floor for anything carrying meaning, and this is the only
+   thing naming the input under it. It stacked every hard case at once — 10px,
+   uppercase, 700, tracked, and the quietest of the three text colours — in the
+   sheet where a goal's baseline and target are set. Mislabelling *start* as
+   *target* is the one misread in this app with a lasting consequence. */
 .minifield > span {
-  display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
-  text-transform: uppercase; color: var(--faint);
+  display: block; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--muted);
 }
 .minifield input {
   display: block; width: 100%; margin-top: 3px; padding: 0; min-height: 24px;
@@ -1879,7 +1922,7 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .archive > summary .body { flex: 1; min-width: 0; }
 .archive > summary b { display: block; font-size: var(--fs-base); font-weight: 700; }
 .archive > summary .body span { display: block; margin-top: 1px; font-size: var(--fs-sm); color: var(--faint); }
-.archive > summary .ico { flex: none; width: 18px; height: 18px; color: var(--faint); transition: transform 0.18s; }
+.archive > summary .ico { flex: none; width: 1.3em; height: 1.3em; color: var(--faint); transition: transform 0.18s; }
 .archive[open] > summary .ico { transform: rotate(90deg); }
 .archive > .card { margin: 0 var(--sp-md) var(--sp-md); }
 
@@ -1904,9 +1947,9 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .ledgercard-item {
   flex: 1; min-width: 0;
   background: color-mix(in srgb, var(--on-cream) 7%, transparent);
-  border-radius: var(--r-xs); padding: 10px 12px;
+  border-radius: var(--r-xs); padding: var(--sp-md);
 }
-.ledgercard-item b { display: block; font-size: 16px; font-weight: 800; }
+.ledgercard-item b { display: block; font-size: var(--fs-xl); font-weight: 800; }
 .ledgercard-item span {
   display: block; margin-top: 2px; font-size: var(--fs-xs); font-weight: 600; opacity: 0.6;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1921,7 +1964,7 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
   display: block; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--faint);
 }
-.statcard b { display: block; margin-top: 6px; font-size: 22px; font-weight: 800; }
+.statcard b { display: block; margin-top: 6px; font-size: var(--fs-2xl); font-weight: 800; }
 .statcard b.good { color: var(--good); }
 .statcard small { display: block; font-size: var(--fs-xs); color: var(--faint); }
 

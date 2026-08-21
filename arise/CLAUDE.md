@@ -314,6 +314,20 @@ resolver — `defOf(p)` — serves both. Use `defOf(entry)` when you have the en
 and `habitIn(run, id)` when you only have an id; plain `habit(id)` is the
 catalog and cannot see a custom habit.
 
+**Token discipline is asserted, not reviewed.** `tools/render.js` fails on a
+pixel-sized icon outside the six `*-plate` rules and the medal, on any off-scale
+`font-size` outside the four named glyph boxes, on a literal size or padding in a
+`style=` attribute in `js/ui.js`, and on a control strip that scrolls sideways.
+Each of those was found by a review rather than by a test, having drifted into
+exactly the literals the scale and the spacing system were introduced to end.
+
+Two of them are worth knowing about specifically. An icon beside a label is sized
+in `em` so it grows when the reader raises their system text size — eleven were
+pinned to pixels, which left a 12px flame beside 15px text. And `--fs-4xl` /
+`--fs-5xl` exist because the scale stopped at 26 while the day counter is 54: a
+scale that cannot express the largest thing on the screen invites the next
+literal.
+
 **Nothing in this app types an emoji, and `tools/render.js` enforces it.** The
 purge was designed, documented and half-finished once already: `exGlyph`
 suppressed every seed exercise glyph while its twin `goalGlyph` was written and
@@ -329,6 +343,14 @@ the mark from the goal's AREA. A field that appears to do something and does
 nothing is worse than no field. The stored `icon` keys stay on both — deleting a
 stored field is the one thing the migration rules forbid — and `exGlyph` still
 honours an exercise glyph chosen before the field was removed.
+
+`exGlyph` decides "the user chose this glyph" by testing membership in the SET of
+every stock icon, never by a lookup keyed on the exercise NAME. Keyed by name it
+was defeated by an ordinary rename: `stockExIcon('Press-ups')` returns nothing
+for a renamed 'Push-ups', so the seed's own glyph — which nobody chose — passed
+both tests and rendered, and the single sentinel covered one of seventeen
+distinct seed icons. There is a test that renames a seeded exercise before
+asserting, and another that a glyph the user really typed still survives one.
 
 The guard is a route sweep plus an editor-sheet sweep for pictographs. The tick,
 the cross, the arrows and the chevrons are carved OUT of the range on purpose:
@@ -427,6 +449,34 @@ it cannot find, so one typo in `PROGRAM_WEEK` drops that lift out of the day in
 silence — no error, no empty row, just a session one exercise shorter than the
 programme says. `tools/smoke.js` asserts every name resolves and that each day's
 item count survives into the plan; nothing else in the app can see it.
+
+**There are two contexts, and one of them plus one day of the other is DRAFTED
+rather than supplied.** `A.PROGRAM_CONTEXTS` is a list of `{id, name, blurb,
+week}`; `programPlan(exercises, contextId)` picks one and `S.reinstallProgram(id)`
+lays it down. The app stores ONE weekly plan, which is the right shape — you are
+on site or you are at home, never both — so a context is an alternative, not a
+second plan. `meta.programContext` records which is on and Plan marks it.
+`A.PROGRAM_WEEK` still exports the site week under its old name so nothing
+downstream had to change.
+
+What is drafted, and it says so where the user reads it rather than only here:
+
+- **Saturday, in both contexts.** The source document lists an accessory session
+  and points at a section that never arrived. It was left empty for a long time
+  on the principle that nothing is invented; asked directly to fill it, it was
+  built from what the other four days LEAVE OUT — arms and rear delts get one
+  exposure each per week, grip and forearms none. It is the lightest training day
+  on purpose, because it sits between Lower B and a rest day and a fifth hard
+  session there would eat the recovery that makes the other four work. There is a
+  test asserting it stays the lightest.
+- **The whole HOME context.** The document named "Context 1" and never described
+  a second. This one assumes a barbell, a rack with pins, a bench and a bar to
+  hang from — an ASSUMPTION, stated in its blurb, and the rows to swap if the
+  real setup differs. The pattern survives any equipment.
+
+Both day titles read "drafted, not from the programme", and `tools/smoke.js`
+asserts that wording is still there. Replace either the moment the real thing
+turns up; nothing depends on these names but the week tables.
 
 The programme itself is Context 1 (SITE, dumbbells only): Mon Upper A, Tue
 Lower A, Wed rest, Thu Upper B, Fri Lower B, Sat accessory, Sun rest. Day 1 is
@@ -719,7 +769,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v69`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v71`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

@@ -385,6 +385,41 @@ behaves('no view types an emoji where the icon table exists', () => {
   return dirty.length ? 'emoji still rendered on: ' + dirty.join(', ') : '';
 });
 
+/* The purge's weakest point, and it took a rename to find: `exGlyph` decided
+   "the user chose this" with a lookup keyed by NAME, so renaming a seeded
+   exercise made its own glyph — which nobody chose — pass the test and render.
+   The route sweep above cannot catch it, because it renders seed names. */
+behaves('renaming a seeded exercise does not put its glyph back on screen', () => {
+  S.resetAll();
+  const seeded = S.get().exercises.find((e) => e.icon && A.SEED_EXERCISES.some((x) => x.name === e.name));
+  if (!seeded) return 'no seeded exercise carries a glyph to check';
+  S.updateExercise(seeded.id, { name: seeded.name + ' renamed' });
+  const day = A.weekday(S.today());
+  S.get().plan[day] = [];
+  S.commit({ type: 'fixture' });
+  S.addToPlan(day, seeded.id);
+  UI.setViewDate(S.today());
+  if (!UI.workoutOpen()) UI.toggleWorkoutOpen();
+  const html = renderRoute('today');
+  UI.toggleWorkoutOpen();
+  return PICTO.test(html) ? 'a seed glyph came back after a rename' : '';
+});
+
+behaves('while a glyph the user actually typed still survives a rename', () => {
+  const mine = S.addExercise({ name: 'Mine', category: 'Other', unit: 'reps', sets: 3, reps: 10, icon: 'ZZ' });
+  const day = A.weekday(S.today());
+  S.get().plan[day] = [];
+  S.commit({ type: 'fixture' });
+  S.addToPlan(day, mine.id);
+  if (!UI.workoutOpen()) UI.toggleWorkoutOpen();
+  const html = renderRoute('today');
+  UI.toggleWorkoutOpen();
+  S.removeExercise(mine.id);
+  /* The rule is "a glyph the user chose wins" — the fix must not turn into
+     "no exercise may ever show a glyph". */
+  return html.indexOf('ZZ') > 0 ? '' : 'a chosen glyph was suppressed along with the stock ones';
+});
+
 behaves('and neither do the editor sheets', () => {
   const g = S.activeGoals()[0];
   const checks = [
@@ -419,6 +454,49 @@ behaves('the editors offer no icon field, and saving still keeps the stored one'
   /* Stored, not deleted: removing a stored field is the one thing this project's
      migration rules forbid. */
   return kept === 'X' ? '' : 'the stored icon was thrown away with the field';
+});
+
+/* Token discipline, asserted rather than reviewed. Each of these drifted once
+   into the literals the scale and the spacing system were introduced to end, and
+   a review found them rather than a test. */
+behaves('every icon beside a label is sized in em, not pixels', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  /* The only rules allowed pixels are fixed boxes a graphic sits inside, never
+     an icon that has to track the text beside it. */
+  const BOXES = /(-plate|\.medal)\s+\.ico/;
+  /* `.ico` as a whole class, not as a prefix: `.icon-btn` contains those four
+     characters and its 44px is the TOUCH TARGET, which must stay literal. */
+  const bad = (css.match(/[^{}]*\.ico(?![\w-])[^{}]*\{[^}]*\}/g) || [])
+    .filter((r) => /width:\s*\d+px/.test(r) && !BOXES.test(r))
+    .map((r) => r.split('{')[0].trim());
+  return bad.length ? 'pixel-sized icons: ' + bad.join(' · ') : '';
+});
+
+behaves('and no text size is off the scale', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  /* The four glyph BOXES are iconography and are exempt by name. */
+  const GLYPH = /\.empty \.big|\.item \.emoji|\.plan-main \.emoji|\.myreward-icon/;
+  const bad = (css.match(/[^{}]*\{[^}]*font-size:\s*\d+px[^}]*\}/g) || [])
+    .filter((r) => !GLYPH.test(r.split('{')[0]))
+    .map((r) => r.split('{')[0].trim());
+  return bad.length ? 'off-scale text: ' + bad.join(' · ') : '';
+});
+
+behaves('and the view layer carries no literal size or padding', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'ui.js'), 'utf8');
+  const bad = (src.match(/style="[^"]*(?:font-size|padding):\s*\d+px[^"]*"/g) || []);
+  return bad.length ? 'literals in js/ui.js: ' + bad.slice(0, 3).join(' · ') : '';
+});
+
+behaves('and a control strip wraps rather than scrolling out of reach', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = /\.cat-tabs\s*\{([^}]*)\}/.exec(css);
+  if (!rule) return 'the category filter rule is gone';
+  if (/overflow-x:\s*auto/.test(rule[1])) return 'the category filter still scrolls sideways';
+  return /flex-wrap:\s*wrap/.test(rule[1]) ? '' : 'it neither wraps nor scrolls';
 });
 
 /* ---------- the storage-error banner ---------- */
@@ -1356,6 +1434,22 @@ behaves('Plan states what the goals actually cost in time', () => {
   /* The run checks its 66 days against a budget; goals never had that check, so
      six practices can ramp to six hours a day with nothing saying so. */
   return html.indexOf('Today these ask') > 0 ? '' : 'it does not say what today asks';
+});
+
+behaves('Plan offers every context, and marks the one that is installed', () => {
+  S.resetAll();
+  UI.setPlanTab('week');
+  const html = renderRoute('plan');
+  UI.setPlanTab('goals');
+  const rows = (html.match(/data-act="program-install"/g) || []).length;
+  if (rows !== A.PROGRAM_CONTEXTS.length) {
+    return `${rows} install rows for ${A.PROGRAM_CONTEXTS.length} contexts`;
+  }
+  /* Each row has to carry WHICH context, or both install the same week and
+     nothing looks wrong until you are on site running a barbell programme. */
+  const missing = A.PROGRAM_CONTEXTS.filter((c) => html.indexOf('data-context="' + c.id + '"') < 0);
+  if (missing.length) return 'rows with no context id: ' + missing.map((c) => c.id).join(', ');
+  return html.indexOf('installed') > 0 ? '' : 'nothing says which one is on';
 });
 
 behaves('the route back to only-my-practices is on Plan', () => {

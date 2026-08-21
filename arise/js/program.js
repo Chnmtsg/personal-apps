@@ -761,11 +761,172 @@
     }
   ];
 
-  const PROGRAM_EXERCISES = WARMUPS.concat(PUSH, PULL, LEGS, CORE, STRETCH, SITE);
+  /* ---------- drafted here, not supplied ----------
 
-  /* ---------- the week: Context 1, SITE (dumbbells only) ----------
+     Everything in this block was written for this app rather than taken from the
+     owner's programme document. The document lists an accessory session on its
+     sixth day and points at a section that never arrived, and it names itself
+     "Context 1", implying a second that never arrived either. Both were left
+     empty for a long time on the principle that nothing gets invented.
 
-     Four training days in a seven-day pattern, which repeats — so "run twice per
+     Asked directly to fill them, this is the fill — and it says so where the user
+     will see it, in the day titles and the context blurb, so it can never be
+     mistaken for the document's own words. Replace any of it the moment the real
+     thing turns up; nothing else depends on these names.
+
+     The accessory session was built from what the other four days LEAVE OUT, not
+     from taste. Across Upper A, Lower A, Upper B and Lower B: biceps and triceps
+     get one exposure each per week, rear delts one, grip and forearms none at
+     all, and the neck nothing. It also sits between Lower B and a rest day, so it
+     has to be light — a fifth hard session there would eat the rest day that
+     makes the other four work. */
+
+  const DRAFTED = [
+    {
+      name: 'Warm-up — Accessory',
+      muscles: ['side_delts','rear_delts','biceps'],
+      category: 'Warm-up', unit: 'time', minutes: 6, icon: '',
+      how: [
+        'Short, because the session behind it is light. 6 minutes.',
+        '1. March or easy walk — 2 min',
+        '2. Arm circles — 15 each way',
+        '3. Band pull-apart, or arm swings — 20',
+        '4. Scapular retraction — 15',
+        '5. Light lateral raise — 15',
+        '',
+        'This is an accessory day. If anything here feels heavy, the week before',
+        'it was too heavy — that is information, not a reason to push.'
+      ].join('\n')
+    },
+    {
+      name: 'Farmer Carry',
+      muscles: ['forearms','traps','abs','obliques'],
+      category: 'Strength', unit: 'time', minutes: 2, icon: '',
+      how: [
+        'A dumbbell in each hand, heavy enough that the last few seconds are hard.',
+        'Stand tall — ribs down, shoulders back and DOWN, not shrugged.',
+        'Walk at a normal pace, or stand still if there is no room.',
+        'Breathe. Holding your breath is the most common mistake here.',
+        'Grip and upper back, which nothing else in this programme trains directly.',
+        'Put them down before your form goes, not after.'
+      ].join('\n')
+    },
+    {
+      name: 'Stretch — Accessory',
+      muscles: ['full'],
+      category: 'Stretch', unit: 'time', minutes: 8, icon: '',
+      how: [
+        'The long one, because there is no session to rush away from. 8 minutes.',
+        '1. Doorway chest stretch — 30 s × 2',
+        '2. Lat stretch on a doorframe — 30 s per side',
+        '3. Overhead triceps — 30 s per side',
+        '4. Forearm flexors and extensors — 25 s each, per side',
+        '5. Couch stretch — 45 s per leg',
+        '6. Hamstring — 30 s per leg',
+        '7. Figure-4 glute — 30 s per leg',
+        '8. Neck side stretch — 20 s per side',
+        'Slowest of the four. This is the one that makes the rest day work.'
+      ].join('\n')
+    },
+
+    /* ---- Context 2: HOME. Assumes a barbell, a rack, a bench and a bar to
+       hang from — the usual "full access" counterpart to dumbbells-only. If the
+       real setup is different, these are the rows to swap; the pattern (press,
+       squat, pull, hinge) survives any equipment. ---- */
+    {
+      name: 'Barbell Back Squat',
+      muscles: ['quads','glutes','hamstrings','lower_back'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 5, repsMax: 8, icon: '',
+      how: [
+        'Bar on the upper back, not the neck. Hands as narrow as the shoulders allow.',
+        'Brace as if about to be punched, then break at the hips and knees together.',
+        'Down until the hip crease passes the knee, if you can do it without the',
+        'lower back rounding. Depth first, load second — always.',
+        'Drive the floor away. The bar path stays over the middle of the foot.',
+        'In a rack, with the pins set. Never without them.'
+      ].join('\n')
+    },
+    {
+      name: 'Barbell Deadlift',
+      muscles: ['hamstrings','glutes','lower_back','traps','forearms'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 3, repsMax: 5, icon: '',
+      how: [
+        'Bar over the middle of the foot. Shins come to the bar, not the bar to the shins.',
+        'Take the slack out before you pull — the bar should click into the plates.',
+        'Chest up, back flat, then push the floor away and stand.',
+        'The set ends when the back rounds. Not when the reps run out.',
+        'Heaviest thing in the programme, and the one worth the fewest reps.'
+      ].join('\n')
+    },
+    {
+      name: 'Barbell Bench Press',
+      muscles: ['chest','front_delts','triceps'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 5, repsMax: 8, icon: '',
+      how: [
+        'Shoulder blades pulled back and down and KEPT there for the whole set.',
+        'Bar to the lower chest, elbows about 45 degrees from the body — not flared.',
+        'Feet flat, no bouncing off the ribs.',
+        'Use the safety pins or a spotter. This is the one lift that can pin you.',
+        'If neither is available, press dumbbells off the floor instead.'
+      ].join('\n')
+    },
+    {
+      name: 'Barbell Overhead Press',
+      muscles: ['front_delts','side_delts','triceps','abs'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 5, repsMax: 8, icon: '',
+      how: [
+        'Bar on the front of the shoulders, elbows just in front of it.',
+        'Squeeze the glutes and abs so the lower back cannot arch to help.',
+        'Move the head back out of the way, press, then finish with the bar over',
+        'the middle of the foot and the head back through.',
+        'The hardest honest test of whether you braced.'
+      ].join('\n')
+    },
+    {
+      name: 'Barbell Row',
+      muscles: ['lats','traps','rear_delts','biceps','lower_back'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 8, repsMax: 12, icon: '',
+      how: [
+        'Hinge to about 45 degrees and hold it. The torso does not rise to move the bar.',
+        'Pull to the bottom of the ribs, elbows past the body.',
+        'Lower under control for two seconds.',
+        'Stop the set the moment the back rounds or the torso starts swinging.'
+      ].join('\n')
+    },
+    {
+      name: 'Pull-up',
+      muscles: ['lats','biceps','forearms','abs'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 4, repsMax: 10, icon: '',
+      how: [
+        'Hang from a bar, hands a little wider than the shoulders.',
+        'Pull the elbows down and back until the chin clears the bar.',
+        'Lower all the way — a half rep down is half a rep.',
+        'Cannot do one yet: hang for time, then lower yourself slowly from the top.',
+        'Negatives build the strength; there is no shortcut worth taking here.'
+      ].join('\n')
+    },
+    {
+      name: 'Barbell Curl',
+      muscles: ['biceps','forearms'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 8, repsMax: 12, icon: '',
+      how: [
+        'Elbows pinned to the sides and STILL. If they travel forward, it is a swing.',
+        'Curl to just short of vertical, then lower for two seconds.',
+        'Lighter than your ego suggests. This one is easy to cheat and pointless cheated.'
+      ].join('\n')
+    }
+  ];
+
+  const PROGRAM_EXERCISES = WARMUPS.concat(PUSH, PULL, LEGS, CORE, STRETCH, SITE, DRAFTED);
+
+  /* ---------- the week, per context ----------
+
+     The programme names itself "Context 1: SITE (dumbbells only)", so there was
+     always meant to be more than one. The app stores ONE weekly plan, which is
+     the right shape — you are on site or you are at home, not both — so contexts
+     are two templates and installing one replaces the plan.
+
+     Four training days in a seven-day pattern, which repeats, so "run twice per
      14-day rotation, 8 sessions" needs nothing special here. The pattern IS the
      week, and the week is what this app stores.
 
@@ -775,22 +936,22 @@
 
      Day 1 is read as Monday. Nothing in the programme names a weekday, and the
      app stores a plan per weekday rather than a rolling counter, so the two had
-     to be pinned together somewhere; Monday-first is what every other screen in
-     the app already assumes. Drag it in Plan if your rotation starts elsewhere.
+     to be pinned together somewhere; Monday-first is what every other screen
+     already assumes. Drag it in Plan if your rotation starts elsewhere.
 
      `reps`/`repsMax` and `minutes` override the exercise defaults per day, so
      Lower B can ask for a different rep range than Lower A on the same lift.
 
      `note` carries the PRESCRIPTION — reps per side, the RIR target, the rest
      interval, and any tempo the day asks for. The durable technique lives in the
-     exercise's own `how`, which is what the ⓘ on each row opens. The split is
-     deliberate: a cue is true every time you do the lift, an RIR target is true
-     on this day of this programme.
+     exercise's own `how`. A cue is true every time you do the lift; an RIR target
+     is true on this day of this programme.
 
-     Daily Shift Mobility is on all seven days, including both rest days, because
-     the programme says so in as many words: "Training day or not." */
+     Daily Shift Mobility is on all seven days of both contexts, including the
+     rest days, because the programme says so in as many words: "Training day or
+     not." */
 
-  const PROGRAM_WEEK = {
+  const SITE_WEEK = {
     1: {
       title: 'Upper A — press emphasis',
       items: [
@@ -819,12 +980,7 @@
         { name: 'Daily Shift Mobility' }
       ]
     },
-    3: {
-      title: 'Rest',
-      items: [
-        { name: 'Daily Shift Mobility' }
-      ]
-    },
+    3: { title: 'Rest', items: [{ name: 'Daily Shift Mobility' }] },
     4: {
       title: 'Upper B — pull emphasis',
       items: [
@@ -856,25 +1012,138 @@
       ]
     },
     6: {
-      /* The programme's own table lists an accessory-and-mobility session here
-         and points at a section that was not supplied. Nothing is invented in
-         its place: the day carries the mobility routine it is already owed, and
-         the session goes in when its content arrives. */
-      title: 'Accessory & mobility — session not yet supplied',
+      /* DRAFTED — not from the programme document, which pointed at a section
+         that never arrived. Built from what the other four days leave out: arms
+         and rear delts get one exposure each per week, grip and forearms none.
+         Light on purpose — Lower B is the day before and Sunday is a rest day,
+         and a fifth hard session here would eat the recovery that makes the
+         other four work. */
+      title: 'Accessory & mobility (drafted, not from the programme)',
       items: [
+        { name: 'Warm-up — Accessory' },
+        { name: 'Dumbbell Lateral Raise', sets: 3, reps: 15, repsMax: 20, note: 'third side-delt exposure · 1 RIR · rest 60 s' },
+        { name: 'Rear Delt Fly', sets: 3, reps: 15, repsMax: 20, note: 'second rear-delt exposure · 1 RIR · rest 60 s' },
+        { name: 'Dumbbell Curl', sets: 2, reps: 12, repsMax: 15, note: 'second biceps exposure · 1 RIR · rest 60 s' },
+        { name: 'Overhead Dumbbell Triceps Extension', sets: 2, reps: 12, repsMax: 15, note: 'second triceps exposure · 1 RIR · rest 60 s' },
+        { name: 'Farmer Carry', minutes: 2, note: '3 × 40 s · grip and upper back · rest 60 s' },
+        { name: 'Side-Lying Dumbbell External Rotation', sets: 2, reps: 15, note: 'per side · 4 RIR · rest 45 s' },
+        { name: 'Dead Bug', sets: 2, reps: 10, note: 'per side · rest 45 s' },
+        { name: 'Stretch — Accessory' },
         { name: 'Daily Shift Mobility' }
       ]
     },
-    0: {
-      title: 'Rest',
-      items: [
-        { name: 'Daily Shift Mobility' }
-      ]
-    }
+    0: { title: 'Rest', items: [{ name: 'Daily Shift Mobility' }] }
   };
 
-  A.PROGRAM_EXERCISES = PROGRAM_EXERCISES;
-  A.PROGRAM_WEEK = PROGRAM_WEEK;
+  /* Context 2 — HOME. DRAFTED IN FULL: the document named a second context and
+     never described one. Same four-session pattern, same RIR and rest
+     conventions, barbell where the site context uses dumbbells.
 
-  if (typeof module !== 'undefined' && module.exports) module.exports = { PROGRAM_EXERCISES, PROGRAM_WEEK };
+     It assumes a barbell, a rack with pins, a bench and something to hang from.
+     That is the usual "full access" counterpart to dumbbells-only, and it is an
+     ASSUMPTION — if the real setup is different these are the rows to swap, and
+     the pattern (press, squat, pull, hinge) survives any equipment.
+
+     The warm-ups and stretches are the site ones. They are marches, leg swings,
+     cat-cows and doorway stretches; none of them was ever dumbbell-specific. */
+  const HOME_WEEK = {
+    1: {
+      title: 'Upper A — press emphasis',
+      items: [
+        { name: 'Warm-up — Upper A' },
+        { name: 'Barbell Bench Press', sets: 3, reps: 5, repsMax: 8, note: '2 RIR · rest 3 min · pins or a spotter, always' },
+        { name: 'Barbell Overhead Press', sets: 3, reps: 5, repsMax: 8, note: '2 RIR · rest 3 min · glutes and abs braced' },
+        { name: 'Barbell Row', sets: 3, reps: 8, repsMax: 12, note: '2 RIR · rest 2 min · torso stays at 45°' },
+        { name: 'Dumbbell Lateral Raise', sets: 3, reps: 12, repsMax: 20, note: '1 RIR · rest 75 s' },
+        { name: 'Overhead Dumbbell Triceps Extension', sets: 2, reps: 10, repsMax: 12, note: '1–2 RIR · rest 90 s' },
+        { name: 'Side-Lying Dumbbell External Rotation', sets: 2, reps: 15, note: 'per side · 4 RIR · rest 45 s' },
+        { name: 'Stretch — Upper A' },
+        { name: 'Daily Shift Mobility' }
+      ]
+    },
+    2: {
+      title: 'Lower A — squat emphasis',
+      items: [
+        { name: 'Warm-up — Lower A' },
+        { name: 'Barbell Back Squat', sets: 3, reps: 5, repsMax: 8, note: '2 RIR · rest 3 min · depth first, load second' },
+        { name: 'Dumbbell Romanian Deadlift', sets: 3, reps: 8, repsMax: 12, note: '2–3 RIR · rest 2–3 min' },
+        { name: 'Bulgarian Split Squat', sets: 2, reps: 10, repsMax: 12, note: 'per leg · 2 RIR · rest 90 s' },
+        { name: 'Standing Calf Raise', sets: 4, reps: 12, repsMax: 20, note: '0–1 RIR · rest 60 s' },
+        { name: 'Dead Bug', sets: 2, reps: 10, note: 'per side · rest 45 s' },
+        { name: 'Copenhagen Plank', minutes: 1, note: '2 × 20 s per side, knee on the bench · rest 45 s' },
+        { name: 'Stretch — Lower A' },
+        { name: 'Daily Shift Mobility' }
+      ]
+    },
+    3: { title: 'Rest', items: [{ name: 'Daily Shift Mobility' }] },
+    4: {
+      title: 'Upper B — pull emphasis',
+      items: [
+        { name: 'Warm-up — Upper B' },
+        { name: 'Pull-up', sets: 3, reps: 4, repsMax: 10, note: '2 RIR · rest 2–3 min · full hang, slow negatives if you have none yet' },
+        { name: 'Barbell Row', sets: 3, reps: 8, repsMax: 12, note: '2 RIR · rest 2 min' },
+        { name: 'Dumbbell Pullover', sets: 3, reps: 10, repsMax: 12, note: '2 RIR · rest 90 s' },
+        { name: 'Rear Delt Fly', sets: 3, reps: 15, repsMax: 20, note: 'chest-supported or bent · 1 RIR · rest 60 s' },
+        { name: 'Barbell Curl', sets: 3, reps: 8, repsMax: 12, note: '1–2 RIR · rest 90 s · elbows still' },
+        { name: 'Hammer Curl', sets: 2, reps: 10, repsMax: 12, note: '1–2 RIR · rest 60 s' },
+        { name: 'Dumbbell Lateral Raise', sets: 2, reps: 15, repsMax: 20, note: 'second side-delt exposure · 1 RIR · rest 60 s' },
+        { name: 'Stretch — Upper B' },
+        { name: 'Daily Shift Mobility' }
+      ]
+    },
+    5: {
+      title: 'Lower B — hinge and unilateral emphasis',
+      items: [
+        { name: 'Warm-up — Lower B' },
+        { name: 'Barbell Deadlift', sets: 3, reps: 3, repsMax: 5, note: '2–3 RIR · rest 3 min · the set ends when the back rounds' },
+        { name: 'Dumbbell Reverse Lunge', sets: 3, reps: 10, note: 'per leg · 2 RIR · rest 2 min' },
+        { name: 'Goblet Squat', sets: 2, reps: 12, repsMax: 15, note: 'tempo: 4 s down, 1 s pause · light · 2 RIR · rest 90 s' },
+        { name: 'Single-Leg Calf Raise', sets: 4, reps: 12, repsMax: 20, note: 'per leg · 0–1 RIR · rest 60 s' },
+        { name: 'Hamstring Slider Curl', sets: 2, reps: 6, repsMax: 10, note: 'or Nordic negative · 2 RIR · rest 90 s' },
+        { name: 'Lying Leg Raise', sets: 3, reps: 10, repsMax: 15, note: '1 RIR · rest 60 s' },
+        { name: 'Side Plank', minutes: 1, note: '2 × 30 s per side · rest 45 s' },
+        { name: 'Stretch — Lower B' },
+        { name: 'Daily Shift Mobility' }
+      ]
+    },
+    6: {
+      title: 'Accessory & mobility (drafted, not from the programme)',
+      items: [
+        { name: 'Warm-up — Accessory' },
+        { name: 'Dumbbell Lateral Raise', sets: 3, reps: 15, repsMax: 20, note: 'third side-delt exposure · 1 RIR · rest 60 s' },
+        { name: 'Rear Delt Fly', sets: 3, reps: 15, repsMax: 20, note: 'second rear-delt exposure · 1 RIR · rest 60 s' },
+        { name: 'Barbell Curl', sets: 2, reps: 12, repsMax: 15, note: 'second biceps exposure · 1 RIR · rest 60 s' },
+        { name: 'Overhead Dumbbell Triceps Extension', sets: 2, reps: 12, repsMax: 15, note: 'second triceps exposure · 1 RIR · rest 60 s' },
+        { name: 'Farmer Carry', minutes: 2, note: '3 × 40 s · grip and upper back · rest 60 s' },
+        { name: 'Side-Lying Dumbbell External Rotation', sets: 2, reps: 15, note: 'per side · 4 RIR · rest 45 s' },
+        { name: 'Dead Bug', sets: 2, reps: 10, note: 'per side · rest 45 s' },
+        { name: 'Stretch — Accessory' },
+        { name: 'Daily Shift Mobility' }
+      ]
+    },
+    0: { title: 'Rest', items: [{ name: 'Daily Shift Mobility' }] }
+  };
+
+  const PROGRAM_CONTEXTS = [
+    {
+      id: 'site',
+      name: 'On site',
+      blurb: 'Dumbbells only, limited time. The programme as written.',
+      week: SITE_WEEK
+    },
+    {
+      id: 'home',
+      name: 'At home',
+      blurb: 'Barbell, rack, bench and a bar to hang from. Drafted for this app, not supplied.',
+      week: HOME_WEEK
+    }
+  ];
+
+  A.PROGRAM_EXERCISES = PROGRAM_EXERCISES;
+  A.PROGRAM_CONTEXTS = PROGRAM_CONTEXTS;
+  /* The default context, still exported under its old name so every existing
+     caller and test keeps working. `programPlan` takes a context id now. */
+  A.PROGRAM_WEEK = SITE_WEEK;
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = { PROGRAM_EXERCISES, PROGRAM_CONTEXTS, PROGRAM_WEEK: SITE_WEEK };
 })(typeof window !== 'undefined' ? window : globalThis);
