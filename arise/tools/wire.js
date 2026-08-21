@@ -526,6 +526,28 @@ console.log('\nthe bad-day floor and the +10% line, through app.js');
   S.removeGoal(plain.id);
 }
 
+console.log('\nlines worth keeping, through app.js');
+{
+  S.resetAll();
+  const before = S.lines().length;
+  click({ act: 'lines-open' });
+  ok('the sheet opens', resolve('#sheetBody').innerHTML.indexOf('data-act="line-add"') > 0);
+
+  resolve('#ln_text').value = '   ';
+  click({ act: 'line-add' });
+  ok('a blank line keeps nothing', S.lines().length === before, S.lines().length);
+
+  resolve('#ln_text').value = 'Systems outlast motivation.';
+  resolve('#ln_src').value = 'my own';
+  click({ act: 'line-add' });
+  ok('a real one is kept', S.lines().length === before + 1 && S.lines()[0].text.indexOf('Systems') === 0,
+     S.lines()[0]);
+
+  const id = S.lines()[0].id;
+  click({ act: 'line-rm', id: id });
+  ok('and can be removed again', !S.lines().some((l) => l.id === id));
+}
+
 console.log('\nthe cookie jar, through app.js');
 {
   S.resetAll();

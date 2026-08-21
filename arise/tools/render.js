@@ -356,8 +356,69 @@ behaves('the exercise picker escapes icons too', () => {
 });
 
 behaves('the escaped icon is still rendered, just inert', () => {
+  /* The sentinel used to be the habit row on More, which no longer draws a
+     glyph at all — every habit was getting the same stock tick, which carried
+     nothing and disagreed with how Today draws the same habit. The exercise
+     library still renders a user-chosen icon, so it is the surface that can
+     still prove "escaped, not swallowed". It lives behind a fold. */
+  const wasOpen = UI.libOpen();
+  if (!wasOpen) UI.toggleLibOpen();
   const html = renderRoute('more');
+  if (!wasOpen) UI.toggleLibOpen();
   return html.indexOf('&lt;img') >= 0 ? '' : 'the icon vanished instead of being escaped';
+});
+
+/* The emoji purge was designed, documented and half-finished once already:
+   `exGlyph` suppressed every seed exercise glyph while its twin `goalGlyph` was
+   written and never called from anywhere, so the rule held on one screen and not
+   the other. This is the guard against it drifting back.
+
+   Pictographs and dingbats only. The monochrome marks the app uses as chrome —
+   the tick, the cross, the arrows, the chevrons — are deliberately outside this
+   range: they take `currentColor` and read as text rather than as pictures. */
+const PICTO = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{2712}\u{2718}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u;
+
+behaves('no view types an emoji where the icon table exists', () => {
+  S.resetAll();
+  UI.setViewDate(S.today());
+  const dirty = ROUTES.filter((r) => PICTO.test(renderRoute(r)));
+  return dirty.length ? 'emoji still rendered on: ' + dirty.join(', ') : '';
+});
+
+behaves('and neither do the editor sheets', () => {
+  const g = S.activeGoals()[0];
+  const checks = [
+    ['goal editor', () => UI.openGoalEditor(g.id)],
+    ['goal detail', () => UI.openGoalDetail(g.id, S.today())],
+    ['exercise editor', () => UI.openExerciseEditor(S.get().exercises[0].id)],
+    ['reward editor', () => UI.openRewardEditor(null)],
+    ['templates', () => UI.openGoalTemplates()]
+  ];
+  const bad = checks
+    .filter(([, open]) => {
+      sheetBody.innerHTML = '';
+      open();
+      return PICTO.test(sheetBody.innerHTML);
+    })
+    .map(([name]) => name);
+  return bad.length ? 'emoji in: ' + bad.join(', ') : '';
+});
+
+/* A form field that appears to do something and does nothing is worse than no
+   field. The goal editor offered an Icon input whose value rendered nowhere on
+   Today or Plan, because both draw the mark from the goal's AREA. */
+behaves('the editors offer no icon field, and saving still keeps the stored one', () => {
+  const g = S.addGoal({ name: 'Icon test', unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5, icon: 'X' });
+  sheetBody.innerHTML = '';
+  UI.openGoalEditor(g.id);
+  const html = sheetBody.innerHTML;
+  const kept = S.goalById(g.id).icon;
+  S.removeGoal(g.id);
+  if (html.indexOf('id="gg_icon"') >= 0) return 'the goal editor still offers an inert icon field';
+  if (sheetBody.innerHTML.indexOf('id="e_icon"') >= 0) return 'the exercise editor still offers one';
+  /* Stored, not deleted: removing a stored field is the one thing this project's
+     migration rules forbid. */
+  return kept === 'X' ? '' : 'the stored icon was thrown away with the field';
 });
 
 /* ---------- the storage-error banner ---------- */
@@ -1159,6 +1220,26 @@ behaves('and a goal without a floor is offered no such thing', () => {
   return html.indexOf('data-act="goal-floor"') < 0 ? '' : 'it invented a minimum nobody set';
 });
 
+behaves('Today carries one line, read on the way in', () => {
+  S.resetAll();
+  UI.setViewDate(S.today());
+  const html = renderRoute('today');
+  if (html.indexOf('class="quoteline"') < 0) return 'no line on Today';
+  const line = S.lineForDay(S.today());
+  if (html.indexOf(line.text.slice(0, 20)) < 0) return 'the line shown is not the one for this day';
+  /* Above the day's work, not below it: it is meant to be read on the way in,
+     not handed over as a reward on the way out. */
+  const q = html.indexOf('class="quoteline"');
+  const cards = html.indexOf('class="gcard');
+  return cards < 0 || q < cards ? '' : 'the line sits below the day it is meant to open';
+});
+
+behaves('and none at all once they are all deleted', () => {
+  S.lines().slice().forEach((l) => S.removeLine(l.id));
+  const html = renderRoute('today');
+  return html.indexOf('class="quoteline"') < 0 ? '' : 'it invented a line with the list empty';
+});
+
 behaves('the cookie jar holds the user own words, and nothing the app wrote', () => {
   S.resetAll();
   sheetBody.innerHTML = '';
@@ -1429,7 +1510,8 @@ behaves('every state class the run UI emits is actually styled', () => {
                   '.paycard', '.linkrow', '.segbar.tabs .seg.on', '.goalcard', '.goalcard-bar > i', '.footnote', '.gatecard.is-done', '.minifield', '.readprompt', '.archive[open] > summary .ico', '.ledgercard', '.statcard', '.lvlrow-bar > i', '.myreward.is-ready', '.btn.gold', '.promptrow', '.reward .claimed-mark', '.dest', '.dest > span.is-ready', '.label.split', '.mode-card.on',
                   '.misstwice', '.linkrow.jarrow', '.linkrow.is-asked', '.linkrow-tick',
                   '.deload', '.cyclebar.is-deload', '.minsum',
-                  '.chart-ask', '.chart-key.did', '.chart-key.ask', '.spark', '.chips.quick'];
+                  '.chart-ask', '.chart-key.did', '.chart-key.ask', '.spark', '.chips.quick',
+                  '.quoteline', '.archive.catalogue'];
   const missing = needed.filter((sel) => css.indexOf(sel) < 0);
   if (missing.length) return 'no rule for: ' + missing.join(', ');
   return css.indexOf(':has(:checked)') < 0 ? '' : 'a dead :has(:checked) rule is still in the sheet';
@@ -1473,6 +1555,30 @@ behaves('the run can be started with a habit the catalog does not have', () => {
     return 'no way to write your own on the start screen — the catalog is all you get';
   }
   return html.indexOf('Write your own') > 0 ? '' : 'the route is there but unlabelled';
+});
+
+behaves('the practices come before the catalogue, not after it', () => {
+  S.resetAll();
+  UI.resetRunPicks();
+  const html = renderRoute('run');
+  const goals = html.indexOf('From your goals');
+  const own = html.indexOf('data-act="run-custom-open"');
+  const cat = html.indexOf('The built-in catalogue');
+  if (goals < 0) return 'the practices are not offered';
+  if (cat < 0) return 'the catalogue is not there at all — it is the floor for an empty pick';
+  /* It used to open with three headed sections of skincare and flossing above
+     anything of the user's own. The run is for what somebody is trying to
+     become; the catalogue is the fallback. */
+  return goals < own && own < cat ? '' : `order goals=${goals} own=${own} catalogue=${cat}`;
+});
+
+behaves('and the catalogue is folded rather than filling the screen', () => {
+  S.resetAll();
+  UI.resetRunPicks();
+  const html = renderRoute('run');
+  const at = html.indexOf('The built-in catalogue');
+  const head = html.slice(Math.max(0, at - 400), at);
+  return head.indexOf('<details') >= 0 ? '' : 'the catalogue is not behind a disclosure';
 });
 
 behaves('and the catalog it offers is the whole catalog', () => {

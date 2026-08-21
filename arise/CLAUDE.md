@@ -314,6 +314,57 @@ resolver — `defOf(p)` — serves both. Use `defOf(entry)` when you have the en
 and `habitIn(run, id)` when you only have an id; plain `habit(id)` is the
 catalog and cannot see a custom habit.
 
+**Nothing in this app types an emoji, and `tools/render.js` enforces it.** The
+purge was designed, documented and half-finished once already: `exGlyph`
+suppressed every seed exercise glyph while its twin `goalGlyph` was written and
+**never called from anywhere in the tree**, so Today drew its icons and Read
+painted five cartoon faces. Roughly 150 sites were typed against a guidelines
+line that says chrome icons are drawn.
+
+The fix was overwhelmingly deletion — exactly one new icon was needed (`snow`,
+for the streak freeze; nothing else in the table can mean "freeze"). Two form
+fields went with it: the goal editor and the exercise editor each offered an Icon
+input, and the goal one **rendered nowhere on Today or Plan** because both draw
+the mark from the goal's AREA. A field that appears to do something and does
+nothing is worse than no field. The stored `icon` keys stay on both — deleting a
+stored field is the one thing the migration rules forbid — and `exGlyph` still
+honours an exercise glyph chosen before the field was removed.
+
+The guard is a route sweep plus an editor-sheet sweep for pictographs. The tick,
+the cross, the arrows and the chevrons are carved OUT of the range on purpose:
+they take `currentColor` and read as typography. See `knowledge/ui-guidelines.md`
+for why each of the three old carve-outs — mood faces, difficulty glyphs,
+milestone medals — was overturned.
+
+**The run is built from the user's own practices; the catalogue is the floor.**
+The start screen used to open with three headed sections and fourteen cards of
+skincare, flossing and brushing teeth, above anything of the user's own. That is
+backwards — a run is for what somebody is trying to become, and the catalogue is
+what stops the screen being empty when they have nothing of their own yet. It
+reads goals first, then write-your-own, then the catalogue folded behind a
+disclosure.
+
+Making that real needed an engine change, not just a reorder. Custom habits used
+to be appended AFTER `buildRun`, and a custom offered to an empty run is refused
+for failing `min_habits` — the first of three, and the second, and the third. So
+they are part of the DRAFT now: `buildRun` takes an `extras` array of whole
+entries, `repair` strips whichever does not fit exactly as it does for a catalog
+habit, and the floor counts both kinds. The DEFAULT_PICKS fallback fires only
+when the user chose *nothing at all* — somebody who picked four of their own
+practices and no catalog habit has chosen, and handing them the default six would
+be the app overruling that. `tools/smoke.js` asserts a run of three practices and
+no catalog habit builds, validates across all 66 days and starts on day one.
+
+**A line a day is the user's to keep, and the seeded ones can all be deleted.**
+`state.lines` holds short attributed lines; Today shows one, rotated by the DATE
+the way the reading prompt is, so it holds for a day and can be argued with
+rather than changing on every repaint. A generic motivational quote fails this
+app's own test in `knowledge/project.md` — it says nothing true about anybody's
+life — but a line somebody CHOSE to keep passes, because the choosing is the
+fact. The seeded set is real, short and attributed, seeded ONCE behind
+`meta.linesSeeded` rather than by version number, so deleting them all is
+permanent and no update hands them back.
+
 **A run can be built from habits the catalog does not have, and that route has
 to be on the START screen.** The catalog is fourteen and closed, so writing your
 own is the only way a run holds anything else — and for a long time
@@ -668,7 +719,7 @@ manifest and icon links (breaking PWA install) and added a Google Fonts
 If a tool offers to inline the app into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v67`. Without it an installed copy keeps
+anything in `fonts/`. Currently `discipline-v69`. Without it an installed copy keeps
 serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

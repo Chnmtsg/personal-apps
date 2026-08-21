@@ -130,11 +130,10 @@
    * derived rather than stored.
    *
    * The editors' own placeholders count as stock too. A goal created and never
-   * given an icon carries `🎯` because the field defaulted to it, not because
+   * given an icon carried a stock one because the field defaulted to it, not
    * anybody picked it, and seven goals all showing the same target is exactly
    * the noise this replaces.
    */
-  const STOCK_GOAL_ICON = '🎯';
   const STOCK_EX_ICON = '🏋️';
   let stockByName = null;
 
@@ -155,15 +154,12 @@
     return chosen ? esc(ex.icon) : icon(CATEGORY_ICON[ex.category] || 'dumbbell');
   }
 
-  function goalGlyph(g) {
-    if (!g) return icon('star');
-    const seed = (A.SEED_GOALS || []).find((s) => s.key && s.key === g.key);
-    const chosen = g.icon && g.icon !== (seed && seed.icon) && g.icon !== STOCK_GOAL_ICON;
-    return chosen ? esc(g.icon) : icon(SECTION_ICON[g.section] || 'star');
-  }
-
-  /** The drawn icon for a goal area, used where a section labels a group. */
-  const sectionGlyph = (id) => icon(SECTION_ICON[id] || 'star');
+  /* `goalGlyph` and `sectionGlyph` used to live here and had NO CALLERS anywhere
+     in the tree — Today and Plan both went straight to `icon(SECTION_ICON[...])`.
+     A goal's mark is drawn from its area now and neither editor offers an icon
+     field, so there is nothing left for them to resolve. `exGlyph` above is the
+     one still needed: an exercise given a glyph before the field was removed
+     still renders it. */
 
   /* ---------- formatting ---------- */
 
@@ -183,7 +179,7 @@
     const ex = S.exerciseById(item.exerciseId);
     // `icon` is ready-to-insert HTML from here down, so its call sites must not
     // escape it a second time. Anything user-typed is escaped inside exGlyph.
-    if (!ex) return { icon: esc('❓'), name: 'Removed exercise', sub: '', dose: '', cat: 'Other' };
+    if (!ex) return { icon: '', name: 'Removed exercise', sub: '', dose: '', cat: 'Other' };
     /* `dose` on its own as well as inside `sub`: Today puts it in a column of
        its own so the row fits on one line, and Plan still reads as a sentence. */
     return {
@@ -714,7 +710,7 @@
             })
             .join('');
         })()
-      : `<div class="empty"><span class="big">🛌</span>No exercises scheduled for ${esc(A.DAY_NAMES[A.weekday(k)])}.<br>
+      : `<div class="empty">No exercises scheduled for ${esc(A.DAY_NAMES[A.weekday(k)])}.<br>
          <button class="link" data-act="go-plan" data-day="${A.weekday(k)}">Plan this day →</button></div>`;
 
     /* What the folded heading says, and it has to be true at a glance: how much
@@ -731,7 +727,7 @@
     const extraHtml = extras
       .map(
         (x) => `<div class="item done"><span class="tick" aria-hidden="true">✓</span>
-          <span class="emoji" aria-hidden="true">⭐</span>
+          <span class="emoji" aria-hidden="true">${icon('star')}</span>
           <span class="body"><span class="name">${esc(x.name)}</span><span class="sub">Bonus effort</span></span>
           <button class="icon-btn" data-act="rm-extra" data-id="${x.id}" aria-label="Remove">✕</button></div>`
       )
@@ -752,7 +748,7 @@
               <span class="body"><span class="name">${esc(h.name)}</span><span class="sub">${
                 S.settings().requireHabits ? 'Counts toward the day' : 'Optional'
               }</span></span>
-              ${hs > 1 ? `<span class="pill fire">🔥 ${hs}</span>` : ''}
+              ${hs > 1 ? `<span class="pill fire">${icon('flame')} ${hs}</span>` : ''}
             </button>`;
           })
           .join('')
@@ -794,8 +790,19 @@
       ? shown.length
         ? shown.map((e) => goalCard(e, k)).join('')
         : `<div class="empty">Nothing ${esc(todayFilter === 'todo' ? 'left to do' : todayFilter)} here.</div>`
-      : `<div class="empty"><span class="big">🎯</span>No goals scheduled for this day.<br>
+      : `<div class="empty">No goals scheduled for this day.<br>
          <button class="link" data-nav="plan">Set some up →</button></div>`;
+
+    /* One line, the same one all day. It sits under the header and above the
+       day's work because it is meant to be read on the way in, not offered as a
+       reward on the way out. */
+    const todayLine = offset === 0 ? S.lineForDay(k) : null;
+    const lineRow = todayLine
+      ? `<button type="button" class="quoteline" data-act="lines-open">
+          <span class="quoteline-text">${esc(todayLine.text)}</span>
+          ${todayLine.source ? `<span class="quoteline-src">${esc(todayLine.source)}</span>` : ''}
+        </button>`
+      : '';
 
     /* The recovery half. Every push this app makes is only safe underneath it,
        which is why it is the first thing on the screen when the week comes
@@ -946,6 +953,7 @@
       </section>
 
       ${deloadNote}
+      ${lineRow}
       ${missTwice}
       ${jarRow}
 
@@ -1065,7 +1073,7 @@
 
       ${
         offset === 0 && mLeft < 240
-          ? `<p class="faint" style="text-align:center;font-size:var(--fs-sm);margin:4px 0 0">⏳ ${mLeft} min left to log ${esc(
+          ? `<p class="faint" style="text-align:center;font-size:var(--fs-sm);margin:4px 0 0">${mLeft} min left to log ${esc(
               relative.toLowerCase()
             )} — the day rolls over at ${esc(A.prettyTime(S.settings().dayBoundaryHour * 60))}.</p>`
           : ''
@@ -1074,10 +1082,10 @@
         offset < 0 && !frozen && st.status !== 'complete' && st.status !== 'rest'
           ? `<button class="btn ghost block" data-act="freeze" data-date="${k}" style="margin-top:10px" ${
               fz.available ? '' : 'disabled'
-            }>❄️ Use a streak freeze on this day · ${fz.available} left</button>`
+            }>${icon('snow')} Use a streak freeze on this day · ${fz.available} left</button>`
           : ''
       }
-      ${frozen ? `<button class="btn ghost block" data-act="unfreeze" data-date="${k}" style="margin-top:10px">❄️ Frozen — tap to undo</button>` : ''}
+      ${frozen ? `<button class="btn ghost block" data-act="unfreeze" data-date="${k}" style="margin-top:10px">${icon('snow')} Frozen — tap to undo</button>` : ''}
       ${st.done > 0 ? `<button class="btn ghost block" data-act="clear-day" style="margin-top:4px">Reset this day's log</button>` : ''}
       ${strip}
     `;
@@ -1122,7 +1130,7 @@
       scheduleText(g)
     )}${g.gate === 'summary' ? ' · summary required' : ''}</div>
         </div>
-        <button class="icon-btn" data-act="goal-edit" data-id="${g.id}" aria-label="Edit ${esc(g.name)}">✎</button>
+        <button class="icon-btn" data-act="goal-edit" data-id="${g.id}" aria-label="Edit ${esc(g.name)}">${icon('pen')}</button>
       </div>
       <div class="goalcard-bar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div>
       <div class="goalcard-hint">${esc(advanceHint(g, tl))}${
@@ -1338,15 +1346,23 @@
   const ARCHIVE_MAX = 40;
   const archiveCount = (n) => (n > ARCHIVE_MAX ? `showing ${ARCHIVE_MAX} of ${n}` : String(n));
 
+  /* Names, not faces. The `icon` field these used to carry is gone: nothing
+     reads it any more, and it was the thing making the value unreadable — the
+     same stored index drew a different picture on every platform. The list stays
+     APPEND-ONLY regardless, because the stored value is an index into it and
+     reordering would silently re-label every entry ever written. */
   const MOODS = [
-    { icon: '😞', name: 'Rough' },
-    { icon: '😕', name: 'Low' },
-    { icon: '😐', name: 'Okay' },
-    { icon: '🙂', name: 'Good' },
-    { icon: '😄', name: 'Great' }
+    { name: 'Rough' },
+    { name: 'Low' },
+    { name: 'Okay' },
+    { name: 'Good' },
+    { name: 'Great' }
   ];
 
-  const moodIcon = (i) => (MOODS[i] ? MOODS[i].icon : '');
+  /* The archive used to print the face alone, so the one carrier of the value
+     was a picture the reader could not reliably tell apart. The name is the
+     honest label, and it was already stored on the entry. */
+  const moodName = (i) => (MOODS[i] ? MOODS[i].name : '');
 
   /** How many words are in it. The one number on this screen that has to be
       live, because it is next to the button that closes the day. */
@@ -1447,7 +1463,7 @@
           .map((d) => {
             const e = S.journalEntry(d);
             return `<details class="entry"><summary>
-                <b>${esc(A.prettyDate(d))}</b><span>${e.mood != null ? moodIcon(e.mood) : ''}</span>
+                <b>${esc(A.prettyDate(d))}</b><span>${e.mood != null ? esc(moodName(e.mood)) : ''}</span>
               </summary><p>${esc(e.text || '')}</p></details>`;
           })
           .join('')
@@ -1482,16 +1498,22 @@
               }</div>
               ${readingForm(k)}
             </section>`
-          : `<div class="empty"><span class="big">📖</span>No reading goal yet.<br>
+          : `<div class="empty">No reading goal yet.<br>
              <button class="link" data-act="goal-new">Create one →</button></div>`
       }
 
       <div class="label">Daily journal</div>
       <section class="card">
+        <!-- The NAME, not a face. Two of the five differ by a few pixels of
+             mouth curvature at this size, and which picture appears is the
+             platform's decision rather than the app's — the same stored index
+             showed a different face on iOS, Android and Windows. The name was
+             already on every entry and already in the aria-label; this puts it
+             where the eye is. The stored value is unchanged: an index. -->
         <div class="mood-row">${MOODS.map(
           (m, i) =>
             `<button type="button" class="mood ${j.mood === i ? 'on' : ''}" data-act="mood" data-i="${i}" data-date="${k}"
-              aria-label="${esc(m.name)}" aria-pressed="${j.mood === i}">${m.icon}</button>`
+              aria-pressed="${j.mood === i}">${esc(m.name)}</button>`
         ).join('')}</div>
         <textarea id="dayNote" data-date="${k}" rows="4" aria-label="Journal for this day"
           placeholder="How did the day actually go?">${esc(j.text || '')}</textarea>
@@ -1807,7 +1829,7 @@
         const p = S.customRewardProgress(r);
         return `<article class="myreward ${p.claimed ? 'is-claimed' : ''} ${p.unlocked ? 'is-ready' : ''}">
           <button type="button" class="myreward-open" data-act="reward-edit" data-id="${r.id}">
-            <span class="myreward-icon" aria-hidden="true">${esc(r.icon || '🎁')}</span>
+            <span class="myreward-icon" aria-hidden="true">${r.icon ? esc(r.icon) : icon('gift')}</span>
             <span class="myreward-body">
               <span class="myreward-name">${esc(r.name)}</span>
               <span class="myreward-trig">${esc(rewardTrigger(r))}${
@@ -1856,19 +1878,19 @@
     const nextCard = next
       ? `<section class="card next-reward">
           <div class="top">
-            <span class="medal">${next.icon}</span>
+            <span class="medal">${icon('trophy')}</span>
             <div><h3>Next: ${esc(next.name)}</h3><p>${esc(next.blurb)}</p></div>
           </div>
           <div class="xpbar-top"><span>${best} / ${next.days} days</span><span>${next.days - best} to go · +${fmtXp(next.xp)} XP</span></div>
           ${bar((best / next.days) * 100, 'gold')}
         </section>`
-      : `<section class="card next-reward"><div class="top"><span class="medal">🌟</span>
+      : `<section class="card next-reward"><div class="top"><span class="medal">${icon('trophy')}</span>
           <div><h3>Every milestone unlocked</h3><p>You've cleared the whole ladder. Legend.</p></div></div></section>`;
 
     const grid = list
       .map(
         (r) => `<div class="reward ${r.unlocked ? 'unlocked' : ''} ${r.claimed ? 'claimed' : ''}">
-          <span class="medal">${r.icon}</span>
+          <span class="medal">${icon('trophy')}</span>
           <h4>${r.days} days</h4>
           ${
             r.unlocked
@@ -1925,7 +1947,7 @@
 
   function openRewardEditor(id, draft) {
     const r = id ? S.customRewards().find((x) => x.id === id) : null;
-    const v = Object.assign({ name: '', icon: '🎁', source: 'overall', goalId: null, days: 14 }, r || {}, draft || {});
+    const v = Object.assign({ name: '', icon: '', source: 'overall', goalId: null, days: 14 }, r || {}, draft || {});
     const goals = S.activeGoals();
     openSheet(r ? 'Edit reward' : 'New reward', `
       <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Name something you actually want, and what it costs in
@@ -1934,7 +1956,7 @@
         <label class="field"><span>Reward</span>
           <input type="text" id="rw_name" maxlength="40" value="${esc(v.name)}" placeholder="New sneakers"></label>
         <label class="field"><span>Icon</span>
-          <input type="text" id="rw_icon" maxlength="4" value="${esc(v.icon || '🎁')}"></label>
+          <input type="text" id="rw_icon" maxlength="4" value="${esc(v.icon || '')}" placeholder="optional"></label>
       </div>
       <label class="field"><span>Earned by</span><select id="rw_source">
         <option value="overall" ${v.source !== 'goal' ? 'selected' : ''}>A streak of complete days</option>
@@ -1967,7 +1989,7 @@
           <div class="body"><div class="name">${esc(e.name)}</div><div class="sub">${esc(e.category)} · ${esc(
           e.unit === 'time' ? (e.minutes || 10) + ' min' : e.unit === 'distance' ? (e.km || 1) + ' km' : (e.sets || 3) + ' × ' + (e.reps || 10)
         )}</div></div>
-          <button class="icon-btn" data-act="lib-edit" data-id="${e.id}" aria-label="Edit">✎</button>
+          <button class="icon-btn" data-act="lib-edit" data-id="${e.id}" aria-label="Edit">${icon('pen')}</button>
           <button class="icon-btn" data-act="lib-rm" data-id="${e.id}" aria-label="Delete">✕</button>
         </div>`
       )
@@ -1977,8 +1999,7 @@
       ? S.get()
           .habits.map(
             (h) => `<div class="row">
-              <span class="emoji" style="font-size:20px">${esc(h.icon || '✅')}</span>
-              <div class="body"><div class="name">${esc(h.name)}</div><div class="sub">🔥 ${S.habitStreak(h.id)} day streak</div></div>
+              <div class="body"><div class="name">${esc(h.name)}</div><div class="sub">${icon('flame')} ${S.habitStreak(h.id)} day streak</div></div>
               <button class="icon-btn" data-act="habit-to-goal" data-id="${h.id}"
                 aria-label="Make ${esc(h.name)} a goal that progresses">${icon('level')}</button>
               <button class="icon-btn" data-act="habit-rm" data-id="${h.id}" aria-label="Delete">✕</button>
@@ -2011,7 +2032,7 @@
         preview = `step ${A.formatValue(example.unit === 'time' ? 'minutes' : example.unit, step)}`;
       }
       return `<button type="button" class="mode-card ${s.mode === id ? 'on' : ''}" data-act="set-mode" data-mode="${id}">
-        <span class="mode-glyph">${m.icon}</span><b>${esc(m.name)}</b>
+        <b>${esc(m.name)}</b>
         <small>${esc(m.blurb)}</small>
         ${preview ? `<i>${esc(example.name)}: ${esc(preview)}</i>` : ''}
       </button>`;
@@ -2354,7 +2375,7 @@
     // Prefill from the picker search only when the editor was opened from the plan picker.
     const prefill = route === 'plan' ? picker.q : '';
     const v = Object.assign(
-      { name: prefill, category: 'Other', unit: 'reps', sets: 3, reps: 10, minutes: 20, km: 3, icon: '🏋️' },
+      { name: prefill, category: 'Other', unit: 'reps', sets: 3, reps: 10, minutes: 20, km: 3 },
       e || {},
       draft || {}
     );
@@ -2365,7 +2386,11 @@
     openSheet(e ? 'Edit exercise' : 'New exercise', `
       <label class="field"><span>Name</span><input type="text" id="e_name" maxlength="40" value="${esc(v.name)}" placeholder="Incline dumbbell press"></label>
       <div class="grid-2">
-        <label class="field"><span>Icon</span><input type="text" id="e_icon" maxlength="4" value="${esc(v.icon || '🏋️')}"></label>
+        <!-- No Icon field here either. What was typed in it rendered at 24px in
+           the workout list beside drawn icons, in the platform's own colours at
+           its own weight. The stored value stays and an exercise that already
+           has a glyph still shows it; there is just no control inviting a new
+           one. -->
         <label class="field"><span>Category</span><select id="e_cat">${A.CATEGORIES.map(
           (c) => `<option ${v.category === c ? 'selected' : ''}>${c}</option>`
         ).join('')}</select></label>
@@ -2416,7 +2441,7 @@
         .map((d) => {
           const n = (S.get().plan[d] || []).length;
           return `<button type="button" class="item" data-act="plan-copy-from" data-from="${d}" data-day="${target}">
-            <span class="emoji">📋</span>
+            <span class="emoji">${icon('calendar')}</span>
             <span class="body"><span class="name">${A.DAY_NAMES[d]}</span><span class="sub">${n} exercise${n === 1 ? '' : 's'}</span></span>
             <span class="trail">COPY</span></button>`;
         })
@@ -2689,23 +2714,23 @@
       rungs.push(`<div class="rung more"><b>…</b><span>${tl.maxLevel - RUNG_LIMIT} more</span></div>`);
     }
 
-    openSheet(g.icon + ' ' + g.name, `
+    openSheet(g.name, `
       <p class="muted" style="margin-top:0;font-size:var(--fs-md)">${esc(g.blurb || '')}</p>
       <div class="stat-grid" style="margin-bottom:12px">
-        <div class="stat fire"><b>🔥 ${tl.streak}</b><span>Streak</span></div>
+        <div class="stat fire"><b>${icon('flame')} ${tl.streak}</b><span>Streak</span></div>
         <div class="stat"><b>${tl.level}/${tl.maxLevel}</b><span>Level</span></div>
         <div class="stat good"><b>${tl.doneDays}</b><span>Days kept</span></div>
         <div class="stat gold"><b>${ups}</b><span>Steps earned</span></div>
       </div>
       <div class="card">
-        <div class="xpbar-top"><span>Now: ${esc(targetPhrase(g, tl.target))}</span><span>${mode.icon} ${esc(mode.name)}</span></div>
+        <div class="xpbar-top"><span>Now: ${esc(targetPhrase(g, tl.target))}</span><span>${esc(mode.name)}</span></div>
         ${bar(tl.atTarget ? 100 : (tl.windowHits / Math.max(1, tl.windowNeeded)) * 100, tl.atRisk ? 'warn' : '')}
         <div class="faint" style="font-size:var(--fs-sm);margin-top:8px">${esc(advanceHint(g, tl))}</div>
         ${
           tl.missesAllowed
             ? `<div class="faint" style="font-size:var(--fs-sm);margin-top:4px">${
                 tl.atRisk
-                  ? '⚠️ One more missed day steps you back a level.'
+                  ? 'One more missed day steps you back a level.'
                   : `Miss ${tl.missesAllowed} scheduled days in a row and you step back one level${
                       downs ? ` (that has happened ${downs}×)` : ''
                     }.`
@@ -2724,7 +2749,7 @@
           : `<div class="btn-row" style="margin-top:14px">
         <button class="btn primary" data-act="${g.gate === 'summary' ? 'open-read' : 'goal-log'}" data-id="${goalId}"
                 data-date="${key}" style="flex:1">${
-              g.gate === 'summary' ? '📖 Write the summary' : '📝 Log this day'
+              g.gate === 'summary' ? 'Write the summary' : 'Log this day'
             }</button>
       </div>
       ${
@@ -2767,6 +2792,45 @@
    * proves it happened, because "I'm tough" is not evidence and cannot be
    * reached for. The app writes none of them.
    */
+  /**
+   * Lines worth keeping.
+   *
+   * One a day on Today, the whole list here. The app's rule is that a feature has
+   * to tell the user something true about their life — a generic slogan fails
+   * that, but a line somebody CHOSE to keep passes, because the choosing is the
+   * fact. So this is theirs to fill, and the seeded few are short, real,
+   * attributed, and every one of them can be deleted.
+   */
+  function openLines() {
+    const list = S.lines();
+    openSheet('Lines worth keeping', `
+      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">One shows on Today, the same one
+        all day, changing with the date rather than at random — a line that changes every time the
+        screen repaints is noise. Keep the ones you would argue with, not the ones that flatter you.</p>
+      <label class="field"><span>The line</span>
+        <textarea id="ln_text" rows="3" maxlength="240"
+          placeholder="Consistency compounds; intensity does not."></textarea></label>
+      <label class="field"><span>Where it came from (optional)</span>
+        <input type="text" id="ln_src" maxlength="60" placeholder="A book, a person, or nothing"></label>
+      <div class="btn-row"><button class="btn primary block" data-act="line-add">Keep it</button></div>
+      ${
+        list.length
+          ? `<div class="label">${list.length} kept</div>
+             <div class="card flush">${list
+               .map(
+                 (l) => `<div class="row"><div class="body">
+                   <div class="sub" style="color:var(--text);font-size:var(--fs-base);line-height:1.5">${esc(l.text)}</div>
+                   ${l.source ? `<div class="sub">${esc(l.source)}</div>` : ''}
+                 </div>
+                 <button class="icon-btn" data-act="line-rm" data-id="${esc(l.id)}" aria-label="Remove">&#10005;</button></div>`
+               )
+               .join('')}</div>
+             <p class="footnote">The ones that came with the app can go too. Nothing here is fixed.</p>`
+          : `<p class="footnote">Empty. Nothing will show on Today until you keep something.</p>`
+      }
+    `);
+  }
+
   function openCookieJar() {
     const list = S.cookies();
     openSheet('The cookie jar', `
@@ -2806,7 +2870,7 @@
         honestly do today, not what you wish you could; the ladder is built from there.</p>
       <div class="card flush">${A.GOAL_TEMPLATES.map(
         (t) => `<div class="row">
-          <span class="emoji" style="font-size:20px">${esc(t.icon)}</span>
+          <span class="linkrow-plate" aria-hidden="true">${icon(SECTION_ICON[t.section] || 'star')}</span>
           <div class="body">
             <div class="name">${esc(t.name)}</div>
             <div class="sub">${esc(t.blurb)}</div>
@@ -2826,7 +2890,7 @@
     const g = id ? S.goalById(id) : null;
     const v = Object.assign(
       {
-        name: '', icon: '🎯', section: 'custom', unit: 'minutes', direction: 'up',
+          name: '', icon: '', section: 'custom', unit: 'minutes', direction: 'up',
         baseline: 5, target: 30, step: 5, mode: 'inherit', track: 'value',
         schedule: { type: 'daily' }, advance: A.Goals.DEFAULT_ADVANCE, regress: A.Goals.DEFAULT_REGRESS, gate: null
       },
@@ -2838,13 +2902,15 @@
     const reg = v.regress === false ? null : Object.assign({}, A.Goals.DEFAULT_REGRESS, v.regress || {});
 
     openSheet(g ? 'Edit goal' : 'New goal', `
-      <div class="grid-2">
-        <label class="field"><span>Name</span><input type="text" id="gg_name" maxlength="32" value="${esc(v.name)}" placeholder="Wake up"></label>
-        <label class="field"><span>Icon</span><input type="text" id="gg_icon" maxlength="4" value="${esc(v.icon || '🎯')}"></label>
-      </div>
+      <!-- No Icon field. A goal's mark is drawn from its area, so anything typed
+           here rendered nowhere on Today or Plan — a control that appears to do
+           something and does nothing. The stored field stays: it costs nothing,
+           and deleting a stored field is the one thing this project's migration
+           rules forbid. -->
+      <label class="field"><span>Name</span><input type="text" id="gg_name" maxlength="32" value="${esc(v.name)}" placeholder="Wake up"></label>
       <div class="grid-2">
         <label class="field"><span>Area</span><select id="gg_section">${A.SECTIONS.map(
-          (s) => `<option value="${s.id}" ${v.section === s.id ? 'selected' : ''}>${s.icon} ${esc(s.name)}</option>`
+          (s) => `<option value="${s.id}" ${v.section === s.id ? 'selected' : ''}>${esc(s.name)}</option>`
         ).join('')}</select></label>
         <label class="field"><span>Measured in</span><select id="gg_unit">${Object.keys(A.UNITS)
           .map((u) => `<option value="${u}" ${v.unit === u ? 'selected' : ''}>${esc(A.UNITS[u].label)}</option>`)
@@ -2885,7 +2951,7 @@
         beats zero permanently.</p>
       <label class="field"><span>Difficulty for this goal</span><select id="gg_mode">
         <option value="inherit" ${v.mode === 'inherit' ? 'selected' : ''}>Follow app setting (${esc(A.MODES[S.settings().mode].name)})</option>
-        ${A.MODE_IDS.map((m) => `<option value="${m}" ${v.mode === m ? 'selected' : ''}>${A.MODES[m].icon} ${A.MODES[m].name}</option>`).join('')}
+        ${A.MODE_IDS.map((m) => `<option value="${m}" ${v.mode === m ? 'selected' : ''}>${esc(A.MODES[m].name)}</option>`).join('')}
       </select></label>
 
       <div class="section-head" style="margin-top:4px"><h2>When it counts</h2></div>
@@ -3490,14 +3556,42 @@
         resumes it with one tap.</p>`;
   }
 
+  /**
+   * The built-in catalogue, folded away.
+   *
+   * It used to be the subject of the start screen: three headed sections and
+   * fourteen cards of skincare, flossing and brushing teeth, above the user's own
+   * practices. That is the wrong way round — a run is for what somebody is trying
+   * to become, and the catalogue is the fallback for when they have nothing of
+   * their own yet.
+   *
+   * Folded rather than deleted. `buildRun` still needs it for the floor when a
+   * selection is empty, a stored run can still name one, and somebody with no
+   * goals at all would otherwise face an empty screen.
+   */
   function runPicker() {
     const chosen = currentRunPicks();
-    return PICK_DOMAINS.map((d) => {
+    const total = A.Run.HABITS.length;
+    const on = A.Run.HABITS.filter((h) => chosen.indexOf(h.id) >= 0).length;
+    const body = PICK_DOMAINS.map((d) => {
       const rows = A.Run.HABITS.filter((h) => h.domain === d.id);
-      return `<div class="section-head"><h2>${esc(d.name)}</h2>
-          <span class="faint">${rows.filter((h) => chosen.indexOf(h.id) >= 0).length} of ${rows.length}</span></div>
+      if (!rows.length) return '';
+      return `<div class="label">${esc(d.name)}</div>
         <div class="pickgrid">${rows.map((h) => pickCard(h, chosen.indexOf(h.id) >= 0)).join('')}</div>`;
     }).join('');
+
+    return `<details class="archive catalogue" ${on ? 'open' : ''}>
+      <summary>
+        <span class="body"><b>The built-in catalogue</b>
+          <span>${total} general habits · ${on ? on + ' chosen' : 'nothing chosen'}</span></span>
+        ${icon('chev')}
+      </summary>
+      <div style="padding:0 var(--sp-md) var(--sp-md)">
+        <p class="footnote" style="margin-top:0">Generic, and here for when you have nothing of your
+          own to put in yet. Your practices above are the better place to start.</p>
+        ${body}
+      </div>
+    </details>`;
   }
 
   function renderRun() {
@@ -3546,6 +3640,8 @@
           of the 66 days has to be a day you can actually do. Fewer than
           ${A.Run.MIN_HABITS} and the rest is filled in for you.</p>
 
+        ${runGoalPicker()}
+
         <!-- The catalog is fourteen habits and deliberately closed, so this is
              the only way a run can hold something it does not have. It used to
              exist ONLY inside the mid-run "Add a habit" sheet, which meant the
@@ -3574,9 +3670,10 @@
             : ''
         }
 
-        ${runGoalPicker()}
 
         <div id="runPicker">${runPicker()}</div>
+        <p class="faint pickhint">A run of your own practices is the point of it. The catalogue is
+          there so the screen is never empty, not because it is what you should pick.</p>
         <button class="btn primary block" data-act="run-start" style="margin-top:14px">Start the run · ${
           currentRunPicks().length + draftCustoms.length
         } chosen</button>`;
@@ -4025,6 +4122,7 @@
   };
   UI.removeDraftCustom = (key) => { draftCustoms = draftCustoms.filter((d) => d.key !== key); };
   UI.openGoalDetail = openGoalDetail;
+  UI.openLines = openLines;
   UI.openCookieJar = openCookieJar;
   UI.openGoalTemplates = openGoalTemplates;
   UI.openGoalEditor = openGoalEditor;

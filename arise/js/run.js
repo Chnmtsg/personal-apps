@@ -691,23 +691,41 @@
      nobody re-derives after the thing it indexes into changes. */
   const DEFAULT_PICKS = ['walk', 'stretch', 'brush_teeth', 'vitamins', 'floss', 'language'];
 
-  function buildRun(startDate, minutesBudget, picks, together) {
+  /**
+   * @param {object[]} [extras] habits the user wrote or brought in from a goal,
+   *   as whole entries carrying their own `custom` definition.
+   *
+   * They are part of the DRAFT rather than appended afterwards, and that is the
+   * only way a run built from nothing but the user's own practices can exist:
+   * `validate` enforces `min_habits`, so a custom offered to an empty run is
+   * refused for being the first of three — and the second, and the third. In the
+   * draft they are simply habits, `repair` strips whichever does not fit exactly
+   * as it does for catalog ones, and the floor counts them.
+   */
+  function buildRun(startDate, minutesBudget, picks, together, extras) {
     const budget = minutesBudget || 45;
+    const own = (extras || []).filter((p) => p && p.custom && cleanCustom(p.custom));
     const draft = (list) => ({
       startDate: startDate,
       minutesBudget: budget,
       startTogether: !!together,
-      habits: list.map((id, i) => ({
-        habitId: id, startDay: together ? 1 : 1 + i * 7, scale: 1, frozenDay: null
-      })),
+      habits: list
+        .map((id, i) => ({
+          habitId: id, startDay: together ? 1 : 1 + i * 7, scale: 1, frozenDay: null
+        }))
+        .concat(
+          own.map((p, i) =>
+            Object.assign({}, p, { startDay: together ? 1 : 1 + (list.length + i) * 7 })
+          )
+        ),
       log: {}
     });
     const toFloor = (list) => {
       const out = list.slice();
       DEFAULT_PICKS.forEach((id) => {
-        if (out.length < MIN_HABITS && out.indexOf(id) < 0) out.push(id);
+        if (out.length + own.length < MIN_HABITS && out.indexOf(id) < 0) out.push(id);
       });
-      return out.slice(0, MAX_HABITS);
+      return out.slice(0, Math.max(0, MAX_HABITS - own.length));
     };
 
     /* `repair` strips a programme below the habit floor rather than ship a day
@@ -717,12 +735,15 @@
        The Python original reads a sub-floor result as the signal to substitute
        its dull fallback; here the survivors are kept and the floor is topped up
        around them, so the user keeps whatever of their choice actually fits. */
-    let chosen = (picks && picks.length ? picks : DEFAULT_PICKS).filter(isCatalogId);
+    /* The fallback fires only when the user chose NOTHING at all. Somebody who
+       picked four of their own practices and no catalog habit has chosen; giving
+       them the default six would be the app overruling that. */
+    let chosen = (picks && picks.length ? picks : own.length ? [] : DEFAULT_PICKS).filter(isCatalogId);
     let out = null;
     for (let pass = 0; pass < 3; pass++) {
       out = repair(draft(toFloor(chosen)), 0).run;
       if (out.habits.length >= MIN_HABITS) return openOnDayOne(out);
-      const survivors = out.habits.map((p) => p.habitId);
+      const survivors = out.habits.filter((p) => isCatalogId(p.habitId)).map((p) => p.habitId);
       /* Nothing new to try: the same survivors would be topped up the same way
          and repaired to the same place. Fall through to the floor below. */
       if (survivors.join(',') === chosen.join(',')) break;

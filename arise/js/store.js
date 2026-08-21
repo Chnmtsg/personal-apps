@@ -4,6 +4,13 @@
 
   const A = root.Arise;
   const G = A.Goals;
+
+  /** A stored line. Its own id so an undo can put the same one back. */
+  const mkLine = (l) => ({
+    id: A.uid('ln'),
+    text: String((l && l.text) || '').slice(0, 240),
+    source: String((l && l.source) || '').slice(0, 60)
+  });
   const STORAGE_KEY = 'arise.state.v1';
   // The one deliberate exception to "all state lives under one key". This is a
   // lifeboat, not state: nothing in the normal read path ever touches it. It
@@ -84,6 +91,7 @@
       customRewards: [],
       /* The user's own evidence, and empty on purpose — see `addCookie`. */
       cookies: [],
+      lines: (A.SEED_LINES || []).map(mkLine),
       // A fixed-length run — "66 days" — that the day counter counts against.
       challenges: [],
       /* The 66-day run, or null for the great majority of accounts that never
@@ -269,6 +277,7 @@
        written before it existed simply has none, and the app must never write
        one for them — a cookie somebody else composed is not evidence. */
     s.cookies = Array.isArray(s.cookies) ? s.cookies : [];
+
     s.challenges = Array.isArray(s.challenges) ? s.challenges : [];
 
     /* v3 → v4: the 66-day run. Purely additive, and null is the honest default:
@@ -297,6 +306,18 @@
        skip it there too — which is the flag masking its own subject. */
     const hadMusclesV6 = !!(s.meta && s.meta.musclesV6);
     s.meta = Object.assign({}, base.meta, s.meta || {});
+
+    /* Lines: additive, and seeded ONCE. Guarded by its own flag rather than by
+       the version number, so somebody who deletes every line does not get them
+       handed back on the next update — the same rule `programInstalled` follows
+       and for the same reason. An existing list is never overwritten.
+
+       It has to sit after `s.meta` is merged, or the flag is written onto
+       undefined. It did exactly that the first time. */
+    if (!Array.isArray(s.lines)) {
+      s.lines = s.meta.linesSeeded ? [] : (A.SEED_LINES || []).map(mkLine);
+    }
+    s.meta.linesSeeded = true;
 
     s.goals.forEach((g) => {
       g.schedule = g.schedule || { type: 'daily' };
@@ -671,7 +692,9 @@
     const g = G.fromSeed(
       Object.assign(
         {
-          name: 'New goal', icon: '🎯', section: 'custom',
+          /* No stock glyph. A goal's mark is drawn from its area, so a default
+             here only ever wrote a character nothing renders. */
+          name: 'New goal', icon: '', section: 'custom',
           unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5,
           blurb: ''
         },
@@ -992,56 +1015,58 @@
     // One run at a time. Replacing a live one would erase days the user earned,
     // which is the same thing the day counter refuses to do.
     if (state.run) return state.run;
-    state.run = A.Run.buildRun(today(), minutesBudget || 45, picks, together !== false);
-    /* Checklists edited on the picker, before there was a run to store them
-       against. Applied only to habits that survived `buildRun`. */
-    if (items) {
-      state.run.habits.forEach((p) => {
-        if (Array.isArray(items[p.habitId]) && items[p.habitId].length) p.items = items[p.habitId].slice();
-      });
-    }
-
-    /* Written habits, offered to the run in the order they were written.
-       `firstLegalStart` with a day of 0 asks "the earliest day from day one",
-       which is what a run being born wants — `legalStartDays` counts from
-       `today + 1`, and before a run exists there is no today in it. */
+    /* The user's own habits go INTO the build rather than after it. Appended
+       afterwards they could never be the first three: `validate` enforces
+       `min_habits`, so the first custom offered to an empty run is refused for
+       being one of one. In the draft they are habits like any other, and a run
+       made of nothing but the user's own practices becomes possible. */
     runRefused = [];
+    const own = [];
     (customs || []).forEach((def) => {
       const clean = A.Run.cleanCustom(def);
       if (!clean) return;
-      if (state.run.habits.length >= A.Run.MAX_HABITS) {
-        runRefused.push({ name: (def && def.name) || 'it', why: 'full' });
-        return;
-      }
-      const id = 'c_' + A.uid('').replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase();
       /* `min` is minutes of daily cost per unit of dose, and the budget check is
-         built on it. The form asks the answerable version of the question — how
-         long the whole thing takes once you are at the target — because "how
-         many minutes is one push-up" is not a question anybody can answer. */
+         built on it. The form asks the answerable version — how long the whole
+         thing takes at the target — because "how many minutes is one push-up" is
+         not a question anybody can answer. */
       const atTarget = Number(def.minutesAtTarget);
       const perUnit = isFinite(atTarget) && atTarget > 0 && clean.target > 0
         ? atTarget / clean.target
         : clean.min;
       const entry = {
-        habitId: id, startDay: 1, scale: 1, frozenDay: null,
+        habitId: 'c_' + A.uid('').replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase(),
+        startDay: 1, scale: 1, frozenDay: null,
         custom: {
           name: clean.name, unit: clean.unit, domain: clean.domain,
           start: clean.start, target: clean.target, step: clean.step,
           min: perUnit > 0 ? perUnit : 1, friction: clean.friction
         }
       };
-      const startDay = A.Run.firstLegalStart(state.run, entry, 0);
-      if (startDay == null) {
-        runRefused.push({ name: clean.name, why: 'no_room' });
-        return;
-      }
       /* Where it came from, beside the definition rather than inside it:
-         `cleanCustom` returns a fixed shape and would drop it, and it is a fact
-         about the run's history rather than about the habit's ramp. */
-      const placed = Object.assign({}, entry, { startDay: startDay });
-      if (def.fromGoal) placed.fromGoal = def.fromGoal;
-      state.run.habits.push(placed);
+         `cleanCustom` returns a fixed shape and would drop it. */
+      if (def.fromGoal) entry.fromGoal = def.fromGoal;
+      own.push(entry);
     });
+
+    state.run = A.Run.buildRun(today(), minutesBudget || 45, picks, together !== false, own);
+
+    /* What the budget could not hold, by name. `repair` strips rather than
+       refuses — every one of the 66 days has to be doable — so a selection that
+       does not fit comes back smaller, and saying nothing would be the app
+       quietly deciding for somebody. */
+    const placed = {};
+    (state.run.habits || []).forEach((p) => { if (p.custom) placed[p.custom.name] = true; });
+    own.forEach((p) => {
+      if (!placed[p.custom.name]) runRefused.push({ name: p.custom.name, why: 'no_room' });
+    });
+
+    /* Checklists edited on the picker, before there was a run to store them
+       against. Applied only to habits that survived the build. */
+    if (items) {
+      state.run.habits.forEach((p) => {
+        if (Array.isArray(items[p.habitId]) && items[p.habitId].length) p.items = items[p.habitId].slice();
+      });
+    }
 
     /* A goal the run has taken over is PAUSED, in the same commit that starts
        the run. Leaving it active would put the same commitment on Today twice —
@@ -1776,7 +1801,7 @@
 
   function addCustomReward(data) {
     const r = Object.assign(
-      { id: A.uid('rw'), name: 'New reward', icon: '🎁', source: 'overall', goalId: null, days: 14, claimedOn: null },
+      { id: A.uid('rw'), name: 'New reward', icon: '', source: 'overall', goalId: null, days: 14, claimedOn: null },
       data || {}
     );
     r.days = Math.max(1, Math.round(Number(r.days) || 1));
@@ -2207,7 +2232,7 @@
 
   function addExercise(data) {
     const ex = Object.assign(
-      { id: A.uid('ex'), name: 'New exercise', category: 'Other', unit: 'reps', sets: 3, reps: 10, icon: '🏋️', muscles: [] },
+      { id: A.uid('ex'), name: 'New exercise', category: 'Other', unit: 'reps', sets: 3, reps: 10, icon: '', muscles: [] },
       data || {}
     );
     // Only ids the catalog knows, whatever the caller passed.
@@ -2378,6 +2403,50 @@
      is not a cookie, and neither is a sentence a program wrote about you. Every
      entry here was typed by the person it happened to. */
 
+  /* ---------- lines worth keeping ----------
+
+     One a day, on Today. Rotated by the DATE rather than at random, the same way
+     the reading prompt is: a line that changes every time the screen repaints is
+     noise, and one that changes on a schedule can be read, argued with and
+     remembered.
+
+     The app writes none of them beyond the seeded set, and every one of those
+     can be deleted. See A.SEED_LINES for why that boundary is where it is. */
+
+  const lines = () => state.lines || [];
+
+  function addLine(text, source) {
+    const t = String(text == null ? '' : text).trim().slice(0, 240);
+    if (!t) return null;
+    const l = mkLine({ text: t, source: String(source == null ? '' : source).trim().slice(0, 60) });
+    state.lines.unshift(l);
+    commit({ type: 'lineAdd', id: l.id });
+    return l;
+  }
+
+  function removeLine(id) {
+    const i = lines().findIndex((l) => l.id === id);
+    if (i < 0) return null;
+    const gone = state.lines[i];
+    state.lines.splice(i, 1);
+    commit({ type: 'lineRemove', id: id });
+    return { line: gone, index: i };
+  }
+
+  function restoreLine(line, index) {
+    if (!line || lines().some((l) => l.id === line.id)) return;
+    state.lines.splice(Math.max(0, Math.min(index == null ? 0 : index, state.lines.length)), 0, line);
+    commit({ type: 'lineRestore', id: line.id });
+  }
+
+  /** The one for this day. Deterministic, so it is the same line all day. */
+  function lineForDay(dateKey) {
+    const all = lines();
+    if (!all.length) return null;
+    const n = Math.abs(A.daysBetween('2024-01-01', dateKey || today()));
+    return all[n % all.length];
+  }
+
   const cookies = () => state.cookies || [];
 
   function addCookie(text) {
@@ -2433,7 +2502,7 @@
   }
 
   function addHabit(name, icon) {
-    const h = { id: A.uid('hb'), name: (name || 'New habit').trim(), icon: icon || '✅' };
+    const h = { id: A.uid('hb'), name: (name || 'New habit').trim(), icon: icon || '' };
     state.habits.push(h);
     commit({ type: 'habitAdd', id: h.id });
     return h;
@@ -2465,7 +2534,7 @@
     const goal = G.fromSeed(
       Object.assign(
         {
-          name: habit.name, icon: habit.icon || '🎯', section: 'custom',
+          name: habit.name, icon: habit.icon || '', section: 'custom',
           unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5, blurb: ''
         },
         data || {}
@@ -2623,6 +2692,7 @@
     addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan, reinstallProgram,
     takeRunRefusals, takeRunPaused, runCandidateGoals,
     cookies, addCookie, removeCookie, restoreCookie, missedYesterday, deloadWeek,
+    lines, addLine, removeLine, restoreLine, lineForDay,
     installPractices, undoInstallPractices, goalSeries,
     addExercise, updateExercise, removeExercise, addHabit, removeHabit, habitStreak,
     habitToGoal, restoreHabitFromGoal,

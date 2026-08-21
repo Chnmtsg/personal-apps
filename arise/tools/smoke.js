@@ -794,6 +794,40 @@ ok('a goal without one is unaffected', (() => {
 S.removeGoal(fg.id);
 
 /* ------------------------------------------------------------------ */
+section('lines worth keeping');
+S.resetAll();
+ok('a few come with the app', S.lines().length >= 5, S.lines().length);
+ok('and every one is attributed rather than anonymous',
+   S.lines().every((l) => l.text && l.source), S.lines().filter((l) => !l.source));
+/* Rotated by the DATE, not at random: a line that changes on every repaint is
+   noise, and one that holds for a day can be argued with. */
+const lk = S.today();
+ok('the same line all day', S.lineForDay(lk).id === S.lineForDay(lk).id);
+ok('and a different one tomorrow', S.lines().length < 2 ||
+   S.lineForDay(lk).id !== S.lineForDay(A.addDays(lk, 1)).id,
+   [S.lineForDay(lk).text, S.lineForDay(A.addDays(lk, 1)).text]);
+
+const ln = S.addLine('  Consistency compounds; intensity does not.  ', ' my own ');
+ok('one of your own goes in, trimmed', !!ln && ln.text.indexOf('Consistency') === 0, ln);
+ok('with its source', !!ln && ln.source === 'my own', ln && ln.source);
+ok('newest first', S.lines()[0].id === ln.id);
+ok('a blank line is refused', S.addLine('   ') === null);
+
+const lgone = S.removeLine(ln.id);
+ok('one can be removed', !!lgone && !S.lines().some((l) => l.id === ln.id));
+S.restoreLine(lgone.line, lgone.index);
+ok('and put back as the same entry', S.lines()[lgone.index].id === ln.id);
+
+/* The seeded ones are the app talking, so they must be deletable and must not
+   come back. Anything else would be the app insisting. */
+S.lines().slice().forEach((l) => S.removeLine(l.id));
+ok('every line can be deleted, seeded ones included', S.lines().length === 0);
+ok('and Today then shows none rather than inventing one', S.lineForDay(lk) === null);
+const wiped = JSON.parse(S.exportJson());
+S.importJson(JSON.stringify(wiped));
+ok('they do not come back on the next load', S.lines().length === 0, S.lines().length);
+
+/* ------------------------------------------------------------------ */
 section('the cookie jar, and never missing twice');
 S.resetAll();
 
@@ -1730,6 +1764,66 @@ const beforeIt = legalNow[legalNow.indexOf(firstNow) - 1];
 ok('while every legal day before it does not',
    beforeIt == null || A.Run.validate(A.Run.withAdded(S.run(), 'language', beforeIt)).length > 0,
    beforeIt);
+/* ------------------------------------------------------------------ */
+section('a run built from nothing but the user own practices');
+S.resetAll();
+/* The whole point: no catalog habits at all. Appended after the build these
+   could never place — `validate` enforces `min_habits`, so the first is refused
+   for being one of one — which is why they are part of the draft. */
+const ownPicks = ['Reading', 'Language', 'Writing'].map((n) => ({
+  name: n, unit: 'min', domain: 'development', start: 10, target: 30, step: 5,
+  min: 1, friction: 2, minutesAtTarget: 30
+}));
+S.startRun([], 90, true, null, ownPicks);
+const ownRun = S.run();
+ok('a run exists', !!ownRun);
+ok('and it is made of the practices, not the catalog',
+   ownRun.habits.length === 3 && ownRun.habits.every((p) => !!p.custom),
+   ownRun.habits.map((p) => (p.custom || {}).name || p.habitId));
+ok('no default catalog habit was slipped in',
+   !ownRun.habits.some((p) => A.Run.isCatalogId(p.habitId)),
+   ownRun.habits.map((p) => p.habitId));
+ok('every one of the 66 days is still feasible',
+   A.Run.validate(ownRun).length === 0, A.Run.validate(ownRun).map((v) => v.kind));
+ok('and they all begin on day one', ownRun.habits.every((p) => p.startDay === 1),
+   ownRun.habits.map((p) => p.startDay));
+ok('nothing was refused', S.takeRunRefusals().length === 0);
+
+/* Choosing nothing at all is still the one case the default fires for — an
+   empty start screen has not chosen, it has just not chosen yet. */
+S.resetAll();
+S.startRun([], 45, true, null, []);
+ok('an empty selection still falls back to the defaults',
+   S.run().habits.length >= A.Run.MIN_HABITS &&
+   S.run().habits.every((p) => A.Run.isCatalogId(p.habitId)),
+   S.run().habits.map((p) => p.habitId));
+
+/* Mixed: some catalog, some their own. Both kinds count toward the floor. */
+S.resetAll();
+S.startRun(['floss'], 90, true, null, ownPicks.slice(0, 2));
+ok('catalog and practices mix in one run', (() => {
+  const r = S.run();
+  return r.habits.some((p) => A.Run.isCatalogId(p.habitId)) && r.habits.some((p) => !!p.custom);
+})(), S.run().habits.map((p) => (p.custom || {}).name || p.habitId));
+ok('and the mixed run validates',
+   A.Run.validate(S.run()).length === 0, A.Run.validate(S.run()).map((v) => v.kind));
+
+/* The budget still outranks the selection. Three impossible practices come back
+   as a run the user can actually do, and they are told what went. */
+S.resetAll();
+S.startRun([], 30, true, null, [
+  { name: 'Impossible A', unit: 'min', domain: 'fitness', start: 200, target: 400, step: 20, min: 1, friction: 2, minutesAtTarget: 400 },
+  { name: 'Reading', unit: 'min', domain: 'development', start: 5, target: 15, step: 5, min: 1, friction: 2, minutesAtTarget: 15 },
+  { name: 'Language', unit: 'min', domain: 'development', start: 5, target: 15, step: 5, min: 1, friction: 2, minutesAtTarget: 15 }
+]);
+ok('an impossible practice does not reach the run',
+   !S.run().habits.some((p) => (p.custom || {}).name === 'Impossible A'),
+   S.run().habits.map((p) => (p.custom || {}).name || p.habitId));
+ok('the run it produced is feasible anyway',
+   A.Run.validate(S.run()).length === 0, A.Run.validate(S.run()).map((v) => v.kind));
+ok('and the drop is reported by name',
+   S.takeRunRefusals().some((r) => r.name === 'Impossible A'));
+
 /* ------------------------------------------------------------------ */
 section('a goal offered to the run');
 S.resetAll();

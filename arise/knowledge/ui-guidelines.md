@@ -26,6 +26,9 @@ Avoid excessive colors. Everything comes from the tokens at the top of
 
 High contrast.
 
+Neither an icon nor a colour may carry two meanings. The flame is the streak; it
+is not also Hard mode. That rule cost three sites and one whole glyph set.
+
 Semantic colours have fixed jobs, and since the 2026-08 redesign there are only
 three that carry an argument:
 
@@ -64,8 +67,10 @@ literal `px`:
 `--fs-xl` 17 · `--fs-2xl` 20 · `--fs-3xl` 26
 
 `--fs-xs` is the floor for anything carrying meaning, including navigation
-labels. Emoji, medals and icon glyphs are sized literally on purpose — they are
-iconography, and putting glyphs on a text scale is a category error.
+labels. Drawn icons are sized in `em` so they track the label beside them; the
+few fixed icon boxes — the medal, the icon plate — are sized literally on
+purpose, because they are iconography and putting a graphic on a text scale is a
+category error.
 
 ---
 
@@ -96,22 +101,54 @@ the *control*, never on the glyph.
 
 ### A glyph the user chose beats one a seed gave them
 
-Goals and exercises carry an `icon` field the user can edit, and that field is
-theirs. The rule: **a glyph the user chose wins; a glyph a seed handed them
-yields to the drawn icon for its category.** `exGlyph` and `goalGlyph` in
-`js/ui.js` decide which, and both return ready-to-insert HTML — user text is
-escaped *inside* them, so their call sites must not escape a second time.
+**Neither editor offers an icon field any more**, so this rule now applies to one
+thing: an exercise that was given a glyph before the field was removed.
 
-Which of the two it is, is **derived** — by comparing against the seed the item
-came from — never stored. No flag, no migration, nothing overwritten. The
-editors' own placeholders (`🎯`, `🏋️`) count as stock: a goal shows that target
-because the field defaulted to it, not because anyone picked it.
+`exGlyph` in `js/ui.js` decides, and returns ready-to-insert HTML — user text is
+escaped *inside* it, so call sites must not escape a second time. Which of the
+two it is, is **derived** by comparing against `STOCK_EX_ICON` and the seed the
+item came from, never stored. No flag, no migration, nothing overwritten.
+
+`goalGlyph` and `sectionGlyph` used to sit beside it and had no callers anywhere
+in the tree — Today and Plan both went straight to `icon(SECTION_ICON[…])`, so
+the goal editor's Icon field wrote a value that rendered on no screen. Both
+resolvers and both fields are gone. The stored `icon` keys stay on goals,
+exercises, habits and rewards: they cost nothing, and removing a stored field is
+the one thing the migration rules forbid.
 
 A native `<option>` cannot hold an SVG, and `openSheet` puts its title through
-`textContent`. Those two places keep text.
+`textContent`. Those two places take the plain name — which argues for no glyph
+at all, not for an emoji, and that is what they do.
 
-Mood faces, difficulty glyphs and milestone medals are still emoji. Each is its
-own decision, and none of them is a field the user edits.
+**There is no emoji left in the app, and the three carve-outs that used to be
+here are gone.** The rule held on one screen and not the next for a long time,
+which read as unfinished rather than as a deliberate mix. Each carve-out failed
+for its own reason:
+
+- *Mood faces.* The emoji was doing SEMANTIC work, which makes it the least
+  defensible rather than the most. Two of the five are not reliably
+  distinguishable at the rendered size, and which picture appears is the
+  platform's decision — the same stored index drew a different face on iOS,
+  Android and Windows. The archive printed the face **alone**, so a picture the
+  reader could not identify was the only carrier of the value. It is five
+  labelled pills now; the stored value is still an index.
+- *Difficulty glyphs.* A seedling, a balance scale and a fire are three unrelated
+  metaphors for one ordinal scale, and the fire already means "streak" everywhere
+  else in the app. One glyph, two meanings. The card already carries a bold name,
+  a blurb and a live step preview, so the glyph is simply gone.
+- *Milestone medals.* Eleven different emoji is eleven decisions, and the locked
+  state depended on `filter: grayscale(1)` treating a colour emoji identically on
+  every platform, which it does not. One drawn trophy now, whose locked state is
+  a `currentColor` change; the name and the day count carry identity.
+
+The one sentinel that must stay is `STOCK_EX_ICON` in `js/ui.js`: `exGlyph`
+compares a stored exercise icon against it to tell "the user chose this" from
+"a seed handed them this". It is a value to compare against, never rendered.
+
+`tools/render.js` asserts no route and no editor sheet renders a pictograph. The
+tick, the cross, the arrows and the chevrons are carved out of that check on
+purpose — they take `currentColor`, inherit the text weight, and read as
+typography rather than as pictures.
 
 This covers inline `style="font-size:…"` in `js/ui.js` as well as `styles.css`.
 The view layer was exempt for one round and it immediately drifted; there is no

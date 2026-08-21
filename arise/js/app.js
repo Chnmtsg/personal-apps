@@ -38,7 +38,7 @@
       if (was == null || now == null || now <= was) return;
       const tl = S.goalTimeline(g.id);
       UI.toast(
-        `${esc(g.icon || '🎯')} <span><b>${esc(g.name)}</b> steps to ${esc(A.formatValue(g.unit, tl.target))}${
+        `<span><b>${esc(g.name)}</b> steps to ${esc(A.formatValue(g.unit, tl.target))}${
           tl.atTarget ? ' — target reached!' : ''
         }</span>`,
         'gold'
@@ -57,11 +57,11 @@
       party = true;
     }
     if (after.weekHit && !before.weekHit) {
-      UI.toast('🎁 <span>Weekly goal hit — chest ready!</span>', 'gold');
+      UI.toast('<span>Weekly goal hit — chest ready!</span>', 'gold');
       party = true;
     }
     if (!party && after.streak > before.streak && after.streak > 1) {
-      UI.toast(`🔥 <span><b>${after.streak}</b> day streak</span>`);
+      UI.toast(`<span><b>${after.streak}</b> day streak</span>`);
     }
     if (party) UI.confetti();
   }
@@ -126,7 +126,7 @@
     const kept = act(() => S.hitGoalTarget(dateKey, id));
     if (!kept) return; // un-ticking *is* the undo; it does not need one of its own
     buzz(12);
-    UI.toastAction(`${esc(g.icon || '🎯')} <span><b>${esc(g.name)}</b> kept</span>`, {
+    UI.toastAction(`<span><b>${esc(g.name)}</b> kept</span>`, {
       act: 'goal-hit',
       id: id,
       date: dateKey
@@ -217,7 +217,12 @@
 
     const data = {
       name: $('#gg_name').value.trim() || 'Untitled goal',
-      icon: $('#gg_icon').value.trim() || '🎯',
+      /* The field is gone from the sheet — a goal's mark is drawn from its
+          area — so this keeps whatever is already stored rather than reading a
+          control that no longer exists. `$()` returns null in a real browser and
+          the stub DOM does not, so a plain `.value` here would have crashed only
+          on a phone. */
+      icon: (existing && existing.icon) || '',
       section: $('#gg_section').value,
       unit: unit,
       // Derived from the two numbers, never read back off the form. The editor
@@ -262,7 +267,8 @@
     const goalSel = $('#rw_goal');
     return {
       name: $('#rw_name').value.trim(),
-      icon: $('#rw_icon').value.trim() || '🎁',
+      // A reward keeps a glyph the user typed; it just no longer gets a stock one.
+      icon: ($('#rw_icon') && $('#rw_icon').value.trim()) || '',
       source: src,
       goalId: src === 'goal' && goalSel ? goalSel.value : null,
       days: Math.max(1, Math.min(999, parseInt($('#rw_days').value, 10) || 14))
@@ -272,7 +278,7 @@
   /** Read the exercise editor sheet into a plain exercise patch. Shared with the
       unit selector, which rebuilds the sheet rather than throwing away what has
       already been typed. */
-  function readExerciseForm() {
+  function readExerciseForm(existing) {
     const unit = $('#e_unit').value;
     const aVal = numVal('e_a', 3);
     const reps = unit === 'reps' ? numVal('e_b', 10) : undefined;
@@ -281,7 +287,8 @@
     const howEl = $('#e_how');
     const data = {
       name: $('#e_name').value.trim() || 'Untitled',
-      icon: $('#e_icon').value.trim() || '🏋️',
+      // Same as the goal editor: the control is gone, the stored value stays.
+      icon: (existing && existing.icon) || '',
       category: $('#e_cat').value,
       unit: unit,
       sets: unit === 'reps' ? aVal : undefined,
@@ -349,7 +356,7 @@
         act(() => S.setGoalValue(sheetDate, id, value));
         UI.closeSheet();
         if (S.goalDone(sheetDate, id)) {
-          UI.toast('✅ <span>Target met</span>');
+          UI.toast('<span>Target met</span>');
           break;
         }
         /* The +10% rule, delivered at the only moment it is useful: you have just
@@ -362,8 +369,8 @@
           : null;
         UI.toast(
           more
-            ? '📝 <span>Short of target. Ten percent more is <b>' + esc(more) + '</b> — do that, then stop.</span>'
-            : '📝 <span>Logged — short of target</span>'
+            ? '<span>Short of target. Ten percent more is <b>' + esc(more) + '</b> — do that, then stop.</span>'
+            : '<span>Logged — short of target</span>'
         );
         break;
       }
@@ -376,7 +383,7 @@
         if (!g || g.floor == null) break;
         act(() => S.setGoalValue(sheetDate, id, g.floor));
         UI.closeSheet();
-        UI.toast('📝 <span><b>' + esc(A.formatValue(g.unit, g.floor)) +
+        UI.toast('<span><b>' + esc(A.formatValue(g.unit, g.floor)) +
                  '</b> logged. Short of the ask, and not nothing.</span>');
         break;
       }
@@ -402,7 +409,7 @@
         const nb = A.Goals.norm(data, data.baseline);
         const nt = A.Goals.norm(data, data.target);
         if (nb === nt) {
-          UI.toast('🎯 <span>Start and target must differ — otherwise there is nothing to progress</span>');
+          UI.toast('<span>Start and target must differ — otherwise there is nothing to progress</span>');
           break;
         }
         data.direction = nt > nb ? 'up' : 'down';
@@ -411,7 +418,7 @@
         const rungCount = A.Goals.maxLevel(data, S.settings().mode);
         if (rungCount > 400) {
           UI.toast(
-            `🎯 <span>That is ${rungCount.toLocaleString()} steps. Raise the step size or move the target closer.</span>`
+            `<span>That is ${rungCount.toLocaleString()} steps. Raise the step size or move the target closer.</span>`
           );
           break;
         }
@@ -426,7 +433,7 @@
                under its OWN id — a fresh one would orphan every day already
                logged against it and read the streak as zero. */
             offerUndo(
-              '🎯 <span><b>' + esc(moved.goal.name) + '</b> is a goal now, and off your daily habits.</span>',
+              '<span><b>' + esc(moved.goal.name) + '</b> is a goal now, and off your daily habits.</span>',
               () => S.restoreHabitFromGoal(moved.habit, moved.index, moved.goal.id)
             );
             break;
@@ -438,7 +445,7 @@
           S.addGoal(data);
         }
         UI.closeSheet();
-        UI.toast('🎯 <span>Goal saved</span>');
+        UI.toast('<span>Goal saved</span>');
         break;
       }
       case 'goal-archive':
@@ -468,17 +475,17 @@
         if (!g || !el) break;
         const n = g.unit === 'time' ? A.hhmmToMin(el.value) : parseFloat(el.value);
         if (n == null || isNaN(n)) {
-          UI.toast('🔄 <span>Enter a starting point first</span>');
+          UI.toast('<span>Enter a starting point first</span>');
           break;
         }
         // A start equal to the target leaves nothing to progress through.
         if (A.Goals.norm(g, n) === A.Goals.norm(g, g.target)) {
-          UI.toast('🎯 <span>That is already the target — pick a start you can climb from</span>');
+          UI.toast('<span>That is already the target — pick a start you can climb from</span>');
           break;
         }
         S.restartGoal(id, n);
         UI.closeSheet();
-        UI.toast('🔄 <span>Re-baselined from today</span>');
+        UI.toast('<span>Re-baselined from today</span>');
         break;
       }
 
@@ -493,7 +500,7 @@
         const fld = (sel) => form.querySelector(sel);
         const text = (fld('#r_summary') && fld('#r_summary').value) || '';
         if (!text.trim()) {
-          UI.toast('✍️ <span>Write a summary first — that is the point</span>', 'gold');
+          UI.toast('<span>Write a summary first — that is the point</span>', 'gold');
           break;
         }
         const minEl = fld('#r_min');
@@ -512,9 +519,9 @@
            path in `goal-save-val` already gets this right; this mirrors it. */
         const readGoal = S.activeGoals().find((g) => g.gate === 'summary');
         if (readGoal && S.goalDone(sheetDate, readGoal.id)) {
-          UI.toast('📖 <span>Summary saved — reading complete</span>', 'gold');
+          UI.toast('<span>Summary saved — reading complete</span>', 'gold');
         } else {
-          UI.toast('📖 <span>Summary saved</span>', 'gold');
+          UI.toast('<span>Summary saved</span>', 'gold');
         }
         break;
       }
@@ -550,8 +557,8 @@
         );
         break;
       case 'freeze':
-        if (S.applyFreeze(sheetDate)) UI.toast('❄️ <span>Freeze applied — streak held</span>', 'gold');
-        else UI.toast('❄️ <span>No freezes available yet</span>');
+        if (S.applyFreeze(sheetDate)) UI.toast('<span>Freeze applied — streak held</span>', 'gold');
+        else UI.toast('<span>No freezes available yet</span>');
         break;
       case 'unfreeze':
         S.clearFreeze(sheetDate);
@@ -622,8 +629,7 @@
       case 'claim':
         if (S.claimReward(id)) {
           const m = A.MILESTONES.find((x) => x.id === id);
-          UI.toast(`${m.icon} <span>Claimed <b>${m.name}</b> · +${m.xp} XP</span>`, 'gold');
-          UI.confetti();
+          UI.toast(`<span>Claimed <b>${esc(m.name)}</b> · +${m.xp} XP</span>`, 'gold');
         }
         break;
       /* --- the run --- */
@@ -640,7 +646,7 @@
           })
         );
         UI.closeSheet();
-        UI.toast('🏁 <span>Day one. Go.</span>', 'gold');
+        UI.toast('<span>Day one. Go.</span>', 'gold');
         break;
       }
       case 'challenge-end': {
@@ -656,7 +662,7 @@
           danger: !done.complete,
           onConfirm: () => {
             S.endChallenge(run.id);
-            UI.toast('🏁 <span>Countdown archived</span>');
+            UI.toast('<span>Countdown archived</span>');
           },
           onCancel: () => UI.openChallenge()
         });
@@ -673,19 +679,20 @@
         const data = readRewardForm();
         data.name = data.name || 'My reward';
         if (data.source === 'goal' && !data.goalId) {
-          UI.toast('🎁 <span>Create a goal first, then tie a reward to it</span>');
+          UI.toast('<span>Create a goal first, then tie a reward to it</span>');
           break;
         }
         if (actEl.dataset.id) S.updateCustomReward(actEl.dataset.id, data);
         else S.addCustomReward(data);
         UI.closeSheet();
-        UI.toast('🎁 <span>Reward set — now go earn it</span>');
+        UI.toast('<span>Reward set — now go earn it</span>');
         break;
       }
       case 'reward-claim':
         if (S.claimCustomReward(id)) {
-          UI.toast('🎉 <span>Earned and collected. Enjoy it.</span>', 'gold');
-          UI.confetti();
+          /* No confetti. You bought yourself the thing; the app did not, and
+              noticing that does not earn a celebration — project.md is explicit. */
+          UI.toast('<span>Earned and collected. Enjoy it.</span>', 'gold');
         }
         break;
       case 'reward-delete': {
@@ -703,8 +710,7 @@
       }
       case 'claim-weekly':
         if (S.claimWeekly(date)) {
-          UI.toast(`🎁 <span>Weekly chest opened · +${A.XP.weeklyGoal} XP</span>`, 'gold');
-          UI.confetti();
+          UI.toast(`<span>Weekly chest opened · +${A.XP.weeklyGoal} XP</span>`, 'gold');
         }
         break;
 
@@ -756,7 +762,7 @@
           confirmLabel: 'Install it',
           onConfirm: () => {
             S.reinstallProgram();
-            UI.toast('🏋️ <span>The programme is installed across the week.</span>');
+            UI.toast('<span>The programme is installed across the week.</span>');
           }
         });
         break;
@@ -765,7 +771,7 @@
         const copy = () => {
           S.copyDayPlan(fromDay, day);
           UI.closeSheet();
-          UI.toast('📋 <span>Day copied</span>');
+          UI.toast('<span>Day copied</span>');
         };
         const existing = (S.get().plan[day] || []).length;
         // Replacing a day you configured is as destructive as clearing it, and
@@ -807,7 +813,7 @@
         const p = UI.picker();
         S.addToPlan(p.day, id);
         const ex = S.exerciseById(id);
-        UI.toast(`${esc(ex.icon || '✅')} <span>${esc(ex.name)} → ${A.DAY_NAMES[p.day]}</span>`);
+        UI.toast(`<span>${esc(ex.name)} → ${A.DAY_NAMES[p.day]}</span>`);
         break;
       }
       case 'sheet-close':
@@ -849,14 +855,14 @@
         break;
       }
       case 'lib-save': {
-        const data = readExerciseForm();
+        const data = readExerciseForm(actEl.dataset.id ? S.exerciseById(actEl.dataset.id) : null);
         if (actEl.dataset.id) S.updateExercise(actEl.dataset.id, data);
         else {
           const created = S.addExercise(data);
           if (UI.route() === 'plan') S.addToPlan(UI.picker().day, created.id);
         }
         UI.closeSheet();
-        UI.toast('💾 <span>Saved</span>');
+        UI.toast('<span>Saved</span>');
         break;
       }
       case 'habit-add':
@@ -865,7 +871,7 @@
           label: 'Habit',
           placeholder: 'e.g. Meditate 10 min',
           confirmLabel: 'Add habit',
-          onSave: (name) => S.addHabit(name, '✅')
+          onSave: (name) => S.addHabit(name)
         });
         break;
       /* A habit is a tick that asks the same thing forever; a goal ramps and is
@@ -874,6 +880,28 @@
          same commitment on two lists with two ticks. The numbers cannot be
          guessed — only the user knows where they actually are today — so this
          opens the form rather than converting on the tap. */
+      case 'lines-open':
+        UI.openLines();
+        break;
+      case 'line-add': {
+        const box = $('#ln_text');
+        const src = $('#ln_src');
+        const made = S.addLine(box ? box.value : '', src ? src.value : '');
+        if (!made) {
+          UI.toast('<span>Write the line itself — a blank one keeps nothing.</span>', 'bad');
+          break;
+        }
+        UI.openLines();
+        break;
+      }
+      case 'line-rm': {
+        const gone = S.removeLine(id);
+        if (!gone) break;
+        UI.openLines();
+        offerUndo('<span>Line removed.</span>',
+                  () => { S.restoreLine(gone.line, gone.index); UI.openLines(); });
+        break;
+      }
       case 'cookie-jar':
         UI.openCookieJar();
         break;
@@ -881,7 +909,7 @@
         const box = $('#ck_text');
         const made = S.addCookie(box ? box.value : '');
         if (!made) {
-          UI.toast('⚠️ <span>Write the actual thing that happened — a day, and a detail.</span>', 'bad');
+          UI.toast('<span>Write the actual thing that happened — a day, and a detail.</span>', 'bad');
           break;
         }
         // Straight back to the jar so the entry is visibly in it.
@@ -935,7 +963,7 @@
             if (out.paused.length) parts.push(out.paused.length + ' paused');
             if (out.habits.length) parts.push(out.habits.length + ' habits cleared');
             offerUndo(
-              '🎯 <span>' + esc(parts.join(' · ') || 'Nothing to change') + '.</span>',
+              '<span>' + esc(parts.join(' · ') || 'Nothing to change') + '.</span>',
               () => S.undoInstallPractices(out)
             );
           }
@@ -952,7 +980,7 @@
         const t = (A.GOAL_TEMPLATES || []).find((x) => x.key === actEl.dataset.key);
         if (!t) break;
         UI.openGoalEditor(null, {
-          name: t.name, icon: t.icon, section: t.section, unit: t.unit,
+          name: t.name, section: t.section, unit: t.unit,
           direction: t.direction, baseline: t.baseline, target: t.target,
           step: t.step, schedule: t.schedule
         });
@@ -961,7 +989,7 @@
       case 'habit-to-goal': {
         const h = S.habitById(id);
         if (!h) break;
-        UI.openGoalEditor(null, { name: h.name, icon: h.icon || '🎯', fromHabit: h.id });
+        UI.openGoalEditor(null, { name: h.name, fromHabit: h.id });
         break;
       }
       case 'habit-rm': {
@@ -1049,7 +1077,7 @@
           A.Photos.shrink(file).then((dataUrl) => {
             if (!dataUrl) {
               setBusy(false);
-              UI.toast('⚠️ <span>That file could not be read as a picture — try a JPEG or PNG from your gallery.</span>', 'bad');
+              UI.toast('<span>That file could not be read as a picture — try a JPEG or PNG from your gallery.</span>', 'bad');
               return;
             }
             A.Photos.put(id, dataUrl).then((saved) => {
@@ -1060,8 +1088,8 @@
                  after a reload is worse than one that was refused, and a device
                  with no IndexedDB — private mode, mostly — fails exactly that
                  way. */
-              if (saved) UI.toast('🖼 <span>Picture saved on this device.</span>');
-              else UI.toast('⚠️ <span>This browser will not store pictures — it is showing but will not survive a reload.</span>', 'bad');
+              if (saved) UI.toast('<span>Picture saved on this device.</span>');
+              else UI.toast('<span>This browser will not store pictures — it is showing but will not survive a reload.</span>', 'bad');
             });
           });
         });
@@ -1093,7 +1121,7 @@
         if (now != null) {
           buzz(now ? 18 : 0);
           offerUndo(
-            now ? '💪 <span>Workout logged.</span>' : '<span>Workout unticked.</span>',
+            now ? '<span>Workout logged.</span>' : '<span>Workout unticked.</span>',
             () => S.restoreExercises(date, before)
           );
         }
@@ -1122,16 +1150,16 @@
           .concat(refused.map((r) => r.name));
         const paused = S.takeRunPaused();
         if (paused.length) {
-          UI.toast('⏸ <span><b>' + esc(paused.join(', ')) +
+          UI.toast('<span><b>' + esc(paused.join(', ')) +
                    '</b> ' + (paused.length === 1 ? 'is' : 'are') +
                    ' paused while the run holds ' + (paused.length === 1 ? 'it' : 'them') +
                    ' — everything already earned stays.</span>', 'gold');
         }
         if (dropped.length) {
-          UI.toast('🗓 <span>Day 1 of 66. <b>' + esc(dropped.join(', ')) +
+          UI.toast('<span>Day 1 of 66. <b>' + esc(dropped.join(', ')) +
                    '</b> did not fit ' + budget + ' min a day and was left out.</span>', 'gold');
         } else {
-          UI.toast('🗓 <span>Day 1 of 66. It starts now.</span>');
+          UI.toast('<span>Day 1 of 66. It starts now.</span>');
         }
         break;
       }
@@ -1147,9 +1175,9 @@
         const h = A.Run.habit(id);
         if (added) {
           UI.closeSheet();
-          UI.toast('➕ <span><b>' + esc(h ? h.name : id) + '</b> joins the run on day ' + added.startDay + '.</span>');
+          UI.toast('<span><b>' + esc(h ? h.name : id) + '</b> joins the run on day ' + added.startDay + '.</span>');
         } else {
-          UI.toast('⚠️ <span>No room for <b>' + esc(h ? h.name : id) + '</b> — every legal start day is taken.</span>', 'bad');
+          UI.toast('<span>No room for <b>' + esc(h ? h.name : id) + '</b> — every legal start day is taken.</span>', 'bad');
         }
         break;
       }
@@ -1189,14 +1217,14 @@
             min: 1
           });
           if (!draft) {
-            UI.toast('⚠️ <span>Give it a name, and numbers that build upward.</span>', 'bad');
+            UI.toast('<span>Give it a name, and numbers that build upward.</span>', 'bad');
           } else if (draft.refused === 'full') {
-            UI.toast('⚠️ <span>A run holds at most ' + A.Run.MAX_HABITS + ' habits.</span>', 'bad');
+            UI.toast('<span>A run holds at most ' + A.Run.MAX_HABITS + ' habits.</span>', 'bad');
           } else if (draft.refused === 'already') {
-            UI.toast('⚠️ <span>That goal is already on the list.</span>', 'bad');
+            UI.toast('<span>That goal is already on the list.</span>', 'bad');
           } else {
             UI.closeSheet();
-            UI.toast('➕ <span><b>' + esc(draft.name) + '</b> is on the list.</span>');
+            UI.toast('<span><b>' + esc(draft.name) + '</b> is on the list.</span>');
           }
           UI.render();
           break;
@@ -1214,14 +1242,14 @@
         /* Each refusal says which one it is. "It didn't work" on a form the user
            just filled in is the least useful thing an app can say. */
         if (!out || out.refused === 'invalid') {
-          UI.toast('⚠️ <span>Give it a name, and numbers that build upward.</span>', 'bad');
+          UI.toast('<span>Give it a name, and numbers that build upward.</span>', 'bad');
         } else if (out.refused === 'full') {
-          UI.toast('⚠️ <span>This run already holds ' + A.Run.MAX_HABITS + ' habits.</span>', 'bad');
+          UI.toast('<span>This run already holds ' + A.Run.MAX_HABITS + ' habits.</span>', 'bad');
         } else if (out.refused === 'no_room') {
-          UI.toast('⚠️ <span>It does not fit — every legal start day is taken, or it would make a day you could not do.</span>', 'bad');
+          UI.toast('<span>It does not fit — every legal start day is taken, or it would make a day you could not do.</span>', 'bad');
         } else {
           UI.closeSheet();
-          UI.toast('➕ <span><b>' + esc(out.name) + '</b> joins the run on day ' + out.startDay + '.</span>');
+          UI.toast('<span><b>' + esc(out.name) + '</b> joins the run on day ' + out.startDay + '.</span>');
         }
         break;
       }
@@ -1235,7 +1263,7 @@
           onConfirm: () => {
             const out = S.runRemoveHabit(id);
             if (out && out.refused === 'floor') {
-              UI.toast('⚠️ <span>A run needs at least ' + A.Run.MIN_HABITS + ' habits.</span>', 'bad');
+              UI.toast('<span>A run needs at least ' + A.Run.MIN_HABITS + ' habits.</span>', 'bad');
             } else if (out) {
               UI.toast('<span><b>' + esc(h ? h.name : id) + '</b> is out of the run.</span>');
             }
@@ -1291,7 +1319,7 @@
         const lines = box.value.split(/\r?\n/);
         const saved = S.run() ? S.setRunItems(id, lines) : UI.setDraftItems(id, lines);
         UI.closeSheet();
-        if (!saved) UI.toast('🗓 <span>A checklist needs at least one step, so nothing was saved.</span>', 'gold');
+        if (!saved) UI.toast('<span>A checklist needs at least one step, so nothing was saved.</span>', 'gold');
         else if (!S.run()) UI.render();
         break;
       }
@@ -1313,7 +1341,7 @@
           habitId: id,
           startDay: dayAttr === '' || dayAttr == null ? null : Number(dayAttr)
         });
-        if (out) UI.toast('🗓 <span>' + esc(out.notes[0]) + '</span>');
+        if (out) UI.toast('<span>' + esc(out.notes[0]) + '</span>');
         break;
       }
 
@@ -1325,7 +1353,7 @@
             deferredInstall = null;
           });
         } else {
-          UI.toast('📲 <span>Use your browser menu → “Install app”</span>');
+          UI.toast('<span>Use your browser menu → “Install app”</span>');
         }
         break;
       /* The pictures ride along in the backup, and they have to: they are the
@@ -1340,7 +1368,7 @@
         const shots = A.Photos.all();
         if (Object.keys(shots).length) backup.photos = shots;
         download(`discipline-backup-${A.key()}.json`, JSON.stringify(backup, null, 2));
-        UI.toast('⬇️ <span>Backup downloaded</span>');
+        UI.toast('<span>Backup downloaded</span>');
         break;
       }
       case 'download-unreadable': {
@@ -1356,7 +1384,7 @@
           break;
         }
         download(`discipline-unreadable-${A.key()}.json`, raw);
-        UI.toast('⬇️ <span>Unreadable copy downloaded</span>');
+        UI.toast('<span>Unreadable copy downloaded</span>');
         break;
       }
       case 'import':
@@ -1403,8 +1431,8 @@
                   shots = null;   // already restored; the state is what mattered
                 }
                 A.Photos.restore(shots).then((n) => {
-                  UI.toast(n ? `✅ <span>Data restored, with ${n} picture${n === 1 ? '' : 's'}</span>`
-                             : '✅ <span>Data restored</span>');
+                  UI.toast(n ? `<span>Data restored, with ${n} picture${n === 1 ? '' : 's'}</span>`
+                             : '<span>Data restored</span>');
                 });
               } catch (err) {
                 UI.openConfirm({
@@ -1425,7 +1453,7 @@
           danger: true,
           onConfirm: () => {
             S.resetAll();
-            UI.toast('🔄 <span>Fresh start</span>');
+            UI.toast('<span>Fresh start</span>');
           }
         });
         break;
@@ -1580,7 +1608,10 @@
     // two others, so rebuild from what is already typed.
     if (t.id === 'e_unit') {
       const saveBtn = document.querySelector('[data-act="lib-save"]');
-      UI.openExerciseEditor((saveBtn && saveBtn.dataset.id) || null, readExerciseForm());
+      UI.openExerciseEditor(
+        (saveBtn && saveBtn.dataset.id) || null,
+        readExerciseForm(saveBtn && saveBtn.dataset.id ? S.exerciseById(saveBtn.dataset.id) : null)
+      );
       return;
     }
     // gg_sched and gg_reg decide which fields apply at all, so the sheet is
@@ -1609,10 +1640,10 @@
     if (setting === 'reminders' && value && typeof Notification !== 'undefined') {
       if (Notification.permission === 'default') {
         Notification.requestPermission().then((p) => {
-          if (p !== 'granted') UI.toast('🔕 <span>Notifications blocked — the app still tracks everything</span>');
+          if (p !== 'granted') UI.toast('<span>Notifications blocked — the app still tracks everything</span>');
         });
       } else if (Notification.permission === 'denied') {
-        UI.toast('🔕 <span>Notifications are blocked in your browser settings</span>');
+        UI.toast('<span>Notifications are blocked in your browser settings</span>');
       }
     }
   });
@@ -1655,7 +1686,7 @@
     e.preventDefault();
     deferredInstall = e;
   });
-  window.addEventListener('appinstalled', () => UI.toast('🎉 <span>Discipline installed</span>'));
+  window.addEventListener('appinstalled', () => UI.toast('<span>Discipline installed</span>'));
 
   window.addEventListener('hashchange', () => {
     UI.go((location.hash || '').replace('#/', '') || 'today');

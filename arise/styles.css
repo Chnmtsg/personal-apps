@@ -227,9 +227,9 @@ button { cursor: pointer; }
 }
 /* Recoloured with the palette. Three warm blobs under cool charcoal surfaces
    read as a colour bug rather than as ambience. */
-.aurora span:nth-child(1) { background: #2fbfa8; top: -22vmax; left: -18vmax; opacity: 0.14; }
-.aurora span:nth-child(2) { background: #e8a33c; bottom: -26vmax; right: -20vmax; opacity: 0.1; }
-.aurora span:nth-child(3) { background: #39414a; top: 30vmax; left: 30vmax; opacity: 0.18; }
+.aurora span:nth-child(1) { background: var(--accent); top: -22vmax; left: -18vmax; opacity: 0.14; }
+.aurora span:nth-child(2) { background: var(--gold); bottom: -26vmax; right: -20vmax; opacity: 0.1; }
+.aurora span:nth-child(3) { background: var(--stroke-strong); top: 30vmax; left: 30vmax; opacity: 0.18; }
 
 /* ============ chrome ============
    The sticky top bar is gone: every screen carries its own header now, and a
@@ -348,8 +348,10 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
   position: relative; overflow: hidden;
   border-radius: var(--r-lg); border: 1px solid var(--stroke);
   background:
-    radial-gradient(120% 100% at 0% 0%, rgba(124, 108, 255, 0.28), transparent 60%),
-    radial-gradient(120% 120% at 100% 0%, rgba(53, 214, 255, 0.2), transparent 55%),
+    /* Purple and cyan appear nowhere in :root. Repainted from the tokens so
+       the block follows the theme like everything else. */
+    radial-gradient(120% 100% at 0% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
+    radial-gradient(120% 120% at 100% 0%, color-mix(in srgb, var(--gold) 16%, transparent), transparent 55%),
     var(--surface);
   padding: var(--sp-lg); margin-bottom: var(--sp-md); box-shadow: var(--shadow);
 }
@@ -390,7 +392,7 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 .bar { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
 .bar > i { display: block; height: 100%; border-radius: 99px; background: var(--accent-grad); transition: width 0.5s ease; }
 .bar.flame > i { background: linear-gradient(90deg, var(--flame), var(--gold)); }
-.bar.gold > i { background: linear-gradient(90deg, var(--gold), #fff0a8); }
+.bar.gold > i { background: linear-gradient(90deg, var(--gold), color-mix(in srgb, var(--gold) 55%, white)); }
 
 /* date pager */
 .daypager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
@@ -529,7 +531,10 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 }
 .plan-day-head h3 { font-size: var(--fs-lg); flex: 1; }
 .plan-day-head .count { font-size: var(--fs-xs); color: var(--muted); font-weight: 700; }
-.plan-day.is-today .plan-day-head { background: linear-gradient(90deg, rgba(124, 108, 255, 0.25), transparent); }
+/* Teal, not purple. This marks the LIVE day, which is teal's one job in
+   this palette; a sixth colour carrying meaning is what the guidelines
+   forbid, and it was on Plan every single day. */
+.plan-day.is-today .plan-day-head { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .plan-day.is-today h3::after { content: "TODAY"; margin-left: 8px; font-size: var(--fs-xs); letter-spacing: 0.1em; color: var(--accent-2); vertical-align: middle; }
 .plan-rows { padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .plan-row { display: flex; align-items: center; gap: 4px; }
@@ -602,10 +607,15 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 /* ============ rewards ============ */
 .next-reward {
   border-radius: var(--r-lg); padding: 16px; margin-bottom: 14px; border: 1px solid var(--stroke);
-  background: radial-gradient(120% 120% at 100% 0%, rgba(255, 204, 77, 0.22), transparent 60%), var(--surface);
+  background: radial-gradient(120% 120% at 100% 0%, color-mix(in srgb, var(--gold) 22%, transparent), transparent 60%), var(--surface);
 }
 .next-reward .top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.next-reward .medal { font-size: 34px; }
+/* A drawn mark now, not eleven different emoji. Identity is carried by the name
+   and the day count beside it — one decision instead of eleven, and the locked
+   state can change `currentColor` instead of relying on `grayscale()` behaving
+   the same way on a colour emoji across platforms, which it does not. */
+.next-reward .medal { display: grid; place-items: center; width: 34px; height: 34px; color: var(--gold); }
+.next-reward .medal .ico { width: 26px; height: 26px; }
 .next-reward h3 { font-size: var(--fs-xl); }
 .next-reward p { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--muted); }
 
@@ -614,11 +624,15 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
   position: relative; text-align: center; padding: 16px 12px; border-radius: var(--r);
   background: var(--surface); border: 1px solid var(--stroke);
 }
-.reward .medal { font-size: 32px; display: block; filter: grayscale(1); opacity: 0.35; transition: 0.3s; }
+.reward .medal {
+  display: grid; place-items: center; width: 32px; height: 32px; margin: 0 auto;
+  color: var(--faint); opacity: 0.5; transition: color 0.3s, opacity 0.3s;
+}
+.reward .medal .ico { width: 24px; height: 24px; }
 .reward h4 { font-size: var(--fs-md); margin: 8px 0 2px; }
 .reward .days { font-size: var(--fs-xs); color: var(--faint); font-weight: 700; letter-spacing: 0.05em; }
-.reward.unlocked { border-color: color-mix(in srgb, var(--gold) 40%, transparent); background: radial-gradient(100% 100% at 50% 0%, rgba(255, 204, 77, 0.14), transparent 70%), var(--surface); }
-.reward.unlocked .medal { filter: none; opacity: 1; }
+.reward.unlocked { border-color: color-mix(in srgb, var(--gold) 40%, transparent); background: radial-gradient(100% 100% at 50% 0%, color-mix(in srgb, var(--gold) 14%, transparent), transparent 70%), var(--surface); }
+.reward.unlocked .medal { color: var(--gold); opacity: 1; }
 .reward.claimed::after {
   content: "✓ CLAIMED"; position: absolute; top: 8px; right: 8px;
   font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.08em; color: var(--good);
@@ -784,8 +798,6 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 .card > .row .body { flex: 1; min-width: 0; }
 
 /* The mood row is a choice, so it reads as one. */
-.mood-row { gap: var(--sp-sm); margin-bottom: var(--sp-md); }
-.mood.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
 
 /* --- the real ledger: what actually happened --- */
 .lifeline { margin: 0; font-size: var(--fs-lg); line-height: 1.6; color: var(--muted); }
@@ -893,14 +905,22 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
 .entry p { margin: 0 2px 10px; font-size: var(--fs-md); color: var(--muted); white-space: pre-wrap; line-height: 1.55; }
 .entry .link { min-height: 0; font-size: var(--fs-sm); padding: 0 2px 10px; }
 
-.mood-row { display: flex; gap: 8px; margin-bottom: 10px; }
+/* Five labelled pills, not five faces. `grayscale()` and `scale()` are gone with
+   the emoji: the first was desaturating a picture to say "unselected", which a
+   word does not need, and the second nudged the chosen one out of line. */
+.mood-row { display: flex; gap: var(--sp-xs); margin-bottom: 10px; }
 .mood {
-  /* 44px is the minimum touch target; the emoji is centred inside it. */
-  flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center;
-  font-size: var(--fs-2xl); border-radius: var(--r-xs);
-  background: var(--surface-2); border: 1px solid var(--stroke); filter: grayscale(0.8); transition: 0.18s;
+  flex: 1; min-width: 0; min-height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 4px; border-radius: var(--r-xs);
+  background: var(--surface-2); border: 1px solid var(--stroke);
+  font-size: var(--fs-sm); font-weight: 600; color: var(--faint);
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
 }
-.mood.on { filter: none; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); transform: scale(1.06); }
+.mood.on {
+  border-color: var(--accent); color: var(--text);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
 
 /* --- difficulty --- */
 .mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-bottom: 8px; }
@@ -910,7 +930,6 @@ input[readonly] { color: var(--muted); background: none; cursor: default; }
   background: var(--surface); border: 1px solid var(--stroke); color: inherit; cursor: pointer;
   transition: 0.18s;
 }
-.mode-card .mode-glyph { font-size: 22px; }
 .mode-card b { font-size: var(--fs-md); }
 .mode-card small { font-size: var(--fs-xs); color: var(--faint); line-height: 1.35; }
 .mode-card i { font-style: normal; font-size: var(--fs-xs); color: var(--accent-2); font-weight: 700; margin-top: 3px; }
@@ -1612,7 +1631,7 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .week-strip.rail .wd.on .dot,
 .week-strip.rail .wd.on small { color: var(--on-cream); }
 .week-strip.rail .wd small {
-  margin-top: 2px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  margin-top: 2px; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
 }
 
 /* --- the count line: 1c's answer to a segmented filter ---
@@ -1638,7 +1657,7 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 }
 .segbar.countline .countline-rest i { font-style: normal; color: var(--faint); font-size: var(--fs-sm); }
 .segbar.countline .seg.on { color: var(--text); font-weight: 700; }
-.segbar.countline .seg-add { flex: none; min-height: 40px; }
+.segbar.countline .seg-add { flex: none; min-height: 44px; }
 
 /* --- the goal card, artboard 1c ---
    A 38px icon plate, the name, one 12px line of context, and either the ask or a
@@ -2082,3 +2101,41 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 
 /* Quick minute values on the log sheet. One tap fills the box; Save still saves. */
 .chips.quick { margin: -4px 0 12px; }
+
+/* The built-in catalogue, folded. It is the fallback, not the subject — the run
+   is for what somebody is trying to become. */
+.archive.catalogue { margin: var(--sp-md) 0; }
+.archive.catalogue .label:first-of-type { margin-top: var(--sp-sm); }
+
+/* One line a day, read on the way in. Quiet by construction: it is not the
+   subject of the screen and must never out-shout the day's work. */
+.quoteline {
+  display: block; width: 100%; text-align: left; color: inherit;
+  padding: 13px var(--sp-lg); margin-bottom: var(--sp-md);
+  background: var(--surface-2); border: 0; border-left: 2px solid var(--stroke-strong);
+  border-radius: var(--r-sm);
+}
+.quoteline-text { display: block; font-size: var(--fs-md); line-height: 1.55; color: var(--muted); }
+.quoteline-src {
+  display: block; margin-top: 5px; font-size: var(--fs-xs); color: var(--faint);
+  letter-spacing: 0.04em;
+}
+
+/* The built-in catalogue, folded. It is the fallback, not the subject — the run
+   is for what somebody is trying to become. */
+.archive.catalogue { margin: var(--sp-md) 0; }
+.archive.catalogue .label:first-of-type { margin-top: var(--sp-sm); }
+
+/* One line a day, read on the way in. Quiet by construction: it is not the
+   subject of the screen and must never out-shout the day's work. */
+.quoteline {
+  display: block; width: 100%; text-align: left; color: inherit;
+  padding: 13px var(--sp-lg); margin-bottom: var(--sp-md);
+  background: var(--surface-2); border: 0; border-left: 2px solid var(--stroke-strong);
+  border-radius: var(--r-sm);
+}
+.quoteline-text { display: block; font-size: var(--fs-md); line-height: 1.55; color: var(--muted); }
+.quoteline-src {
+  display: block; margin-top: 5px; font-size: var(--fs-xs); color: var(--faint);
+  letter-spacing: 0.04em;
+}

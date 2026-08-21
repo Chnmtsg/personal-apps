@@ -380,33 +380,66 @@
     return READING_PROMPTS[n % READING_PROMPTS.length];
   };
 
+  /* ---------- lines worth keeping ----------
+
+     The app's own test for a feature is in knowledge/project.md: does this tell
+     the user something TRUE about their life, or does it only move a counter the
+     app invented? A generic motivational quote fails it — it says nothing about
+     anybody's life and it is the decoration this app is built against.
+
+     A line the user chose to keep passes, because choosing it is the fact. So
+     this list is theirs: `addLine` is the only way one appears, and every seeded
+     entry below can be deleted.
+
+     What IS seeded is short, real and attributed — the principles from the
+     "Can't Hurt Me" analysis the owner brought to this app, not invented
+     encouragement and never a sentence about the user. If it reads as a slogan
+     rather than a claim you could argue with, it does not belong here. */
+
+  const SEED_LINES = [
+    { text: 'Stress plus recovery equals adaptation. Stress without recovery equals damage.', source: 'Can’t Hurt Me' },
+    { text: 'Discipline is architecture, not heroism — consistent people have removed decisions, not won them.', source: 'Can’t Hurt Me' },
+    { text: 'Fault and responsibility are different. Take the second regardless of the first.', source: 'Can’t Hurt Me' },
+    { text: 'Confidence follows evidence. Build the record.', source: 'Can’t Hurt Me' },
+    { text: 'Avoidance inflates difficulty; contact deflates it.', source: 'Can’t Hurt Me' },
+    { text: 'Rehearse the obstacle, not the trophy.', source: 'Can’t Hurt Me' },
+    { text: 'Your perception of your limit arrives long before your limit does.', source: 'Can’t Hurt Me' },
+    { text: 'You cannot improve from a position you refuse to state accurately.', source: 'Can’t Hurt Me' }
+  ];
+
   /* ---------- rewards ---------- */
 
   // Streak milestones. xp is granted on claim.
+  /* No `icon` either. The medal is one drawn trophy now: eleven different
+     glyphs was eleven decisions, it re-used the flame that means "streak"
+     everywhere else, and the locked state depended on `grayscale()` treating a
+     colour emoji the same way on every platform, which it does not. */
   const MILESTONES = [
-    { id: 'm3', days: 3, name: 'Ignition', icon: '🔥', xp: 50, blurb: 'Three days in. The hardest part is behind you.' },
-    { id: 'm7', days: 7, name: 'One Week Warrior', icon: '🗡️', xp: 120, blurb: 'A full week. This is becoming a rhythm.' },
-    { id: 'm14', days: 14, name: 'Fortnight Forged', icon: '⚔️', xp: 220, blurb: 'Two weeks. Your body is starting to expect it.' },
-    { id: 'm21', days: 21, name: 'Habit Formed', icon: '🧠', xp: 320, blurb: '21 days — the classic habit threshold, cleared.' },
-    { id: 'm30', days: 30, name: 'Monthly Machine', icon: '🏅', xp: 500, blurb: 'A month of showing up. Rare air.' },
-    { id: 'm50', days: 50, name: 'Half Century', icon: '🥇', xp: 800, blurb: 'Fifty days. Discipline over motivation.' },
-    { id: 'm75', days: 75, name: 'Iron Will', icon: '🛡️', xp: 1100, blurb: 'Seventy-five. Nothing knocks you off now.' },
-    { id: 'm100', days: 100, name: 'Centurion', icon: '👑', xp: 1600, blurb: 'One hundred days. You are the discipline.' },
-    { id: 'm150', days: 150, name: 'Relentless', icon: '💎', xp: 2400, blurb: '150 days of relentless forward motion.' },
-    { id: 'm200', days: 200, name: 'Unbreakable', icon: '🗿', xp: 3200, blurb: '200 days. Unbreakable.' },
-    { id: 'm365', days: 365, name: 'Year of Arising', icon: '🌟', xp: 6000, blurb: 'A full year. You rewrote who you are.' }
+    { id: 'm3', days: 3, name: 'Ignition', xp: 50, blurb: 'Three days in. The hardest part is behind you.' },
+    { id: 'm7', days: 7, name: 'One Week Warrior', xp: 120, blurb: 'A full week. This is becoming a rhythm.' },
+    { id: 'm14', days: 14, name: 'Fortnight Forged', xp: 220, blurb: 'Two weeks. Your body is starting to expect it.' },
+    { id: 'm21', days: 21, name: 'Habit Formed', xp: 320, blurb: '21 days — the classic habit threshold, cleared.' },
+    { id: 'm30', days: 30, name: 'Monthly Machine', xp: 500, blurb: 'A month of showing up. Rare air.' },
+    { id: 'm50', days: 50, name: 'Half Century', xp: 800, blurb: 'Fifty days. Discipline over motivation.' },
+    { id: 'm75', days: 75, name: 'Iron Will', xp: 1100, blurb: 'Seventy-five. Nothing knocks you off now.' },
+    { id: 'm100', days: 100, name: 'Centurion', xp: 1600, blurb: 'One hundred days. You are the discipline.' },
+    { id: 'm150', days: 150, name: 'Relentless', xp: 2400, blurb: '150 days of relentless forward motion.' },
+    { id: 'm200', days: 200, name: 'Unbreakable', xp: 3200, blurb: '200 days. Unbreakable.' },
+    { id: 'm365', days: 365, name: 'Year of Arising', xp: 6000, blurb: 'A full year. You rewrote who you are.' }
   ];
 
+  /* No `icon` here. There were nine, read nowhere — `progress()` renders the
+     name only — and a dead field is an invitation to render it. */
   const RANKS = [
-    { at: 1, name: 'Awakened', icon: '🌱' },
-    { at: 4, name: 'Apprentice', icon: '🪶' },
-    { at: 8, name: 'Fighter', icon: '🥊' },
-    { at: 13, name: 'Hunter', icon: '🏹' },
-    { at: 19, name: 'Knight', icon: '🛡️' },
-    { at: 26, name: 'Elite', icon: '⚡' },
-    { at: 34, name: 'Champion', icon: '🏆' },
-    { at: 45, name: 'Monarch', icon: '👑' },
-    { at: 60, name: 'Sovereign', icon: '🌟' }
+    { at: 1, name: 'Awakened' },
+    { at: 4, name: 'Apprentice' },
+    { at: 8, name: 'Fighter' },
+    { at: 13, name: 'Hunter' },
+    { at: 19, name: 'Knight' },
+    { at: 26, name: 'Elite' },
+    { at: 34, name: 'Champion' },
+    { at: 45, name: 'Monarch' },
+    { at: 60, name: 'Sovereign' }
   ];
 
   const XP = { exercise: 10, habit: 5, dayBonus: 25, weeklyGoal: 150, goal: 12, summary: 20, levelUp: 40 };
@@ -433,7 +466,7 @@
   Object.assign(Arise, {
     DAY_MS, DAY_NAMES, DAY_SHORT, CATEGORIES, MUSCLES, MUSCLE_NAME, MUSCLE_UPGRADE, cleanMuscles,
     SEED_EXERCISES, SEED_HABITS, SEED_GOALS, GOAL_TEMPLATES, MILESTONES, RANKS, XP,
-    SECTIONS, sectionById, MODES, MODE_IDS, UNITS, formatValue, READING_PROMPTS, promptForDay,
+    SECTIONS, sectionById, MODES, MODE_IDS, UNITS, formatValue, READING_PROMPTS, promptForDay, SEED_LINES,
     key, fromKey, addDays, weekday, daysBetween, prettyDate, weekStart, uid,
     todayKey, minutesLeftToday, hhmmToMin, minToHhmm, prettyTime,
     xpForLevel, levelFromXp, rankFor
