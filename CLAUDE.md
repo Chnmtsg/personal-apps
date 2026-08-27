@@ -2,9 +2,17 @@
 
 ## Purpose
 
-This repository holds **Discipline** — an offline-first personal-development
-tracker. Goal progression, streaks, a weekly training program, reading and
-journal. Vanilla HTML/CSS/JS, no build step, no server, no account.
+This repository holds two offline-first personal apps. Both are vanilla JS, both
+keep their data on the user's device only, and neither has a server or an
+account.
+
+**Discipline** (`arise/`) — a personal-development tracker. Goal progression,
+streaks, a weekly training program, reading and journal. No build step.
+
+**Where Am I** (`where-am-i/`) — a goal *measurement* app. It refuses to store a
+goal until it has been converted into numbers, then answers how far you have
+come, whether you are ahead of the pace, and where you will actually land.
+Vite, IndexedDB, hand-rolled SVG charts.
 
 The goal is long-term maintainability, reliability, and clean architecture.
 
@@ -15,15 +23,21 @@ Never sacrifice maintainability for short-term speed.
 # Repository Layout
 
 ```
-arise/          the application — see arise/CLAUDE.md
+arise/          Discipline — see arise/CLAUDE.md
+where-am-i/     Where Am I — see where-am-i/CLAUDE.md
 reports/        HANDOFF.md, the map for whoever picks this up next
 .github/        the Pages workflow — tests, packages and publishes on push
 .claude/        launch config
 ```
 
-**`arise/` is self-contained.** It carries its own `CLAUDE.md`, its own
-`knowledge/` set and its own `.claude/` review roles, and those are the files to
-read before changing anything. This file exists only to point at them.
+**Each app is self-contained.** `arise/` carries its own `CLAUDE.md`, its own
+`knowledge/` set and its own `.claude/` review roles; `where-am-i/` carries its
+own `CLAUDE.md` and `README.md`. Those are the files to read before changing
+anything. This file exists only to point at them.
+
+The two share nothing — no code, no storage, no build. They differ on purpose:
+`arise/` has no build step and must not gain one, while `where-am-i/` is built
+with Vite. Do not carry a convention from one into the other.
 
 **The app is called Discipline; the folder is called `arise`.** So are the
 `window.Arise` globals and the `arise.state.v1` storage key. That is deliberate
@@ -109,6 +123,8 @@ Export on the old origin and Import on the new one.
 
 # Verifying
 
+## Discipline
+
 Run from `arise/`. Never report a change as done without these.
 
 ```bash
@@ -134,6 +150,19 @@ serve.cmd          # http://localhost:8123
 ```
 
 Full detail, and the invariants, are in `arise/CLAUDE.md`.
+
+## Where Am I
+
+Run from `where-am-i/`.
+
+```bash
+npm test                 # maths (property-based), storage, every screen
+npm run build            # icons + dist/
+npm run dev              # http://localhost:5180
+npm run preview:screens  # renders every screen to preview/ — the tests have no layout
+```
+
+Full detail, and the invariants, are in `where-am-i/CLAUDE.md`.
 
 ---
 
