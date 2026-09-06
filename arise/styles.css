@@ -66,48 +66,60 @@
      colours and no argument. It is also why the active tab is jade on every
      screen rather than the band's hue — nothing but the band may claim to tell
      you where you are. */
-  --bg: #071E1D;
-  --surface: #0D2B29;
-  --surface-2: #143A37;
-  --stroke: #1D4B47;
-  --stroke-strong: #2A6660;
-  --text: #ECFBF7;
-  --muted: #A8C9C3;
+  --bg: #16100C;
+  --surface: #21170F;
+  --surface-2: #2F2116;
+  --stroke: #42301F;
+  --stroke-strong: #5C4429;
+  --text: #FCF3E8;
+  --muted: #D6BFA5;
   /* WCAG AA (4.5:1) is measured against --surface-2, the lightest card a faint
      label ever sits on — not against --bg, which flatters the ratio. 4.81:1.
      A header BAND is the one surface --faint cannot clear, in either mode; see
      `.screenhead`, which steps it up one rung for the header's own subtree
      rather than darkening five bands to suit the quietest label on them. */
-  --faint: #86A8A2;
+  --faint: #B49B80;
 
-  --accent: #35E0C0;
-  --accent-2: #22C3A6;
-  --accent-grad: #35E0C0;
+  --accent: #FFA24A;
+  --accent-2: #E8863A;
+  --accent-grad: #FFA24A;
   /* A streak is time, so the flame keeps the ember hue rather than going jade. */
-  --flame: #F27CBA;
-  --gold: #F5A524;
-  --good: #35E0C0;    /* done is the same jade as the live action, per the brief */
-  --warn: #F5A524;
-  --bad: #F4726B;
-  --cream: #DFF3EF;   /* the light surface: real totals, the selected segment */
-  --ember: #E5479B;
-  --ember-2: #C93382;
+  --flame: #F2705C;
+  --gold: #F2E28A;
+  --good: #FFA24A;    /* done is the same jade as the live action, per the brief */
+  --warn: #F2E28A;
+  --bad: #9E2B32;
+  --cream: #F6E6D2;   /* the light surface: real totals, the selected segment */
+  --ember: #D94666;
+  --ember-2: #B93655;
   /* Ember's second FORM, and the only iridescent thing in the app: the run
      counter, whose subject is literally progress through a fixed length of
      time, so the gradient IS ember rather than decoration beside it. Held as a
      whole gradient rather than as two stops, because the two modes ramp
      differently on purpose — see the light block for why. */
-  --ember-grad: linear-gradient(135deg, #E5479B, #F5A524);
+  --ember-grad: linear-gradient(135deg, #D94666, #F2E28A);
 
   /* --- location colour: the five header bands ---
      Selected by `--band`, which the route rules further down resolve from the
      `data-route` `js/ui.js` already writes on `#view`. Hue here means "which
      screen", never a state. */
-  --band-today: #10504A;
-  --band-plan:  #0E4457;
-  --band-read:  #1B2E6E;
-  --band-stats: #3A2470;
-  --band-more:  #4A2049;
+  --band-today: #653226;
+  --band-plan: #602839;
+  --band-read: #562D4E;
+  --band-stats: #4E274A;
+  --band-more: #3C2552;
+  /* Each band as three stops — lifted 6%, base, dropped 4% — so a header reads
+     as a ramp rather than a slab. Held as tokens rather than computed in the
+     rule: the one place a band is decided stays the one place it is written,
+     and `--band` is still the BASE stop, so every contrast figure measured in
+     knowledge/colour-direction-plumage.md describes the middle of the gradient
+     and no pair moved. */
+  --band-today-hi: #74392E;  --band-today-lo: #5A2C21;
+  --band-plan-hi:  #6E2F42;  --band-plan-lo:  #562433;
+  --band-read-hi:  #5F3157;  --band-read-lo:  #4E2946;
+  --band-stats-hi: #5A2C55;  --band-stats-lo: #452343;
+  --band-more-hi:  #46265A;  --band-more-lo:  #352149;
+  --band-hi: var(--surface); --band-lo: var(--surface);
   --band: var(--surface);
 
   /* Chart marks. Their own steps, NOT --accent and --gold: a mark on a dark
@@ -123,8 +135,8 @@
      the 0.10 floor, so it would have read as grey. Each was snapped to the
      nearest passing step. Do not tidy them back to the UI tokens; that
      reintroduces a failure the eye does not catch. */
-  --chart-did: #1FA98F;
-  --chart-ask: #C2891A;
+  --chart-did: #C9762F;
+  --chart-ask: #C86BC0;
 
   /* Type scale. Every piece of TEXT picks a rung — there were 21 sizes before
      this, with 11.5 and 12 sitting next to each other in one card, so no two
@@ -167,16 +179,16 @@
      --on-art is fixed in both themes because the .gcard artwork is: the scrim
      is painted from literal rgba, so its text cannot follow the theme.
      --on-cream flips with --cream, which does. */
-  --on-accent: #04231E;
-  --on-good: #04231E;
-  --on-gold: #06231F;
+  --on-accent: #2A1304;
+  --on-good: #2A1304;
+  --on-gold: #2A2104;
   /* Near-black rather than white: white on this magenta is 3.7:1. It carries
      the whole dark --ember-grad as well — 5.03:1 at the magenta end, 9.08:1 at
      the saffron one. */
-  --on-ember: #2A0518;
+  --on-ember: #2E0A0C;
   --on-art: #f4efe7;
   --on-art-muted: #b0a79b;
-  --on-cream: #06201E;
+  --on-cream: #241505;
   /* The side padding of a screen. Named because the headers have to break out
      of it to reach the edge of the viewport, and a header that is 1px off the
      edge is worse than one that never tried. */
@@ -193,57 +205,62 @@
   :root:not([data-theme="dark"]) {
     /* Plumage in light: peacock-tinted whites rather than neutral ones, and
        the five bands become pale washes of the same five hues. */
-    --bg: #F0F7F5;
+    --bg: #FBF4E9;
     --surface: #FFFFFF;
-    --surface-2: #E3EFEC;
-    --stroke: #D2E3DF;
-    --stroke-strong: #A9C5BF;
-    --text: #06201E;
+    --surface-2: #F2E6D6;
+    --stroke: #E2D2BE;
+    --stroke-strong: #C4AE95;
+    --text: #2A1A0E;
     /* --muted darkens with --faint so the two stay a visible step apart once
        --faint is dark enough to clear AA on --surface-2. 4.85:1, up from the
        4.46:1 the previous light palette actually measured. */
-    --muted: #3F5C58;
-    --faint: #4F6C67;
-    --cream: #0D2B29;
+    --muted: #5A4433;
+    --faint: #6B5340;
+    --cream: #2B1F16;
     /* --cream inverts here, so its foreground must invert with it. --on-art and
        --on-art-muted deliberately do not appear in this block: the surface they
        sit on is the same dark artwork in both themes. */
-    --on-cream: #ECFBF7;
+    --on-cream: #FBF4E9;
     /* Jade and saffron both have to clear 4.5:1 against white here, so both drop
        several steps darker than the dark block's values. --ember does the same,
        and takes white text rather than the near-black ink it uses on a dark
        ground. */
-    --accent: #0B7A67;
-    --accent-2: #075F51;
-    --accent-grad: #0B7A67;
-    --flame: #C0417F;
+    --accent: #B65A0E;
+    --accent-2: #94480A;
+    --accent-grad: #B65A0E;
+    --flame: #B0442E;
     --gold: #8A5A05;
-    --good: #0B7A67;
+    --good: #B65A0E;
     --warn: #8A5A05;
-    --bad: #B03A2C;
-    --ember: #A8256B;
-    --ember-2: #8C1B57;
+    --bad: #A5301F;
+    --ember: #A83250;
+    --ember-2: #8E2743;
     /* The cool ramp, and it is not the dark block's ramp darkened. In light mode
        both ends have to stay dark enough to carry white text, and a dark magenta
        ramping to a dark saffron passes through brown. Going magenta → violet →
        indigo instead stays iridescent, echoes the band ramp, and holds white at
        6.68:1, 8.13:1 and 8.79:1 across the three stops. */
-    --ember-grad: linear-gradient(135deg, #A8256B, #7B2F84 55%, #4A3A9E);
-    --band-today: #CDE9E4;
-    --band-plan:  #CFE5EE;
-    --band-read:  #D8DEF5;
-    --band-stats: #E2D9F4;
-    --band-more:  #EFD9EE;
+    --ember-grad: linear-gradient(135deg, #A83250, #B65A0E);
+    --band-today: #F3DCD0;
+    --band-plan: #F2D9DC;
+    --band-read: #F0DAD9;
+    --band-stats: #EDD8E6;
+    --band-more: #E6DCEF;
+    --band-today-hi: #F6E1D5;  --band-today-lo: #EFD6C9;
+    --band-plan-hi:  #F6DEE1;  --band-plan-lo:  #EED3D7;
+    --band-read-hi:  #F4DFDE;  --band-read-lo:  #ECD5D4;
+    --band-stats-hi: #F1DCEA;  --band-stats-lo: #E9D3E2;
+    --band-more-hi:  #EAE0F2;  --band-more-lo:  #E2D7EB;
     /* Light-mode steps, validated against #ffffff. The jade is more saturated
        than --accent because at this lightness the hue runs out of chroma and
        drops below the 0.10 floor — it would read as grey. See the dark block. */
-    --chart-did: #027C64;
-    --chart-ask: #8A5A05;
-    --on-accent: #FFFFFF;
-    --on-good: #FFFFFF;
-    --on-gold: #FFFFFF;
-    --on-ember: #FFFFFF;
-    --shadow: 0 10px 30px rgba(6, 32, 30, 0.14);
+    --chart-did: #A8560F;
+    --chart-ask: #9C4BA6;
+    --on-accent: #FFF7EE;
+    --on-good: #FFF7EE;
+    --on-gold: #FFF7EE;
+    --on-ember: #FFF7EE;
+    --shadow: 0 10px 30px rgba(42, 26, 14, 0.14);
     color-scheme: light;
   }}@media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) input[type="time"]::-webkit-calendar-picker-indicator { filter: none; }}* { box-sizing: border-box; }/* `min-height`, never `height`. With `height: 100%` and border-box sizing the
@@ -651,7 +668,12 @@ label.field > .field-note { display: block; margin-top: 5px; font-size: var(--fs
   bottom: calc(var(--tab-h) + var(--safe-b));
   display: flex; align-items: center; gap: var(--sp-md);
   padding: var(--sp-md) var(--sp-lg);
-  background: var(--ember); color: var(--on-ember);
+  /* Charcoal while it carries "next up". Ember is for a block whose subject is
+     progress through a fixed length of time, and a next ask is not that — it was
+     always the weakest use of the hue in this app. A rest countdown IS that
+     literally, so `.is-rest` takes the ember and this does not. */
+  background: var(--surface-2); color: var(--text);
+  border-top: 1px solid var(--stroke-strong);
 }.today-strip-body { flex: 1; min-width: 0; }.today-strip b {
   display: block; font-size: var(--fs-xs); font-weight: 800;
   letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.6;
@@ -660,8 +682,10 @@ label.field > .field-note { display: block; margin-top: 5px; font-size: var(--fs
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }.today-strip .btn {
   flex: none; min-height: 44px; border: 0;
-  background: var(--on-ember); color: var(--cream);
-}/* The strip is fixed, so the page has to end above it rather than under it. */
+  background: var(--accent); color: var(--on-accent);
+}
+/* …and inverts on the ember ground, where the accent would fight it. */
+.today-strip.is-rest .btn { background: var(--on-ember); color: var(--cream); }/* The strip is fixed, so the page has to end above it rather than under it. */
 body:has(.today-strip) { padding-bottom: calc(var(--tab-h) + var(--safe-b) + 66px); }/* …and a toast must clear the strip, not land behind it. */
 body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80px); }/* --- undo, inside the toast that announced the thing ---
    .toasts is pointer-events:none so a toast never eats a tap; a toast that
@@ -862,9 +886,9 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
    Rewards and the run screen have no tab of their own and light More's, so they
    take More's band; anything unrouted falls back to `--surface`, which is what
    every header used to be. */
-.view[data-route="today"]    { --band: var(--band-today); }.view[data-route="plan"]     { --band: var(--band-plan); }.view[data-route="read"]     { --band: var(--band-read); }.view[data-route="progress"] { --band: var(--band-stats); }.view[data-route="more"],
+.view[data-route="today"]    { --band: var(--band-today); --band-hi: var(--band-today-hi); --band-lo: var(--band-today-lo); }.view[data-route="plan"]     { --band: var(--band-plan); --band-hi: var(--band-plan-hi); --band-lo: var(--band-plan-lo); }.view[data-route="read"]     { --band: var(--band-read); --band-hi: var(--band-read-hi); --band-lo: var(--band-read-lo); }.view[data-route="progress"] { --band: var(--band-stats); --band-hi: var(--band-stats-hi); --band-lo: var(--band-stats-lo); }.view[data-route="more"],
 .view[data-route="rewards"],
-.view[data-route="run"]      { --band: var(--band-more); }/* --- the screen header ---
+.view[data-route="run"]      { --band: var(--band-more); --band-hi: var(--band-more-hi); --band-lo: var(--band-more-lo); }/* --- the screen header ---
    A coloured band with a 26px-radius base, breaking the full width of the
    viewport. It has to escape the page's own side padding to do that, which is
    what the negative margins are for.
@@ -876,10 +900,14 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
    is --muted on the dark teal band at 5.21:1, and --text never drops below
    8.69:1. Scoped here rather than solved by darkening five bands, because the
    bands are the design and the label is one line under a title. */
-.screenhead, .dayhead { --faint: var(--muted); }.screenhead {
+.screenhead, .dayhead { --faint: var(--muted); }/* A ramp rather than a slab, with a lit top edge. Same hue, same measured
+   contrast — `--band` is the middle stop. */
+.screenhead {
   margin: 0 calc(-1 * var(--pagepad)) var(--sp-lg);
   padding: calc(var(--sp-xl) + var(--safe-t)) var(--pagepad) var(--sp-lg);
-  background: var(--band); border-bottom: 1px solid var(--stroke);
+  background: linear-gradient(180deg, var(--band-hi), var(--band), var(--band-lo));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid var(--stroke);
   border-radius: 0 0 26px 26px;
 }/* A chip that sits ON the band — the day stepper's plate, the segmented tray,
    the round icon plate, a quiet pill — used --surface or --surface-2. Those are
@@ -917,7 +945,9 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .dayhead {
   margin: 0 calc(-1 * var(--pagepad)) var(--sp-md);
   padding: calc(var(--sp-xl) + var(--safe-t)) var(--pagepad) var(--sp-md);
-  background: var(--band); border-bottom: 1px solid var(--stroke);
+  background: linear-gradient(180deg, var(--band-hi), var(--band), var(--band-lo));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid var(--stroke);
   border-radius: 0 0 26px 26px;
 }/* Ember has two forms and they are not interchangeable. The SOLID is on the run
    screen's own header and on the pinned strip. The GRADIENT is on the run
@@ -1136,22 +1166,33 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 .exercise.is-done .exercise-name {
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--good) 55%, transparent);
-}.exercise.locked { background: none; border-style: dashed; }.exercise.locked .exercise-tick { opacity: 0.35; }/* The sets already written down. An <ol> because they are ordered and the
-   order is the data — set three is the one that dropped to six reps. */
-.setlist { list-style: none; margin: var(--sp-sm) 0 0; padding: 0; }.setrow {
-  display: flex; align-items: center; gap: var(--sp-sm);
-  border-top: 1px solid var(--stroke);
-}.setrow-n {
-  flex: none; width: 22px; text-align: center;
-  font-size: var(--fs-xs); font-weight: 700; color: var(--faint);
-  font-variant-numeric: tabular-nums;
-}/* The whole row is the edit target, so correcting a mistyped set is one tap
-   rather than delete-and-retype. 44px, like every other target in the app. */
-.setrow-main {
-  flex: 1; min-width: 0; text-align: left; min-height: 44px;
-  background: none; border: 0; padding: 0; color: inherit;
+}.exercise.locked { background: none; border-style: dashed; }.exercise.locked .exercise-tick { opacity: 0.35; }/* The sets already written down, as chips on one line. An <ol> because they are
+   ordered and the order IS the data — set three is the one that dropped to six
+   reps. Chips rather than stacked rows because nine lifts times three sets is
+   twenty-seven rows on a screen that also has to carry the entry fields. */
+.setchips { list-style: none; margin: var(--sp-sm) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.setchip {
+  display: flex; align-items: stretch;
+  border: 1px solid var(--stroke); border-radius: var(--r-xs);
+  background: var(--surface-2); overflow: hidden;
+}
+/* 44px, like every other target in the app: correcting a mistyped set is a tap
+   on the chip, so the chip is thumb-sized rather than label-sized. */
+.setchip-main {
+  display: flex; align-items: center; gap: 6px;
+  min-height: 44px; padding: 0 10px;
+  background: none; border: 0; color: inherit;
   font: inherit; font-weight: 700; font-variant-numeric: tabular-nums;
-}.setrow.is-editing { background: color-mix(in srgb, var(--gold) 10%, transparent); }.setrow.is-editing .setrow-main { color: var(--gold); }/* The two number fields and the button that commits them. It stays on one line
+  white-space: nowrap;
+}
+.setchip-main > i { font-style: normal; font-size: var(--fs-xs); font-weight: 700; color: var(--faint); }
+.setchip-rm {
+  min-height: 44px; min-width: 34px; padding: 0;
+  background: none; border: 0; border-left: 1px solid var(--stroke);
+  color: var(--faint); font-size: var(--fs-md);
+}
+.setchip.is-editing { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 14%, transparent); }
+.setchip.is-editing .setchip-main { color: var(--gold); }/* The two number fields and the button that commits them. It stays on one line
    at every width the app supports: a wrapped "60 × 8 [Log set]" reads as three
    unrelated controls. */
 .setentry { display: flex; align-items: flex-end; gap: var(--sp-sm); margin-top: var(--sp-sm); }.setfield { flex: 1; min-width: 0; display: block; }.setfield > span {
@@ -1173,7 +1214,10 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
    block — one whose subject is progress through a fixed length of time — and a
    rest countdown is that literally rather than nearly. See the hue invariant in
    CLAUDE.md: no meaning hue may be used as a band, and this is the meaning. */
-.today-strip.is-rest { padding-top: var(--sp-lg); }
+.today-strip.is-rest {
+  padding-top: var(--sp-lg);
+  background: var(--ember); color: var(--on-ember); border-top: 0;
+}
 /* The track is the block's own top edge rather than a bar sitting inside it, so
    the strip reads as one object filling up rather than as a widget on a shelf. */
 .rest-track {
@@ -1236,3 +1280,92 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
    and the previous reading sits under each as a hint rather than a value. */
 .field.minifield { margin-bottom: var(--sp-md); }
 .field.minifield > input { width: 100%; }
+
+
+/* --- the session spine ---
+   A 2px rail down the left of the exercise list with a node per row, and the
+   rail fills to the fraction of the session that is complete. "Where am I in
+   this session" is then answered by the layout rather than by a counter, which
+   is what lets the header carry one line of numbers instead of three.
+
+   Pure CSS on the markup the rows already emit: one positioned wrapper, one
+   absolute rail, one absolute fill, one node per card. The only number js/ui.js
+   supplies is the fill height. */
+.spine { position: relative; padding-left: 26px; }
+.spine::before {
+  content: ''; position: absolute; left: 7px; top: 12px; bottom: 12px; width: 2px;
+  background: var(--stroke); border-radius: 2px;
+}
+.spine-fill {
+  position: absolute; left: 7px; top: 12px; width: 2px;
+  background: var(--accent); border-radius: 2px;
+  transition: height 0.3s ease;
+}
+.spine > .exercise { position: relative; }
+.spine > .exercise::before {
+  content: ''; position: absolute; left: -25px; top: 22px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--bg); border: 2px solid var(--stroke);
+  transition: background 0.2s, border-color 0.2s;
+}
+/* Three node states, none carried by colour alone: a done row also has its tick
+   filled and its name struck through, and the live row is the one whose entry
+   fields sit above every row still to come. */
+.spine > .exercise.is-done::before { background: var(--accent); border-color: var(--accent); }
+.spine > .exercise.is-live::before {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+/* A category heading interrupts the rows, so it takes no node — the rail runs
+   past it. */
+.spine > .block-head { position: relative; }
+@media (prefers-reduced-motion: reduce) {
+  .spine-fill, .spine > .exercise::before { transition: none; }
+}
+
+/* --- Progress: the photos and the tape ---
+   Reached from More and from Stats, with no tab of its own. Photos are the one
+   thing in the app that is not a number, so they get the only image treatment
+   in the stylesheet — and it stays plain: a frame, a date, and a delete. */
+.shotpair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-sm); margin-bottom: var(--sp-md); }
+.shotgrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: var(--sp-sm);
+}
+.shot {
+  position: relative; margin: 0;
+  background: var(--surface); border: 1px solid var(--stroke);
+  border-radius: var(--r-sm); overflow: hidden;
+}
+/* A fixed aspect ratio so a grid of phone photos does not stagger, and
+   object-fit so none of them is squashed to reach it. */
+.shot img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; }
+.shot figcaption {
+  padding: 6px var(--sp-sm); font-size: var(--fs-xs); font-weight: 700;
+  color: var(--muted); text-align: center;
+}
+/* 44px target on a small tile: the graphic is smaller than the button. */
+.shot-rm {
+  position: absolute; top: 0; right: 0; width: 44px; height: 44px;
+  display: grid; place-items: center;
+  background: none; border: 0; color: var(--text);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.tapecard {
+  background: var(--surface); border: 1px solid var(--stroke);
+  border-radius: var(--r-lg); padding: var(--sp-md) var(--sp-lg);
+  margin-bottom: var(--sp-sm);
+}
+.tapecard-head { display: flex; align-items: baseline; gap: var(--sp-sm); }
+.tapecard-name { flex: 1; min-width: 0; font-weight: 800; font-size: var(--fs-lg); }
+/* The last readings as bars. Bars and not a line: the tape is used once a
+   rotation, so a line between two points a month apart would draw a month of
+   change that was never measured. */
+.tapebars {
+  display: flex; align-items: flex-end; gap: 4px;
+  height: 38px; margin-top: var(--sp-sm);
+}
+.tapebars > i {
+  flex: 1; min-width: 4px; border-radius: 3px 3px 0 0;
+  background: var(--chart-did);
+}

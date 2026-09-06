@@ -377,6 +377,16 @@
      A left-right difference of about a centimetre is normal in almost everybody
      and is not something to train around. */
 
+  /* The three poses a progress photo can be. Fixed and short on purpose: a free
+     text label would give you eleven near-duplicates within a year and nothing
+     to compare across. Append-only — the id is stored in the photo's key, so
+     renaming or reordering would orphan every picture already taken. */
+  const POSES = [
+    { id: 'front', name: 'Front' },
+    { id: 'side', name: 'Side' },
+    { id: 'back', name: 'Back' }
+  ];
+
   const BODY_FIELDS = [
     { id: 'neck', name: 'Neck' },
     { id: 'shoulder', name: 'Shoulder' },
@@ -418,6 +428,6 @@
     todayKey, minutesLeftToday, prettyTime,
     WEIGHT_UNITS, convertWeight, round1, fmtWeight, fmtLoad, setVolume, entryVolume,
     isLogged, logShape, targetPhrase, describeEntry, restFromNote, fmtClock,
-    BODY_FIELDS, BODY_KEYS, bodyField, fmtCm, fmtDelta
+    BODY_FIELDS, BODY_KEYS, bodyField, fmtCm, fmtDelta, POSES
   });
 })(window);

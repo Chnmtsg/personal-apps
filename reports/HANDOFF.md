@@ -53,12 +53,12 @@ move. The only bridge is More → Export on the old origin, Import on the new on
 
 ```bash
 cd arise
-npm test          # smoke 299, render 142, wire 75 — all green
+npm test          # smoke 299, render 158, wire 81 — all green
 npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
-- `sw.js` VERSION → **`discipline-v76`**
+- `sw.js` VERSION → **`discipline-v77`**
 - `js/` is **six** files, loaded in this order:
   `data.js` → `program.js` → `photos.js` → `store.js` → `ui.js` → `app.js`
   (`goals.js` and `run.js` were deleted this session — see §2)
@@ -230,6 +230,70 @@ Three rules worth not breaking later, each with a test:
 Entry is from Stats: "Weigh in" (one field) and "Measure" (the full sheet).
 Deliberately not on Today — Today is the session, and a non-training row there
 would undo the narrowing the conversion was for.
+
+### The design update: Paper + Ember, and four structural changes
+
+Applied from a design handoff the user supplied. `styles.css` and `js/ui.js`,
+no new dependency, no migration, no change to stored data.
+
+**Palette is Paper + Ember.** Warm sand ground in light, deep warm brown in
+dark, amber accent in both. `--bad` and `--gold` are deliberately held OUT of
+the amber ramp: let all five heat-map statuses become steps of one ramp and a
+missed day stops being the cell you can scan for.
+
+**The chart steps were validated, and the handoff was right to flag them.** Both
+proposed `--chart-did` values passed untouched. Both `--chart-ask` values FAILED
+— the dark pair at ΔE 5.3 in normal vision against a floor of 15 — and had to
+leave the amber family entirely. They are orchid in both blocks now. That is the
+warm-palette problem in one number: a single-hue ground cannot also supply a
+second distinguishable categorical mark.
+
+**Four structural changes**, three exactly as written:
+
+1. A progress spine down Today's exercise list, filling to the fraction of the
+   session complete, with a ringed node on the live lift.
+2. Header bands are three-stop ramps with a lit top edge. `--band` is still the
+   BASE stop, so no measured contrast pair moved.
+3. The pinned strip is charcoal until a rest runs, and ember only while it
+   counts. This settles the open question about ember losing its subject: it
+   has exactly one now, and the strip reads correctly without it.
+4. Logged sets are 44px chips instead of stacked rows, and the row states where
+   the boxes were pre-filled from.
+
+**One thing was deliberately not taken.** The handoff specified tap-to-expand on
+the exercise row. The row is already inline and always open, built that way so
+logging is confirming a number rather than opening something first, and it
+happens thirty times a session. Chips get the density win without putting a tap
+in front of the app's core action. Put to the user, who chose the same. If a
+later handoff asks again, that is the trade being made.
+
+**A new screen, `VIEWS.body`** — reached from More and from Stats, no tab.
+Progress photos (pose filter, first-and-latest pair, dated grid) and the full
+tape with per-measurement bars. The route is `body` and not `progress` because
+Stats already owns that name; worth knowing before hunting a bug that is only a
+name.
+
+Photos go in the SAME IndexedDB store as the exercise pictures under a `bp_`
+key — one store, one backup path, one quota, one thing that can fail. One
+photo per pose per day, so re-taking replaces. `A.Photos.count()` excludes them
+so More's library fold still counts the library.
+
+Three icons were added (`warmup`, `stretch`, `chev-back`) plus `tape`, and
+`CATEGORY_ICON` gained Warm-up and Stretch — a nine-row Monday was nine
+dumbbells before.
+
+**Two things in the handoff were stale** and are noted rather than applied: it
+says Measurements is a new screen (it shipped the day before, on Stats — the
+tape moved to Progress and the weight trend stayed), and it says the Saturday
+accessory day and the HOME context are still drafted (they were replaced with
+the athlete's real programme two commits ago).
+
+**A stylesheet rebuild, and why.** A splice walked its start index past the top
+of the file and duplicated ~220 lines. It was caught by the class-coverage guard
+behaving oddly rather than by a test failing, which is the uncomfortable part.
+`styles.css` was rebuilt from a pre-design copy in one pass with an assertion on
+every step plus brace-balance and duplicate-selector checks at the end. **If you
+splice this file, assert what you cut.**
 
 ### Three bugs found while building this, and how
 

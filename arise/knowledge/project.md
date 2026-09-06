@@ -118,8 +118,10 @@ none: an exercise that prescribes no rest counts up rather than being handed a
 number the app made up. It is never saved — a half-finished rest is not
 something the user did.
 
-**The tape and the scale** live on Stats and are a record rather than a task —
-nothing in them counts toward a day or a streak. Body weight is reported as a
+**The tape and the scale** are a record rather than a task — nothing in them
+counts toward a day or a streak. The body-weight trend is on Stats; the tape and
+the progress photos are behind More → Progress, which is a screen you open after
+the fact rather than to do something. Body weight is reported as a
 weekly average because a single morning is water and food, and the tape is never
 pre-filled because twenty fields saved in one tap would record measurements
 nobody took.

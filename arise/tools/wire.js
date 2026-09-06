@@ -588,5 +588,35 @@ console.log('\nthe tape and the scale, through the router');
   ok('an empty tape records nothing at all', S.bodyDays().length === 0, S.bodyDays());
 }
 
+console.log('\nthe Progress screen, through the router');
+{
+  S.resetAll();
+  /* The pose filter is view state and the router owns the tap, so this is the
+     only suite that can see the two disagree. */
+  click({ act: 'pose-filter', pose: 'back' });
+  ok('tapping a pose reaches the view state', UI.pose() === 'back', UI.pose());
+  click({ act: 'pose-filter', pose: 'sideways' });
+  ok('and a pose the app does not have is refused', UI.pose() === 'front', UI.pose());
+  click({ act: 'pose-filter', pose: 'side' });
+  ok('a real one is accepted', UI.pose() === 'side', UI.pose());
+
+  /* Adding and deleting route without throwing on a device with no IndexedDB,
+     which is exactly what this sandbox is. */
+  let threw = '';
+  try {
+    click({ act: 'photo-add' });
+    click({ act: 'photo-rm', id: A.Photos.progressKey(S.today(), 'front') });
+  } catch (err) { threw = err.message; }
+  ok('the photo handlers route without throwing', !threw, threw);
+
+  /* The key shape is what keeps progress photos and exercise pictures apart in
+     one store, so it is asserted rather than assumed. */
+  const key = A.Photos.progressKey('2026-09-07', 'front');
+  ok('a progress photo key carries its date and pose',
+     key === A.Photos.PROGRESS_PREFIX + '2026-09-07_front', key);
+  ok('and it is not counted as an exercise picture',
+     key.indexOf(A.Photos.PROGRESS_PREFIX) === 0 && A.Photos.count() === 0, A.Photos.count());
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

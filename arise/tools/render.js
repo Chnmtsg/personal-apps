@@ -123,7 +123,7 @@ function check(name, fn) {
 
 const view = resolve('#view');
 const sheetBody = resolve('#sheetBody');
-const ROUTES = ['today', 'plan', 'progress', 'rewards', 'more'];
+const ROUTES = ['today', 'plan', 'progress', 'rewards', 'more', 'body'];
 
 function renderRoute(r) {
   view.innerHTML = '';
@@ -1017,7 +1017,10 @@ behaves('every state class the views emit is actually styled', () => {
   const needed = [/* the set log — the block the app is now for */
                   '.exercise', '.exercise-head', '.exercise-tick', '.exercise-plate',
                   '.exercise-name', '.exercise-dose', '.exercise.is-done', '.exercise.locked',
-                  '.setlist', '.setrow', '.setrow-n', '.setrow-main', '.setrow.is-editing',
+                  '.setchips', '.setchip', '.setchip-main', '.setchip-rm', '.setchip.is-editing',
+                  /* the session spine, and the strip's two states */
+                  '.spine', '.spine-fill', '.spine > .exercise.is-done::before',
+                  '.spine > .exercise.is-live::before', '.today-strip.is-rest .btn',
                   '.setentry', '.setfield', '.setentry-x', '.setentry-go', '.setentry-cancel',
                   '.setmeta', '.setmeta-vol', '.setnote', '.setnote-add',
                   /* the shared chrome */
@@ -1036,7 +1039,11 @@ behaves('every state class the views emit is actually styled', () => {
                   '.today-strip.is-rest.is-ready',
                   /* the tape and the scale */
                   '.bodyhead', '.bodyrate', '.bodychart', '.bodychart-foot',
-                  '.tapeval', '.field.minifield'];
+                  '.tapeval', '.field.minifield',
+                  /* Progress: the photos and the tape */
+                  '.shotpair', '.shotgrid', '.shot', '.shot img', '.shot figcaption',
+                  '.shot-rm', '.tapecard', '.tapecard-head', '.tapecard-name',
+                  '.tapebars', '.tapebars > i'];
   const missing = needed.filter((sel) => css.indexOf(sel) < 0);
   if (missing.length) return 'no rule for: ' + missing.join(', ');
   return css.indexOf(':has(:checked)') < 0 ? '' : 'a dead :has(:checked) rule is still in the sheet';
@@ -1076,16 +1083,16 @@ behaves('an exercise with nothing logged still offers the two boxes', () => {
   const html = renderRoute('today');
   if (html.indexOf('id="w_' + benchItem.id + '"') < 0) return 'no weight field';
   if (html.indexOf('id="r_' + benchItem.id + '"') < 0) return 'no reps field';
-  if (html.indexOf('class="setlist"') >= 0) return 'an empty set list was drawn';
+  if (html.indexOf('class="setchips"') >= 0) return 'an empty set list was drawn';
   return html.indexOf('data-act="log-set"') > 0 ? '' : 'nothing commits the set';
 });
 
 behaves('a logged set is drawn with its weight, its reps and its number', () => {
   S.addSet(S.today(), benchItem.id, 60, 8);
   const html = renderRoute('today');
-  if (html.indexOf('class="setlist"') < 0) return 'no set list';
+  if (html.indexOf('class="setchips"') < 0) return 'no set list';
   if (html.indexOf('60 kg') < 0) return 'the weight is not on the row';
-  return /setrow-main[^>]*>60 kg . 8</.test(html.replace(/\u00d7/g, '.')) ? '' : 'the row does not read as weight x reps';
+  return /setchip-main[\s\S]{0,400}>60 kg . 8</.test(html.replace(/\u00d7/g, '.')) ? '' : 'the chip does not read as weight x reps';
 });
 
 behaves('and the volume it moved is stated, once', () => {
@@ -1113,8 +1120,28 @@ behaves('the row says what the same lift weighed last time', () => {
   S.addSet(y, yItem.id, 57.5, 8);
   UI.setViewDate(S.today());
   const html = renderRoute('today');
-  return html.indexOf('Last time') > 0 && html.indexOf('57.5 kg') > 0
-    ? '' : 'the previous session is not reported on the row';
+  /* And it names WHERE the boxes were filled from, which is what turns a
+     pre-filled number into something to confirm rather than to check. */
+  if (!/Prefilled from (the set above|last session|the plan)/.test(html)) {
+    return 'it does not say where the boxes were filled from';
+  }
+  return html.indexOf('57.5 kg') > 0 ? '' : 'the previous session is not reported on the row';
+});
+
+/* The three sources have to be told apart, or naming the source says nothing.
+   `suggestSet` prefers the set already typed today, then last session, then the
+   plan's own prescription — and the row has to report whichever it used. */
+behaves('and names which of the three the boxes came from', () => {
+  const k = S.today();
+  const had = S.log(k).perf[benchItem.id];
+  S.clearPerf(k, benchItem.id);
+  const fresh = renderRoute('today');
+  const fromLast = /Prefilled from last session/.test(fresh);
+  S.restorePerf(k, benchItem.id, had);
+  const again = renderRoute('today');
+  const fromToday = /Prefilled from the set above/.test(again);
+  if (!fromLast) return 'with nothing typed today it does not credit last session';
+  return fromToday ? '' : 'with a set already typed today it still credits last session';
 });
 
 behaves('and the boxes are pre-filled from it rather than left empty', () => {
@@ -1128,7 +1155,7 @@ behaves('tapping a set puts it in the boxes to be corrected, not deleted', () =>
   UI.setEditSet(benchItem.id, 0);
   const html = renderRoute('today');
   UI.setEditSet(null);
-  if (html.indexOf('setrow is-editing') < 0) return 'the row being corrected is not marked';
+  if (html.indexOf('setchip is-editing') < 0) return 'the chip being corrected is not marked';
   if (html.indexOf('>Update<') < 0) return 'the button still says Log set';
   return html.indexOf('data-act="set-cancel"') > 0 ? '' : 'there is no way out of the correction';
 });
@@ -1320,7 +1347,9 @@ behaves('with nothing measured, Stats invites the first reading rather than draw
   if (!body) return 'no body section at all';
   if (/(^|[^0-9.])0 (kg|cm)/.test(body)) return 'a zero was drawn for something never measured';
   if (body.indexOf('data-act="weigh-in"') < 0) return 'no route to the first weigh-in';
-  return body.indexOf('data-act="tape-open"') > 0 ? '' : 'no route to the first measurements';
+  /* The tape itself moved to Progress, so Stats carries the route to it rather
+     than the measurements. */
+  return body.indexOf('data-nav="body"') > 0 ? '' : 'no route to the tape';
 });
 
 behaves('a run of weigh-ins is reported as a weekly average, never as one morning', () => {
@@ -1356,7 +1385,8 @@ behaves('one week of readings draws no chart and claims no rate', () => {
 behaves('the tape lists what was measured, with its change and its date', () => {
   S.setBody(A.addDays(S.today(), -30), { chest: 92, arm_l: 30, arm_r: 31 });
   S.setBody(S.today(), { chest: 95, arm_l: 31.5, arm_r: 32.5 });
-  const html = renderRoute('progress');
+  // The tape lives on Progress now; Stats carries the route to it.
+  const html = renderRoute('body');
   if (html.indexOf('95 cm') < 0) return 'the latest reading is not shown';
   if (html.indexOf('+3 cm') < 0) return 'the change since the first reading is not shown';
   if (html.indexOf('Arm · L / R') < 0) return 'a paired measurement is not shown as a pair';
@@ -1365,7 +1395,7 @@ behaves('the tape lists what was measured, with its change and its date', () => 
 
 behaves('a measurement taken once shows a value and no change', () => {
   S.setBody(S.today(), { neck: 37 });
-  const html = renderRoute('progress');
+  const html = renderRoute('body');
   if (html.indexOf('37 cm') < 0) return 'the reading is missing';
   /* "no change" would be a claim; one reading supports neither. */
   return /37 cm<i>/.test(html.replace(/\s+/g, '')) ? 'it claimed a change from one reading' : '';
@@ -1399,6 +1429,66 @@ behaves('the tape sheet offers every field and pre-fills none of them', () => {
   if (/id="bm_chest"[^>]*value="92"/.test(html)) return 'last month\'s reading was pre-filled into the box';
   if (html.indexOf('was 92 cm') < 0) return 'the previous reading is not shown beside the field';
   return /leave the rest\s+blank/.test(html) ? '' : 'it does not say a blank records nothing';
+});
+
+/* ---------- Progress: photos and the tape ---------- */
+console.log('\nProgress: the photos and the tape');
+
+behaves('the screen is reachable from More and from Stats, and has no tab', () => {
+  S.resetAll();
+  UI.setViewDate(S.today());
+  if (renderRoute('more').indexOf('data-nav="body"') < 0) return 'no route from More';
+  if (renderRoute('progress').indexOf('data-nav="body"') < 0) return 'no route from Stats';
+  const shell = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  return shell.indexOf('data-nav="body"') < 0 ? '' : 'it grew a tab it is not meant to have';
+});
+
+behaves('with no photos it says what a comparable one needs', () => {
+  const html = renderRoute('body');
+  if (html.indexOf('data-act="photo-add"') < 0) return 'no way to take one';
+  /* A photo is only a comparison if the conditions are, and the app has no way
+     to enforce that — so it says it rather than pretending the pair is
+     controlled. */
+  return /same\s+light/.test(html) ? '' : 'it does not say what makes a photo comparable';
+});
+
+behaves('the pose filter offers every pose and marks one', () => {
+  const html = renderRoute('body');
+  const missing = A.POSES.filter((x) => html.indexOf('data-pose="' + x.id + '"') < 0);
+  if (missing.length) return 'no filter for: ' + missing.map((x) => x.id).join(', ');
+  return (html.match(/seg on"/g) || []).length >= 1 ? '' : 'no pose is selected';
+});
+
+behaves('switching pose changes which photos are asked for', () => {
+  const front = UI.pose();
+  UI.setPose('back');
+  const html = renderRoute('body');
+  UI.setPose(front);
+  return /back photos yet/.test(html) ? '' : 'the empty state still names the old pose';
+});
+
+behaves('a pose the app does not have falls back rather than sticking', () => {
+  UI.setPose('sideways');
+  const got = UI.pose();
+  UI.setPose('front');
+  return got === 'front' ? '' : 'an unknown pose was accepted: ' + got;
+});
+
+behaves('the tape draws bars only where there is more than one reading', () => {
+  S.resetAll();
+  S.setBody(S.today(), { chest: 95 });
+  const one = renderRoute('body');
+  if (one.indexOf('class="tapebars"') >= 0) return 'bars were drawn from a single reading';
+  if (one.indexOf('95 cm') < 0) return 'the single reading is not shown';
+  [60, 30, 0].forEach((d, i) => S.setBody(A.addDays(S.today(), -d), { chest: 92 + i }));
+  const many = renderRoute('body');
+  if (many.indexOf('class="tapebars"') < 0) return 'no bars with three readings';
+  return many.indexOf('var(--chart-did)') < 0 ? '' : 'the bars hardcode the mark colour instead of taking the token';
+});
+
+behaves('and the screen says the photos never leave the device', () => {
+  const html = renderRoute('body');
+  return /never\s+leave\s+it/.test(html) ? '' : 'nothing states where the photos go';
 });
 
 behaves('the page can grow past the viewport, so a fixed bar cannot eat the end of it', () => {

@@ -613,6 +613,62 @@
         offerUndo('<span>Reading removed.</span>', () => S.restoreBody(sheetDate, before));
         break;
       }
+      /* --- progress photos ---
+         Same store as the exercise pictures, same shrink-then-put flow, same
+         honest failure: a device that will not keep the picture is told so
+         rather than being shown one that vanishes on reload. */
+      case 'pose-filter':
+        UI.setPose(actEl.dataset.pose);
+        UI.render();
+        break;
+      case 'photo-add': {
+        const busy = actEl;
+        const wasText = busy && busy.textContent;
+        const setBusy = (on) => {
+          if (!busy) return;
+          busy.disabled = on;
+          if (busy.setAttribute) busy.setAttribute('aria-busy', on ? 'true' : 'false');
+          if (on && busy.textContent != null) busy.textContent = 'Adding…';
+          else if (busy.textContent != null) busy.textContent = wasText;
+        };
+        pickImage((file) => {
+          if (!file) return;
+          setBusy(true);
+          A.Photos.shrink(file).then((dataUrl) => {
+            if (!dataUrl) {
+              setBusy(false);
+              UI.toast('<span>That file could not be read as a picture — try a JPEG or PNG from your gallery.</span>', 'bad');
+              return;
+            }
+            /* One photo per pose per day: re-taking today's replaces it rather
+               than growing the store forever. */
+            const key = A.Photos.progressKey(S.today(), UI.pose());
+            A.Photos.put(key, dataUrl).then((saved) => {
+              setBusy(false);
+              UI.render();
+              if (!saved) UI.toast('<span>This browser will not store pictures — it is showing but will not survive a reload.</span>', 'bad');
+            });
+          });
+        });
+        break;
+      }
+      case 'photo-rm': {
+        const gone = A.Photos.get(id);
+        UI.openConfirm({
+          title: 'Delete this photo?',
+          body: 'It is removed from this device. Photos are not in the state backup you export from More — they travel in their own half of it — so this cannot be undone from a ledger backup.',
+          confirmLabel: 'Delete it',
+          danger: true,
+          onConfirm: () => {
+            A.Photos.remove(id).then(() => {
+              UI.render();
+              UI.toast('<span>Photo deleted.</span>');
+            });
+          }
+        });
+        void gone;
+        break;
+      }
       case 'tape-open':
         UI.openTape(actEl.dataset.date || S.today());
         break;

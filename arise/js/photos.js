@@ -227,10 +227,30 @@
     });
   }
 
+  /* Progress photos share this store with the exercise pictures rather than
+     opening a second database. They are the same thing to the store — an id and
+     a data URL — and one store means one backup path, one quota, and one place
+     that can fail. What keeps them apart is the key: a progress photo is
+     `bp_<dateKey>_<pose>`, so there is one per pose per day and re-taking one
+     replaces it rather than growing the store without limit. */
+  const PROGRESS_PREFIX = 'bp_';
+  const progressKey = (dateKey, pose) => PROGRESS_PREFIX + dateKey + '_' + pose;
+
+  /** Every stored id, optionally only those under a prefix. */
+  function ids(prefix) {
+    const all2 = Object.keys(cache);
+    if (!prefix) return all2;
+    return all2.filter((k) => k.indexOf(prefix) === 0);
+  }
+
   A.Photos = {
     supported, load, get, has, put, remove, all, restore, shrink,
+    PROGRESS_PREFIX, progressKey, ids,
     /** Roughly what the pictures cost on disk, for the line in More. */
     bytes: () => Object.keys(cache).reduce((n, k) => n + cache[k].length, 0),
-    count: () => Object.keys(cache).length
+    /* Exercise pictures only. More's library fold counts what is IN the
+       library, and a progress photo is not one of those. */
+    count: () => Object.keys(cache).filter((k) => k.indexOf(PROGRESS_PREFIX) !== 0).length,
+    progressCount: () => Object.keys(cache).filter((k) => k.indexOf(PROGRESS_PREFIX) === 0).length
   };
 })(window);

@@ -96,9 +96,23 @@ come back — but the buzz only happens if the app is in front of you. A web
 app cannot get your attention when it is not on screen, and this one will not
 pretend otherwise.
 
+### Progress: the photos and the tape
+
+**More → Progress** holds your progress photos and the full tape. Photos are
+keyed by date and pose (front, side, back), so re-taking today's replaces it
+rather than piling up, and the screen puts your first and latest side by side —
+which is the only way a month of change is visible at all. They live on this
+device in the same store as the exercise pictures, never leave it, and travel in
+your backup.
+
+The tape shows each measurement's latest value, its change since you first took
+it, and its last eight readings as bars. Bars and not a line: the tape is used
+once a rotation, and a line between two points a month apart would draw a month
+of change that was never measured.
+
 ### The tape and the scale
 
-Stats carries the body record, and it is a record rather than a task: **nothing
+Stats carries the body-weight trend, and it is a record rather than a task: **nothing
 in it counts toward a day or a streak.** Standing on the scales is not a training
 session, and a month you did not measure is not a month you missed.
 

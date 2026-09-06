@@ -604,19 +604,34 @@ with fixed jobs — the accent for the live action and for anything done, the go
 for anything that pays out or is waiting on you, and ember for a block whose
 subject is progress through a fixed length of time.
 
-Ember was on three things and is on one now. The countdown header and the run
-header went with the features they belonged to; **Today's strip kept it, and the
-rest timer is what makes that honest.** The brief gave the strip ember for
-carrying "today's next ask", which was always a stretch of the rule — a next
-ask is not elapsed time. A rest countdown is the rule literally: a fixed length,
-and your progress through it. If the timer is ever removed, ember has no subject
-left, and the strip should go charcoal rather than keep a hue that no longer
-means anything. See `knowledge/ui-guidelines.md`.
+Ember is on ONE block now, and only while it is counting. The countdown header
+and the run header went with the features they belonged to. Today's strip kept
+the hue for a while on the brief's own reasoning — it carries "today's next
+ask" — which was always a stretch, because a next ask is not elapsed time. The
+strip is `--surface-2` with a `--stroke-strong` hairline by default now, and
+takes `--ember` **only while the rest timer runs**, which is the rule literally:
+a fixed length, and your progress through it. That also settles what happens if
+the timer is ever removed: nothing. The strip already reads correctly without
+it. See `knowledge/ui-guidelines.md`.
 
-**The brief's structure survived a repaint; its colours did not.** The palette is
-Plumage since 2026-08-21 — a peacock ground, jade accent, saffron gold, magenta
-ember — and it adds one concept the brief has no equivalent for. See the invariant
-below.
+**The brief's structure survived two repaints; its colours did not.** Plumage
+(2026-08-21) replaced the brief's cool near-black with a peacock ground and a
+jade accent. **Paper + Ember (2026-09-07)** replaced Plumage: a warm sand ground
+in light, a deep warm brown in dark, an amber accent in both. The STRUCTURE has
+survived all three untouched — the 26px header base, the 38px icon plate, the
+11px letterspaced label, the type and spacing scales, drawn icons only.
+
+Two things in the current palette are load-bearing and look like tidying
+opportunities. **`--bad` and `--gold` are deliberately held OUT of the amber
+ramp**: `--gold` separates from `--accent` by lightness rather than hue, and if
+all five heat-map statuses collapse into steps of one ramp then a missed day
+stops being the cell you can scan for, which is the only thing that map is for.
+
+**A header band is a ramp, not a slab.** Each band is three tokens — `-hi`
+(lifted 6%), the base, `-lo` (dropped 4%) — painted as a 180deg gradient with an
+inset lit top edge. `--band` is still the BASE stop, so every contrast figure in
+`knowledge/colour-direction-plumage.md` describes the middle of the gradient and
+no measured pair moved.
 
 **Hue means one of two things, and the app must never let it mean both.** A
 header BAND carries location: one hue per screen, and a band says which screen
@@ -658,7 +673,7 @@ constraint is that it makes no network calls. If a tool offers to inline the app
 into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v76`. Without it an installed copy
+anything in `fonts/`. Currently `discipline-v77`. Without it an installed copy
 keeps serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

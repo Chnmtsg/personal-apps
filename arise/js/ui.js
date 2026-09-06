@@ -25,6 +25,9 @@
      counts up instead of down, because inventing a rest nobody wrote down is
      exactly the number this app refuses to show. */
   let rest = null;
+  /* Which pose the Progress screen is filtered to. View state: a filter is not
+     a setting, and it opens on the front view every time. */
+  let pose = 'front';
   // Same again for the exercise library on More: a reference list you open to
   // change something, not one you read on the way past.
   let libOpen = false;
@@ -97,12 +100,30 @@
     /* The plus on a header pill. The fullwidth "＋" the buttons used sits on the
        text baseline and is a different weight from every drawn icon beside it. */
     plus: '<path d="M12 5v14M5 12h14"/>',
+    /* A warm-up and a stretch are not lifts, and falling through to `dumbbell`
+       made a nine-row Monday nine dumbbells with no way to see the shape of the
+       session. The warm-up is a rising line through three steps; the stretch is
+       a figure reaching, drawn as an arc with a stem so it does not read as the
+       same shape at 13px. */
+    warmup: '<path d="M3 18h4l3-8 3 12 2.5-8H21"/>',
+    stretch: '<path d="M12 5.5a1.6 1.6 0 1 0 0-.1Z"/><path d="M12 8v6"/><path d="M8 10.5 12 9l4 1.5"/><path d="m9.5 20 2.5-6 2.5 6"/>',
+    /* The back control on a screen reached from another. Its own entry rather
+       than `chev` flipped at the call site: geometry in a template is geometry
+       nobody finds when it is wrong. */
+    'chev-back': '<path d="M15 6l-6 6 6 6"/>',
+    /* Measurements. `level` was free once difficulty went with the goal engine,
+       but a name that says "difficulty" on a row about a tape measure is a lie
+       the next reader has to unpick. */
+    tape: '<rect x="2.5" y="7" width="19" height="10" rx="2"/><path d="M7 7v3m3.5-3v4.5M14 7v3m3.5-3v4.5"/>',
     /* A gift, for the one control that pays something out. */
     gift: '<rect x="3.5" y="8.5" width="17" height="12" rx="2"/><path d="M3.5 12.5h17M12 8.5V20.5"/><path d="M12 8.5S10.5 4 8 4a2.2 2.2 0 0 0 0 4.5m4 0S13.5 4 16 4a2.2 2.2 0 0 1 0 4.5"/>'
   };
 
   /* An exercise category and a goal area each stand for one drawn icon. */
-  const CATEGORY_ICON = { Strength: 'dumbbell', Cardio: 'pulse', Core: 'target', Mobility: 'move' };
+  const CATEGORY_ICON = {
+    Strength: 'dumbbell', Cardio: 'pulse', Core: 'target', Mobility: 'move',
+    'Warm-up': 'warmup', Stretch: 'stretch'
+  };
   const SECTION_ICON = {
     sleep: 'moon', fitness: 'dumbbell', mind: 'bulb', reading: 'book',
     health: 'heart', craft: 'pen', custom: 'star'
@@ -362,18 +383,28 @@
   /** A number for an input's `value`: never `NaN`, never `undefined`. */
   const numVal = (n) => (n == null || !isFinite(n) ? '' : String(A.round1(n)));
 
-  /** The rows already written down, newest at the bottom. */
+  /**
+   * The sets already written down, as chips on one line.
+   *
+   * Chips rather than stacked rows because nine lifts times three sets is
+   * twenty-seven rows on a screen that also has to hold the entry fields. The
+   * chip is the whole target — 44px, and tapping it loads the set back into the
+   * boxes to be corrected, which is why there is no separate edit control.
+   *
+   * The ✕ stays a control of its own rather than a swipe or a long-press: a
+   * gesture is an accelerator, never the only route to something destructive.
+   */
   function setRows(itemId, perf, unit, locked) {
     const sets = (perf && perf.sets) || [];
     if (!sets.length) return '';
-    return `<ol class="setlist">${sets
+    return `<ol class="setchips">${sets
       .map((set, i) => {
         const editing = editSet && editSet.itemId === itemId && editSet.index === i;
-        return `<li class="setrow ${editing ? 'is-editing' : ''}">
-          <span class="setrow-n" aria-hidden="true">${i + 1}</span>
-          <button type="button" class="setrow-main" data-act="set-edit" data-id="${itemId}" data-index="${i}"
-            ${locked ? 'disabled' : ''}>${esc(A.fmtLoad(set, unit))}</button>
-          <button type="button" class="icon-btn" data-act="set-rm" data-id="${itemId}" data-index="${i}"
+        return `<li class="setchip ${editing ? 'is-editing' : ''}">
+          <button type="button" class="setchip-main" data-act="set-edit" data-id="${itemId}" data-index="${i}"
+            aria-label="Set ${i + 1}, ${esc(A.fmtLoad(set, unit))} — tap to correct"
+            ${locked ? 'disabled' : ''}><i aria-hidden="true">${i + 1}</i>${esc(A.fmtLoad(set, unit))}</button>
+          <button type="button" class="setchip-rm" data-act="set-rm" data-id="${itemId}" data-index="${i}"
             aria-label="Remove set ${i + 1}" ${locked ? 'disabled' : ''}>✕</button>
         </li>`;
       })
@@ -387,11 +418,20 @@
    * It names the DATE as well as the numbers. "60 kg x 8, 8, 7" is only useful
    * if you know whether that was Thursday or in March.
    */
-  function lastLine(last, ex, unit) {
+  function lastLine(sug, ex, unit) {
+    const last = sug && sug.last;
     if (!last) return '';
     const said = A.describeEntry(last.perf, ex, unit);
     if (!said) return '';
-    return `<p class="setmeta">Last time · ${esc(A.prettyDate(last.date))} · ${esc(said)}</p>`;
+    /* Say where the numbers in the boxes came from, not just what happened last
+       time. The boxes are pre-filled from one of three places and the reader has
+       no way to tell which; naming it is what makes a pre-filled number
+       something to confirm rather than something to check. */
+    const from =
+      sug.from === 'today' ? 'Prefilled from the set above'
+      : sug.from === 'last' ? 'Prefilled from last session'
+      : 'Prefilled from the plan';
+    return `<p class="setmeta">${esc(from)} — ${esc(A.prettyDate(last.date))} · ${esc(said)}</p>`;
   }
 
   /** The input strip. `sug` comes from `S.suggestSet` and is only ever a hint. */
@@ -439,7 +479,7 @@
    * prescribed set ticks the row for you (see `maybeComplete` in js/store.js);
    * nothing ever un-ticks it, so a corrected typo cannot retract a session.
    */
-  function exerciseCard(item, k, locked) {
+  function exerciseCard(item, k, locked, live) {
     const ex = S.exerciseById(item.exerciseId);
     const l = S.log(k);
     const done = !!(l && l.ex && l.ex[item.id]);
@@ -457,7 +497,7 @@
     sug.perf = perf || {};
     const vol = A.entryVolume(perf, unit);
 
-    return `<article class="exercise ${done ? 'is-done' : ''} ${locked ? 'locked' : ''}">
+    return `<article class="exercise ${done ? 'is-done' : ''} ${live ? 'is-live' : ''} ${locked ? 'locked' : ''}">
       <div class="exercise-head">
         <button type="button" class="exercise-tick" data-act="toggle-ex" data-id="${item.id}"
           aria-pressed="${done}" aria-label="${done ? 'Undo' : 'Mark'} ${esc(name)} done"
@@ -478,7 +518,7 @@
           ? `<p class="setmeta setmeta-vol">${esc(A.round1(vol) + ' ' + unit + ' moved')}</p>`
           : ''
       }
-      ${lastLine(sug.last, ex, unit)}
+      ${lastLine(sug, ex, unit)}
       ${perf && perf.note ? `<p class="setnote">${esc(perf.note)}</p>` : ''}
       ${
         locked
@@ -610,17 +650,26 @@
        a heading goes in wherever the category CHANGES rather than grouping by
        it — grouping would reorder the workout, and you do not stretch before
        you press. */
+    /* The live exercise is the first one not yet done. It gets the ringed node
+       on the spine, which is the only thing on the screen that answers "where am
+       I in this session" without a counter. */
+    const liveItem = plan.find((i) => !(l && l.ex && l.ex[i.id]));
     let lastCat = null;
     const exHtml = plan.length
-      ? plan
-          .map((i) => {
-            const ex = S.exerciseById(i.exerciseId);
-            const cat = (ex && ex.category) || 'Other';
-            const head = cat !== lastCat ? `<div class="block-head">${esc(cat)}</div>` : '';
-            lastCat = cat;
-            return head + exerciseCard(i, k, future);
-          })
-          .join('')
+      ? `<div class="spine">
+          <i class="spine-fill" style="height:${
+            Math.round((st.exDone / plan.length) * 100)
+          }%" aria-hidden="true"></i>
+          ${plan
+            .map((i) => {
+              const ex = S.exerciseById(i.exerciseId);
+              const cat = (ex && ex.category) || 'Other';
+              const head = cat !== lastCat ? `<div class="block-head">${esc(cat)}</div>` : '';
+              lastCat = cat;
+              return head + exerciseCard(i, k, future, !future && liveItem === i);
+            })
+            .join('')}
+        </div>`
       : `<div class="empty">No exercises scheduled for ${esc(A.DAY_NAMES[A.weekday(k)])}.<br>
          <button class="link" data-act="go-plan" data-day="${A.weekday(k)}">Plan this day →</button></div>`;
 
@@ -1078,45 +1127,179 @@
     </section>`;
   }
 
-  /** The tape: what was measured, and what has changed since it was first taken. */
-  function tapeBlock() {
-    const hist = S.tapeHistory();
-    const taken = hist.filter((r) => r.readings);
-    if (!taken.length) {
+  /* ---------- Progress: the photos and the tape ----------
+
+     Reached from More, with no tab of its own. Both halves are things you open
+     after the fact rather than to do something, which is the same test that put
+     Rewards behind More rather than in the tab bar.
+
+     The photos live in the same IndexedDB store as the exercise pictures, under
+     a `bp_` key — see js/photos.js. They never touch `arise.state.v1`, they
+     never leave the device, and they ride the existing backup. */
+
+  /** Every progress photo, newest first, as `{ id, date, pose }`. */
+  function progressShots(forPose) {
+    return A.Photos.ids(A.Photos.PROGRESS_PREFIX)
+      .map((id) => {
+        const rest2 = id.slice(A.Photos.PROGRESS_PREFIX.length);
+        const cut = rest2.lastIndexOf('_');
+        return { id: id, date: rest2.slice(0, cut), pose: rest2.slice(cut + 1) };
+      })
+      .filter((x) => !forPose || x.pose === forPose)
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
+  }
+
+  function photoBlock() {
+    const shots = progressShots(pose);
+    const poseName = (A.POSES.find((x) => x.id === pose) || A.POSES[0]).name;
+    const filter = `<div class="segbar tight">${A.POSES.map(
+      (x) => `<button type="button" class="seg ${pose === x.id ? 'on' : ''}" data-act="pose-filter"
+        data-pose="${x.id}" aria-pressed="${pose === x.id}">${esc(x.name)}</button>`
+    ).join('')}</div>`;
+
+    if (!shots.length) {
+      return `${filter}
+      <div class="promptrow">
+        <span class="promptrow-plate" aria-hidden="true">${icon('image')}</span>
+        <div class="promptrow-body">No ${esc(poseName.toLowerCase())} photos yet. Same spot, same
+          light, same time of day — a photo is only a comparison if the conditions are.
+          <button class="link" data-act="photo-add">Take the first one →</button></div>
+      </div>`;
+    }
+
+    /* First and latest, side by side. It is the whole reason to keep photos:
+       a month-to-month change is invisible in a mirror and obvious in a pair. */
+    const first = shots[shots.length - 1];
+    const latest = shots[0];
+    const pair =
+      shots.length > 1
+        ? `<div class="shotpair">
+            ${[first, latest]
+              .map(
+                (x, i) => `<figure class="shot">
+                  <img src="${esc(A.Photos.get(x.id) || '')}" alt="${esc(
+                  (i ? 'Latest' : 'First') + ' ' + poseName.toLowerCase() + ' photo, ' + A.prettyDate(x.date)
+                )}">
+                  <figcaption>${esc((i ? 'Latest · ' : 'First · ') + A.prettyDate(x.date))}</figcaption>
+                </figure>`
+              )
+              .join('')}
+          </div>
+          <p class="footnote">${esc(
+            A.daysBetween(first.date, latest.date) + ' days apart'
+          )}. Nothing here is measured — the tape below is what turns a photo into a number.</p>`
+        : '';
+
+    const grid = `<div class="shotgrid">${shots
+      .map(
+        (x) => `<figure class="shot">
+          <img src="${esc(A.Photos.get(x.id) || '')}" alt="${esc(
+          poseName + ' photo, ' + A.prettyDate(x.date)
+        )}">
+          <figcaption>${esc(A.prettyDate(x.date))}</figcaption>
+          <button type="button" class="shot-rm" data-act="photo-rm" data-id="${esc(x.id)}"
+            aria-label="Delete the ${esc(poseName.toLowerCase())} photo from ${esc(A.prettyDate(x.date))}">✕</button>
+        </figure>`
+      )
+      .join('')}</div>`;
+
+    return filter + pair + `<div class="label">Every ${esc(poseName.toLowerCase())} photo · ${shots.length}</div>` + grid;
+  }
+
+  /**
+   * The tape, in full: each measurement's latest value, its change, and its
+   * last readings as bars.
+   *
+   * Bars rather than a line, and only where there ARE readings: the tape is
+   * used once a rotation and unevenly, so a line between two points a month
+   * apart would draw a month of change that was never measured.
+   */
+  function tapeDetail() {
+    const days = S.tapeDays().slice().reverse();   // oldest first
+    if (!days.length) {
       return `<div class="promptrow">
-        <span class="promptrow-plate" aria-hidden="true">${icon('target')}</span>
+        <span class="promptrow-plate" aria-hidden="true">${icon('tape')}</span>
         <div class="promptrow-body">The tape catches what the scale cannot: whether the weight
-          went on the chest and arms or the waist.
+          went on the chest and arms or on the waist.
           <button class="link" data-act="tape-open">Take the first measurements →</button></div>
       </div>`;
     }
-    const done = {};
-    taken.forEach((r) => { done[r.key] = r; });
+    const hist = {};
+    S.tapeHistory().forEach((r) => { hist[r.key] = r; });
     const rows = A.BODY_FIELDS.map((f) => {
       const keys = f.paired ? [f.id + '_l', f.id + '_r'] : [f.id];
-      const got = keys.map((k) => done[k]).filter(Boolean);
-      if (!got.length) return '';
-      const value = keys
-        .map((k) => (done[k] ? A.round1(done[k].last) : '—'))
-        .join(' / ');
-      /* Each side carries its own unit rather than one appended at the end:
-         "+1.5 / no change cm" is what sharing one costs, and a pair where only
-         one side moved is exactly the case worth reading correctly. */
-      const change = got.every((r) => r.change == null)
+      const lead = keys.map((k) => hist[k]).find((r) => r && r.readings);
+      if (!lead) return '';
+      /* One series per measurement, so the bars carry the LEAD side of a pair.
+         Two overlaid series would need a second validated hue for a difference
+         of about a centimetre, which is not worth a colour. */
+      const series = days
+        .map((d) => ({ date: d, v: S.bodyEntry(d)[keys[0]] }))
+        .filter((x) => x.v != null)
+        .slice(-8);
+      const value = keys.map((k) => (hist[k] && hist[k].readings ? A.round1(hist[k].last) : '—')).join(' / ');
+      const change = keys.every((k) => !hist[k] || hist[k].change == null)
         ? ''
-        : keys.map((k) => (done[k] && done[k].change != null ? A.fmtDelta(done[k].change, 'cm') : '—')).join(' / ');
-      return `<div class="row">
-        <div class="body"><div class="name">${esc(f.name)}${f.paired ? ' · L / R' : ''}</div>
-          <div class="sub">${esc(
-            'measured ' + got[0].readings + (got[0].readings === 1 ? ' time' : ' times') +
-            ' · last ' + A.prettyDate(got[0].lastOn)
-          )}</div></div>
-        <span class="tapeval">${esc(value + ' cm')}${
-        change ? `<i>${esc(change)}</i>` : ''
-      }</span>
-      </div>`;
+        : keys.map((k) => (hist[k] && hist[k].change != null ? A.fmtDelta(hist[k].change, 'cm') : '—')).join(' / ');
+      let bars = '';
+      if (series.length > 1) {
+        const top = Math.max.apply(null, series.map((x) => x.v));
+        const floor = Math.min.apply(null, series.map((x) => x.v));
+        const span = Math.max(0.4, top - floor * 0.985);
+        bars = `<div class="tapebars" role="img" aria-label="${esc(
+          f.name + ': ' + series.length + ' readings, ' + A.round1(floor) + ' to ' + A.round1(top) + ' cm'
+        )}">${series
+          .map((x) => {
+            const h = Math.max(8, ((x.v - floor * 0.985) / span) * 100);
+            return `<i style="height:${h.toFixed(0)}%" title="${esc(
+              A.prettyDate(x.date) + ' · ' + A.round1(x.v) + ' cm'
+            )}"></i>`;
+          })
+          .join('')}</div>`;
+      }
+      return `<article class="tapecard">
+        <div class="tapecard-head">
+          <span class="tapecard-name">${esc(f.name)}${f.paired ? ' · L / R' : ''}</span>
+          <span class="tapeval">${esc(value + ' cm')}${change ? `<i>${esc(change)}</i>` : ''}</span>
+        </div>
+        ${bars}
+        <p class="setmeta">${esc(
+          lead.readings + (lead.readings === 1 ? ' reading · ' : ' readings · ') + 'last ' + A.prettyDate(lead.lastOn)
+        )}</p>
+      </article>`;
     }).join('');
-    return `<div class="card flush">${rows}</div>`;
+    return rows;
+  }
+
+  function renderBody() {
+    const shots = A.Photos.progressCount();
+    return `
+      <header class="screenhead">
+        <div class="screenhead-top">
+          <button class="icon-btn" data-nav="more" aria-label="Back to More">${icon('chev-back')}</button>
+          <div style="flex:1;min-width:0">
+            <h1>Progress</h1>
+            <div class="screenhead-sub">${esc(
+              shots + (shots === 1 ? ' photo' : ' photos') + ' · ' + S.tapeDays().length +
+              (S.tapeDays().length === 1 ? ' measuring session' : ' measuring sessions')
+            )}</div>
+          </div>
+          <button class="headpill" data-act="photo-add">${icon('plus')}Photo</button>
+        </div>
+      </header>
+
+      ${photoBlock()}
+
+      <div class="label split">
+        <span>The tape</span>
+        <button class="link" data-act="tape-open">Measure</button>
+      </div>
+      ${tapeDetail()}
+
+      <p class="footnote">Photos live on this device in the same store as the exercise
+        pictures, never leave it, and travel in your backup. Nothing on this screen
+        counts toward a day or a streak.</p>
+    `;
   }
 
   /** One plain sentence about a real record, with no invented currency in it. */
@@ -1324,11 +1507,15 @@
       </div>
       ${weightBlock()}
 
-      <div class="label split">
-        <span>The tape</span>
-        <button class="link" data-act="tape-open">Measure</button>
-      </div>
-      ${tapeBlock()}
+      <button type="button" class="linkrow" data-nav="body">
+        <span class="linkrow-plate" aria-hidden="true">${icon('tape')}</span>
+        <span class="body"><b>Progress</b><span>${esc(
+          S.tapeDays().length
+            ? 'The tape, and your photos'
+            : 'Measurements and progress photos'
+        )}</span></span>
+        ${icon('chev')}
+      </button>
       <p class="footnote">Nothing here counts toward a day or a streak. Standing on
         the scales is not a training session, and a month you did not measure is
         not a month you missed.</p>
@@ -1548,6 +1735,16 @@
         ? readyRewards + ' earned, uncollected'
         : 'Promises you make to yourself, paid in the real world'
     }</span></span>
+        ${icon('chev')}
+      </button>
+
+      <button type="button" class="linkrow" data-nav="body">
+        <span class="linkrow-plate" aria-hidden="true">${icon('tape')}</span>
+        <span class="body"><b>Progress</b><span>${esc(
+          A.Photos.progressCount() || S.tapeDays().length
+            ? A.Photos.progressCount() + ' photos · ' + S.tapeDays().length + ' measuring sessions'
+            : 'Progress photos and the tape'
+        )}</span></span>
         ${icon('chev')}
       </button>
 
@@ -2139,7 +2336,11 @@
 
   const VIEWS = {
     today: renderToday, plan: renderPlan,
-    progress: renderProgress, rewards: renderRewards, more: renderMore
+    progress: renderProgress, rewards: renderRewards, more: renderMore,
+    /* `body`, not `progress` — Stats already owns that route name. The screen is
+       called Progress and the route is not, which is worth knowing before
+       hunting for a bug that is only a name. */
+    body: renderBody
   };
 
   /**
@@ -2209,7 +2410,7 @@
     /* Rewards has no tab of its own any more — it is reached from More, so More
        is the tab you are on while you are there. Without this, opening Rewards
        leaves the bar with nothing lit and no sense of where you have got to. */
-    const tabRoute = route === 'rewards' || route === 'run' ? 'more' : route;
+    const tabRoute = route === 'rewards' || route === 'run' || route === 'body' ? 'more' : route;
     document.querySelectorAll('.tab').forEach((t) => {
       const on = t.dataset.nav === tabRoute;
       /* The tab's icon is drawn from the same table as every other icon in the
@@ -2299,5 +2500,7 @@
     };
     return rest;
   };
+  UI.pose = () => pose;
+  UI.setPose = (id) => { pose = A.POSES.some((x) => x.id === id) ? id : 'front'; };
   UI.esc = esc; // toasts built outside this module must escape user text with the same rule
 })(window);
