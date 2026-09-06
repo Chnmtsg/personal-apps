@@ -96,6 +96,29 @@ come back — but the buzz only happens if the app is in front of you. A web
 app cannot get your attention when it is not on screen, and this one will not
 pretend otherwise.
 
+### The tape and the scale
+
+Stats carries the body record, and it is a record rather than a task: **nothing
+in it counts toward a day or a streak.** Standing on the scales is not a training
+session, and a month you did not measure is not a month you missed.
+
+**Body weight — three mornings a week**, after the toilet and before food. The
+app reports the **weekly average**, never a single morning, because a kilo of
+day-to-day swing is water and food rather than muscle or fat. It gives you the
+rate too — per week and per month — measured between the first and last week
+that actually have readings, so a fortnight you skipped does not read as a
+plateau. One week on the record reports no rate at all rather than a rate of
+zero.
+
+**The tape — once a rotation.** Neck, shoulder, chest, waist, hip, and arm,
+flexed arm, forearm, thigh and calf on both sides. Every field is optional and
+**nothing is pre-filled**: the previous reading sits beside the box as a hint, so
+a blank records nothing rather than repeating last month's number. Each
+measurement shows its latest value and its change since you first took it.
+
+Weights carry the unit you typed them in, same as a logged set. Lengths are
+centimetres.
+
 ### Kilograms or pounds
 
 Every set stores the number you typed **and the unit you typed it in**. So

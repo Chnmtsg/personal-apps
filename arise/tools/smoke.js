@@ -218,7 +218,7 @@ const v1 = {
   settings: { name: 'Old', goalPerWeek: 3 }
 };
 S.importJson(JSON.stringify(v1));
-ok('v1 state loads', S.get().version === 7, S.get().version);
+ok('v1 state loads', S.get().version === 8, S.get().version);
 /* v6 → v7 is the performance record, and additive means additive: a day logged
    before set logging existed gains an empty map and keeps its tick. Inventing
    numbers for it would be the app writing history the user did not. */
@@ -995,6 +995,176 @@ ok('and pads the seconds', A.fmtClock(9) === '0:09' && A.fmtClock(60) === '1:00'
    record depends on it. */
 S.resetAll();
 ok('the rest timer is on by default', S.settings().restTimer === true);
+
+/* ------------------------------------------------------------------ */
+section('the tape and the scale');
+
+S.resetAll();
+const bDay = S.today();
+
+ok('a fresh account has never been measured', S.bodyDays().length === 0);
+ok('and reports no trend rather than a zero one', S.weightTrend(12) === null);
+
+/* The WHOLE day status before anything is measured. Compared field by field
+   afterwards, because a weigh-in could wrongly reach either half — adding to
+   `total` makes the day ask for something, adding to `done` completes a day
+   nobody trained — and an assertion that only reads one of them is a guard for
+   half the bug. The first version of this checked `total` alone and sat there
+   green while `done` was sabotaged. */
+const bBefore = JSON.stringify(S.dayStatus(bDay));
+S.setBody(bDay, { kg: 59, u: 'kg' });
+ok('a weigh-in is stored', (S.bodyEntry(bDay) || {}).kg === 59, S.bodyEntry(bDay));
+ok('with the unit it was typed in', S.bodyEntry(bDay).u === 'kg');
+
+/* A record, never a task. This is the assertion that keeps somebody from
+   quietly wiring body data into the streak later on. */
+ok('a weigh-in changes nothing about the day at all',
+   JSON.stringify(S.dayStatus(bDay)) === bBefore,
+   bBefore + ' -> ' + JSON.stringify(S.dayStatus(bDay)));
+ok('nor the streak', S.currentStreak() === 0, S.currentStreak());
+ok('and history still starts where the account did',
+   S.historyStart() === S.get().createdAt, S.historyStart());
+/* A reading dated before the account existed must not drag the whole history
+   back and manufacture a run of missed days behind it. */
+S.setBody(A.addDays(bDay, -400), { kg: 57, u: 'kg' });
+ok('a backdated reading does not reach back into the history',
+   S.historyStart() === S.get().createdAt, S.historyStart());
+S.clearBody(A.addDays(bDay, -400));
+
+/* Zero is not a measurement. A field somebody tabbed through must not become a
+   real reading of nothing, and it must not be drawable on a chart. */
+S.setBody(bDay, { waist: 0, chest: 92 });
+ok('a zero measurement is refused, not stored', S.bodyEntry(bDay).waist === undefined, S.bodyEntry(bDay));
+ok('while a real one beside it is kept', S.bodyEntry(bDay).chest === 92);
+S.setBody(bDay, { chest: '' });
+ok('and a blank clears the one that was there', S.bodyEntry(bDay).chest === undefined, S.bodyEntry(bDay));
+
+/* Merging matters: the tape and the scale are used on the same morning, and
+   saving one must not wipe the other. */
+S.setBody(bDay, { waist: 75 });
+ok('writing the tape leaves the weigh-in alone', S.bodyEntry(bDay).kg === 59 && S.bodyEntry(bDay).waist === 75,
+   S.bodyEntry(bDay));
+ok('and a full tape still changes nothing about the day',
+   JSON.stringify(S.dayStatus(bDay)) === bBefore, JSON.stringify(S.dayStatus(bDay)));
+
+ok('a future measurement is refused', S.setBody(A.addDays(bDay, 1), { kg: 60 }) === false);
+ok('and nothing was written for it', S.bodyEntry(A.addDays(bDay, 1)) === null);
+
+/* ------------------------------------------------------------------ */
+section('one morning is not a weight');
+
+S.resetAll();
+/* Three mornings a week for four weeks, climbing about 0.35 kg a week, with a
+   deliberate 0.8 kg swing INSIDE each week — which is the daily water-and-food
+   noise the weekly average exists to absorb. */
+for (let w = 3; w >= 0; w--) {
+  [0, 2, 4].forEach((off, i) => {
+    const k = A.addDays(A.weekStart(A.addDays(S.today(), -w * 7)), off);
+    S.setBody(k, { kg: 59 + (3 - w) * 0.35 + (i === 1 ? 0.8 : 0), u: 'kg' });
+  });
+}
+const tr = S.weightTrend(12);
+ok('every week that has readings appears', tr.weeks.length === 4, tr.weeks.length);
+ok('and each is an average of its own readings', tr.weeks.every((w) => w.readings === 3),
+   tr.weeks.map((w) => w.readings));
+/* 59 + 59.8 + 59 over three readings = 59.2667 */
+ok('the average absorbs the within-week swing',
+   Math.abs(tr.weeks[0].kg - (59 + 59.8 + 59) / 3) < 1e-9, tr.weeks[0].kg);
+ok('the rate comes from the averages, not from single mornings',
+   Math.abs(tr.perWeek - 0.35) < 1e-9, tr.perWeek);
+ok('and a monthly rate follows from it', Math.abs(tr.perMonth - 0.35 * (365 / 12 / 7)) < 1e-9, tr.perMonth);
+ok('the reading count is carried, so one-reading weeks can say so', tr.readings === 12, tr.readings);
+
+/* A week nobody weighed in is ABSENT rather than zero — the same rule the
+   top-set chart runs on. A zero week would draw a cliff to the floor and read
+   as somebody losing sixty kilos. */
+S.resetAll();
+S.setBody(A.addDays(A.weekStart(S.today()), -21), { kg: 59, u: 'kg' });
+S.setBody(A.weekStart(S.today()), { kg: 60, u: 'kg' });
+const gap = S.weightTrend(12);
+ok('weeks with no readings are absent, not zero', gap.weeks.length === 2, gap.weeks.map((w) => w.week));
+ok('and the rate still spans the real gap between them',
+   Math.abs(gap.perWeek - 1 / 3) < 1e-9, gap.perWeek);
+
+/* One week on the record cannot produce a rate, and "no change" must not be the
+   answer given for "we cannot know yet". */
+S.resetAll();
+S.setBody(S.today(), { kg: 59, u: 'kg' });
+const one = S.weightTrend(12);
+ok('a single week reports no rate rather than a rate of zero', one.perWeek === null, one.perWeek);
+ok('but still reports the weight itself', one.latest === 59, one.latest);
+
+/* The unit rides the reading, exactly as it does on a logged set, so switching
+   the display unit re-reads history rather than re-valuing it. */
+S.setBody(A.addDays(S.today(), -7), { kg: 130, u: 'lb' });
+const lbInKg = S.weightTrend(12, 'kg').weeks[0].kg;
+ok('a reading typed in pounds reads back in kilos',
+   Math.abs(lbInKg - 130 / 2.2046226218) < 0.01, lbInKg);
+ok('and the stored number never moved', S.bodyEntry(A.addDays(S.today(), -7)).kg === 130);
+
+/* ------------------------------------------------------------------ */
+section('the tape, measured unevenly');
+
+S.resetAll();
+const t0 = A.addDays(S.today(), -60);
+const t1 = A.addDays(S.today(), -30);
+const t2 = S.today();
+S.setBody(t0, { chest: 92, waist: 75, arm_l: 30, arm_r: 31 });
+S.setBody(t1, { chest: 93.5, waist: 75.5 });
+S.setBody(t2, { chest: 95, waist: 76.5, arm_l: 31.5, arm_r: 32.5, calf_l: 36 });
+
+const hist = {};
+S.tapeHistory().forEach((r) => { hist[r.key] = r; });
+ok('a day with only a weigh-in is not a tape day', S.tapeDays().length === 3, S.tapeDays());
+ok('change is first to latest, per field', hist.chest.change === 3, hist.chest);
+/* Per FIELD and not per date: the arm was measured twice with a month skipped
+   in between, and forcing every field onto one baseline date would either drop
+   it or invent a reading for the month it was missed. */
+ok('a field measured unevenly still gets its own first and latest',
+   hist.arm_l.firstOn === t0 && hist.arm_l.lastOn === t2 && hist.arm_l.change === 1.5, hist.arm_l);
+ok('and its own reading count', hist.arm_l.readings === 2 && hist.chest.readings === 3,
+   [hist.arm_l.readings, hist.chest.readings]);
+/* One reading is not a change. */
+ok('a field measured once reports no change rather than zero', hist.calf_l.change === null, hist.calf_l);
+ok('a field never measured says so', hist.hip.readings === 0, hist.hip);
+
+/* The comparison the programme's own decision table turns on: is the waist
+   growing faster than the chest and arms. The app states both and prescribes
+   nothing. */
+ok('the waist and the chest can be compared because both are kept',
+   hist.waist.change === 1.5 && hist.chest.change === 3, [hist.waist.change, hist.chest.change]);
+
+/* ------------------------------------------------------------------ */
+section('body data survives a round trip and an older backup');
+
+const bodyJson = S.exportJson();
+ok('the export carries the body record', JSON.parse(bodyJson).body != null);
+S.resetAll();
+ok('reset clears it', S.bodyDays().length === 0);
+S.importJson(bodyJson);
+ok('and an import brings every day back', S.tapeDays().length === 3, S.tapeDays().length);
+ok('with the measurements intact', S.bodyEntry(t2).arm_r === 32.5, S.bodyEntry(t2));
+
+/* v7 → v8 is additive: an account written before any of this existed gains an
+   empty object, and nothing it already held moves. */
+const preBody = JSON.parse(S.exportJson());
+delete preBody.body;
+preBody.version = 7;
+S.importJson(JSON.stringify(preBody));
+ok('an account written before the tape existed gains an empty one',
+   S.get().body && Object.keys(S.get().body).length === 0, S.get().body);
+ok('and is not handed a baseline it never measured', S.weightTrend(12) === null);
+
+/* A half-written entry is repaired on load rather than rendered as NaN. */
+const badBody = JSON.parse(S.exportJson());
+badBody.body = { [t2]: { kg: 'heavy', waist: -3, chest: 95, arm_l: null, nonsense: 12 } };
+S.importJson(JSON.stringify(badBody));
+const fixedBody = S.bodyEntry(t2);
+ok('an unreadable weight is dropped rather than stored', fixedBody.kg === undefined, fixedBody);
+ok('a negative measurement is dropped', fixedBody.waist === undefined, fixedBody);
+ok('a readable one beside them survives', fixedBody.chest === 95, fixedBody);
+ok('and a key the app does not know is not kept', fixedBody.nonsense === undefined, fixedBody);
+ok('nothing in the repaired entry is NaN', JSON.stringify(fixedBody).indexOf('NaN') < 0, fixedBody);
 
 console.log(`
 ${pass} passed, ${fail} failed

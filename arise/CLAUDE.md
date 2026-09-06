@@ -544,6 +544,45 @@ is earned on the BEST run the streak ever reached, so a slip afterwards cannot
 revoke something already won, and collecting one records that the user actually
 bought the thing.
 
+**The tape and the scale are a RECORD, never a task.** Nothing in `state.body`
+reaches `computeDayStatus`, the streak, or `historyStart`. Standing on the scales
+is not a training session; a month nobody measured is not a month missed; and a
+weigh-in dated before the account existed must not drag the history back and
+manufacture a run of missed days behind it. There are tests in `smoke.js` and
+`wire.js` that snapshot the WHOLE day-status object before and after, because the
+first version compared `total` alone and sat green while `done` was sabotaged.
+
+**One morning is not a weight.** Day-to-day swing of about a kilo is water and
+food, so `weightWeeks` averages by week and `weightTrend` measures the rate
+between the first and last week that actually have readings. A single morning is
+a data point; the app will not call it a weight. A week with no readings is
+ABSENT rather than zero — the same rule the top-set chart runs on — and one week
+on the record reports `perWeek: null` rather than a rate of zero, because "no
+change" and "we cannot know yet" are different answers and must not look alike.
+
+**The tape is not pre-filled, and that is the whole difference from the set
+log.** A set is confirmed as it is performed, so pre-filling from last session
+helps. A tape sheet is twenty fields saved in one tap, so pre-filling would
+record ten measurements nobody took. The previous reading is shown BESIDE each
+field as a hint and never inside it. There is a test by name, and it fails if the
+value ever moves into the box.
+
+**A measurement of zero is not a measurement.** A field somebody tabbed through
+is dropped rather than stored, and a blank CLEARS rather than being skipped, so a
+mistyped reading can be taken back out. `normaliseBody` repairs a half-written
+entry on every load and invents nothing, exactly as `normalisePerf` does.
+
+**`tapeHistory` is per FIELD, not per date.** The tape is used sparsely and
+unevenly — somebody who measured an arm in March and a calf in May has a first
+and a latest for each. Forcing both onto one "baseline date" would either drop a
+field or invent a reading for the month it was missed. A field measured once
+reports `change: null`, never zero.
+
+**Body weight carries the unit it was typed in**, exactly as a logged set does,
+so switching `settings.weightUnit` re-reads the history rather than re-valuing
+it. Lengths are centimetres only; offering inches without converting the stored
+history would be worse than not offering it, and adding it later is additive.
+
 **Streak freezes are earned and spent by hand.** One per 10 completed days, max
 5, applied to a specific past day. A streak that shatters on one bad day teaches
 people to quit; a freeze holds the chain without pretending a missed day
@@ -619,7 +658,7 @@ constraint is that it makes no network calls. If a tool offers to inline the app
 into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v75`. Without it an installed copy
+anything in `fonts/`. Currently `discipline-v76`. Without it an installed copy
 keeps serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

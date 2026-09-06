@@ -53,18 +53,19 @@ move. The only bridge is More → Export on the old origin, Import on the new on
 
 ```bash
 cd arise
-npm test          # smoke 254, render 132, wire 64 — all green
+npm test          # smoke 299, render 142, wire 75 — all green
 npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
-- `sw.js` VERSION → **`discipline-v75`**
+- `sw.js` VERSION → **`discipline-v76`**
 - `js/` is **six** files, loaded in this order:
   `data.js` → `program.js` → `photos.js` → `store.js` → `ui.js` → `app.js`
   (`goals.js` and `run.js` were deleted this session — see §2)
 - `tools/` is `smoke.js`, `render.js`, `wire.js`, `package.js`, `serve.py`,
   `make_icons.py`, `shot.html`
-- `STATE_VERSION` is **7** — v7 adds `log.perf`, the performance record. Purely
+- `STATE_VERSION` is **8** — v8 adds `body`, the tape and the scale; v7 added
+  `log.perf`, the performance record. Both purely
   additive: a day logged before set logging existed gains an empty object and
   keeps its tick. v6 split the muscle tags into nineteen groups and its
   re-derivation is still guarded by `meta.musclesV6`, read BEFORE the
@@ -197,6 +198,38 @@ The one thing that did not fit is in §4: the site block is a rolling
 3-on/1-off cycle and this app stores a plan per weekday, which cannot express
 one. The closest weekly version ships, and every place the user might read it
 says so.
+
+### Body measurement tracking
+
+`state.body` is a sparse map of dateKey to `{ kg, u, neck, waist, arm_l, … }`.
+Two cadences, and the difference between them is the design:
+
+- **Body weight**, three mornings a week. Reported as a WEEKLY AVERAGE, because
+  a kilo of daily swing is water and food. `weightTrend` gives the rate between
+  the first and last week that actually have readings, so a skipped fortnight
+  does not read as a plateau, and one week on the record reports `null` rather
+  than a rate of zero.
+- **The tape**, once a rotation. Ten fields, five of them paired L/R. Every one
+  optional; `tapeHistory` works per FIELD rather than per date, because the tape
+  gets used unevenly and forcing everything onto one baseline date would drop a
+  field or invent a reading for it.
+
+Three rules worth not breaking later, each with a test:
+
+- **It is a record, never a task.** Nothing touches `computeDayStatus`, the
+  streak or `historyStart`. The tests snapshot the whole day-status object
+  before and after — the first version compared `total` alone and stayed green
+  while `done` was sabotaged, which is a guard for half a bug.
+- **The tape is NOT pre-filled**, and that is the deliberate difference from the
+  set log. A set is confirmed as it is performed; a tape sheet is twenty fields
+  saved in one tap, so pre-filling would record ten measurements nobody took.
+  The previous reading sits beside the box, never in it.
+- **Zero is not a measurement.** A tabbed-through field is dropped; a blank
+  clears rather than being skipped.
+
+Entry is from Stats: "Weigh in" (one field) and "Measure" (the full sheet).
+Deliberately not on Today — Today is the session, and a non-training row there
+would undo the narrowing the conversion was for.
 
 ### Three bugs found while building this, and how
 

@@ -353,12 +353,71 @@
     return Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
   }
 
+  /* ---------- the tape ----------
+
+     What a measuring session records. Two kinds of number, and the difference
+     between them is the whole design:
+
+     BODY WEIGHT is taken often — three mornings a week — and a single reading
+     is noise. Day-to-day swing of a kilo is water and food, so the app reports
+     the WEEKLY AVERAGE and treats one morning as a data point rather than as an
+     answer. Showing today's number as "your weight" would be the app inventing
+     a precision it does not have.
+
+     THE TAPE is taken rarely, all at once, first thing in the morning of a set
+     day. Every field is optional and a missing one stays missing: an entry with
+     a waist and no calf is a real entry, and filling the gap with a zero or with
+     last month's number would be the app writing a measurement nobody took.
+
+     Lengths are centimetres only. The programme this was built for is metric
+     throughout, and offering inches without converting the stored history would
+     be worse than not offering it. Adding it later is additive.
+
+     `paired` fields are measured on both sides and stored as `<id>_l` / `<id>_r`.
+     A left-right difference of about a centimetre is normal in almost everybody
+     and is not something to train around. */
+
+  const BODY_FIELDS = [
+    { id: 'neck', name: 'Neck' },
+    { id: 'shoulder', name: 'Shoulder' },
+    { id: 'chest', name: 'Chest' },
+    { id: 'waist', name: 'Waist' },
+    { id: 'hip', name: 'Hip' },
+    { id: 'arm', name: 'Arm', paired: true },
+    { id: 'flex', name: 'Arm, flexed', paired: true },
+    { id: 'forearm', name: 'Forearm', paired: true },
+    { id: 'thigh', name: 'Thigh', paired: true },
+    { id: 'calf', name: 'Calf', paired: true }
+  ];
+
+  /** Every stored key a tape entry can carry, in the order they are measured. */
+  const BODY_KEYS = BODY_FIELDS.reduce(
+    (out, f) => out.concat(f.paired ? [f.id + '_l', f.id + '_r'] : [f.id]),
+    []
+  );
+
+  const bodyField = (id) => BODY_FIELDS.find((f) => f.id === id) || null;
+
+  /** '30.5 cm', or '' for a measurement that was never taken. */
+  function fmtCm(v) {
+    return v == null || !isFinite(v) ? '' : round1(v) + ' cm';
+  }
+
+  /** A signed change: '+1.5 cm', '−0.5 cm', 'no change'. */
+  function fmtDelta(v, unit) {
+    if (v == null || !isFinite(v)) return '';
+    const n = round1(v);
+    if (n === 0) return 'no change';
+    return (n > 0 ? '+' : '\u2212') + Math.abs(n) + (unit ? ' ' + unit : '');
+  }
+
   Object.assign(Arise, {
     DAY_MS, DAY_NAMES, DAY_SHORT, CATEGORIES, MUSCLES, MUSCLE_NAME, MUSCLE_UPGRADE, cleanMuscles,
     SEED_EXERCISES,
     key, fromKey, addDays, weekday, daysBetween, prettyDate, weekStart, uid,
     todayKey, minutesLeftToday, prettyTime,
     WEIGHT_UNITS, convertWeight, round1, fmtWeight, fmtLoad, setVolume, entryVolume,
-    isLogged, logShape, targetPhrase, describeEntry, restFromNote, fmtClock
+    isLogged, logShape, targetPhrase, describeEntry, restFromNote, fmtClock,
+    BODY_FIELDS, BODY_KEYS, bodyField, fmtCm, fmtDelta
   });
 })(window);

@@ -9,9 +9,10 @@
   // lifeboat, not state: nothing in the normal read path ever touches it. It
   // exists so the single-key rule can never cost a user their history.
   const QUARANTINE_KEY = 'arise.state.v1.unreadable';
-  /* 7 adds `log.perf` — what each exercise actually weighed. Additive: a v6
-     state gains an empty object per day and nothing it already held moves. */
-  const STATE_VERSION = 7;
+  /* 7 adds `log.perf` — what each exercise actually weighed. 8 adds `body`, the
+     tape and the scale. Both additive: an older state gains an empty object and
+     nothing it already held moves. */
+  const STATE_VERSION = 8;
 
   /* ---------- defaults ---------- */
 
@@ -81,6 +82,10 @@
          and not the second. */
       logs: {},
       freezes: {},    // dateKey -> true  (a streak freeze the user spent)
+      /* dateKey -> { kg, u, neck, waist, arm_l, … }. Sparse on purpose: a
+         morning you only stood on the scales stores `kg` and nothing else, and
+         that is a complete entry rather than a partial one. */
+      body: {},
       // Rewards the user promises themselves: "14 sessions kept → new shoes".
       customRewards: [],
       bestStreak: 0,
@@ -248,6 +253,13 @@
     // Additive: an account written before custom rewards existed simply has none.
     s.customRewards = Array.isArray(s.customRewards) ? s.customRewards : [];
 
+    /* v7 → v8: the tape and the scale. Additive, and an empty object is the
+       honest default — an account written before this existed has never been
+       measured, and inventing a baseline for it would be the app writing a
+       number nobody took. */
+    if (!s.body || typeof s.body !== 'object' || Array.isArray(s.body)) s.body = {};
+    for (const k in s.body) s.body[k] = normaliseBody(s.body[k]);
+
     /* Anything this version no longer reads — goals, goalLogs, reading, journal,
        lines, cookies, challenges, run, habits, claimed, weeklyClaims — is left
        exactly where it is and carried through every save and every export.
@@ -325,6 +337,30 @@
 
     s.version = STATE_VERSION;
     return s;
+  }
+
+  /**
+   * Bring one stored body entry back to a shape the app can render.
+   *
+   * Same rule as `normalisePerf`: drop what cannot be read, keep what can,
+   * invent nothing. A measurement of zero is not a measurement — a 0 cm arm is
+   * a field somebody tabbed through, so it is dropped rather than stored and
+   * later drawn on a chart as a real reading.
+   */
+  function normaliseBody(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    const kg = Number(raw.kg);
+    if (raw.kg != null && isFinite(kg) && kg > 0) {
+      out.kg = kg;
+      out.u = raw.u === 'lb' ? 'lb' : 'kg';
+    }
+    A.BODY_KEYS.forEach((key) => {
+      const n = Number(raw[key]);
+      if (raw[key] != null && isFinite(n) && n > 0) out[key] = n;
+    });
+    if (raw.note) out.note = String(raw.note).slice(0, 240);
+    return out;
   }
 
   /**
@@ -989,6 +1025,178 @@
     return !all;
   }
 
+  /* ---------- the tape and the scale ----------
+
+     Body measurements are a RECORD, never a task. Nothing here reaches
+     `computeDayStatus`, the streak, or `historyStart` — standing on the scales
+     is not a training session, a month you did not measure is not a month you
+     missed, and a weigh-in dated before the account existed must not pull the
+     whole history back and manufacture missed days behind it.
+
+     The two cadences are the design. Weight is taken three mornings a week and a
+     single reading is noise; the tape is taken once a rotation, all at once.
+     `weightWeeks` answers the first and `tapeHistory` the second, and they are
+     deliberately not the same function. */
+
+  const body = () => state.body || {};
+
+  /** Every date with anything recorded, newest first. */
+  function bodyDays() {
+    return Object.keys(body()).sort((a, b) => (a < b ? 1 : -1));
+  }
+
+  const bodyEntry = (dateKey) => body()[dateKey] || null;
+
+  /**
+   * Write part of a body entry. Merges, so a weigh-in on a day the tape was
+   * used does not wipe the tape.
+   *
+   * A blank field DELETES rather than storing zero: clearing a measurement you
+   * mistyped has to be reachable, and a stored 0 would draw on the chart as a
+   * real reading of nothing.
+   */
+  function setBody(dateKey, patch) {
+    if (isFuture(dateKey)) return false;
+    const cur = Object.assign({}, body()[dateKey] || {});
+    Object.keys(patch || {}).forEach((key) => {
+      if (key !== 'kg' && key !== 'u' && key !== 'note' && A.BODY_KEYS.indexOf(key) < 0) return;
+      const raw = patch[key];
+      if (key === 'u') { cur.u = raw === 'lb' ? 'lb' : 'kg'; return; }
+      if (key === 'note') {
+        const t = String(raw == null ? '' : raw).trim().slice(0, 240);
+        if (t) cur.note = t; else delete cur.note;
+        return;
+      }
+      const n = Number(raw);
+      if (raw == null || raw === '' || !isFinite(n) || n <= 0) delete cur[key];
+      else cur[key] = n;
+    });
+    if (cur.kg == null) delete cur.u;
+    const kept = normaliseBody(cur);
+    if (!Object.keys(kept).length) delete state.body[dateKey];
+    else state.body[dateKey] = kept;
+    commit({ type: 'setBody', dateKey });
+    return true;
+  }
+
+  /** The whole entry for a day, thrown away. Returns it, so an undo can restore. */
+  function clearBody(dateKey) {
+    const gone = body()[dateKey];
+    if (!gone) return null;
+    delete state.body[dateKey];
+    commit({ type: 'clearBody', dateKey });
+    return gone;
+  }
+
+  function restoreBody(dateKey, entry) {
+    if (!entry) return;
+    state.body[dateKey] = normaliseBody(entry);
+    commit({ type: 'restoreBody', dateKey });
+  }
+
+  /**
+   * Body weight, averaged by week, oldest first.
+   *
+   * The average is the whole point. The programme this was built for says it in
+   * as many words — "use the weekly average, never a single day; daily
+   * fluctuation of ±1 kg is water and food" — so a week is the smallest unit the
+   * app will call a weight. `n` rides along so a week built from one reading can
+   * say so rather than pretending to be as solid as a week of three.
+   *
+   * A week with no readings is ABSENT, not zero. The same rule the exercise
+   * chart runs on: a gap in the record is not a measurement of nothing.
+   */
+  function weightWeeks(weeks, unit) {
+    const u = unit || weightUnit();
+    const n = Math.max(1, weeks || 12);
+    const end = A.weekStart(today());
+    const first = A.addDays(end, -(n - 1) * 7);
+    const buckets = new Map();
+    for (const k in body()) {
+      const e = body()[k];
+      if (e.kg == null) continue;
+      const w = A.weekStart(k);
+      if (w < first || w > end) continue;
+      const row = buckets.get(w) || { week: w, sum: 0, n: 0, last: null, lastOn: null };
+      row.sum += A.convertWeight(e.kg, e.u || 'kg', u);
+      row.n++;
+      if (!row.lastOn || k > row.lastOn) { row.lastOn = k; row.last = A.convertWeight(e.kg, e.u || 'kg', u); }
+      buckets.set(w, row);
+    }
+    return Array.from(buckets.values())
+      .sort((a, b) => (a.week < b.week ? -1 : 1))
+      .map((r) => ({ week: r.week, kg: r.sum / r.n, readings: r.n, last: r.last, lastOn: r.lastOn }));
+  }
+
+  /**
+   * Where the scale is going, from the weekly averages and nothing else.
+   *
+   * Rate is measured between the FIRST and LAST week that actually have
+   * readings, so a fortnight nobody weighed in does not read as a plateau. It
+   * reports a rate and refuses to prescribe: this app has no business turning a
+   * number on a scale into a calorie target.
+   */
+  function weightTrend(weeks, unit) {
+    const u = unit || weightUnit();
+    const rows = weightWeeks(weeks || 12, u);
+    if (!rows.length) return null;
+    const first = rows[0];
+    const last = rows[rows.length - 1];
+    const spanWeeks = Math.max(0, A.daysBetween(first.week, last.week) / 7);
+    const change = last.kg - first.kg;
+    return {
+      unit: u,
+      weeks: rows,
+      latest: last.kg,
+      latestOn: last.lastOn,
+      latestReadings: last.readings,
+      from: first.week,
+      to: last.week,
+      spanWeeks: spanWeeks,
+      change: change,
+      /* Null rather than zero when there is only one week: "no change" and "we
+         cannot know yet" are different answers and must not look alike. */
+      perWeek: spanWeeks > 0 ? change / spanWeeks : null,
+      perMonth: spanWeeks > 0 ? (change / spanWeeks) * (365 / 12 / 7) : null,
+      readings: rows.reduce((n2, r) => n2 + r.readings, 0)
+    };
+  }
+
+  /** Every day the tape was used — a weigh-in alone is not one. Newest first. */
+  function tapeDays() {
+    return bodyDays().filter((k) => A.BODY_KEYS.some((f) => body()[k][f] != null));
+  }
+
+  /**
+   * Each measurement's first reading, its latest, and the change between them.
+   *
+   * Per FIELD rather than per date, because the tape is used sparsely and
+   * unevenly: somebody who measured their arm in March and their calf in May has
+   * a first and a latest for each, and forcing both onto one "baseline date"
+   * would either drop a field or invent a reading for it.
+   */
+  function tapeHistory() {
+    const days = tapeDays().slice().reverse();   // oldest first
+    return A.BODY_KEYS.map((key) => {
+      const seen = days.filter((k) => body()[k][key] != null);
+      if (!seen.length) return { key: key, readings: 0 };
+      const firstOn = seen[0];
+      const lastOn = seen[seen.length - 1];
+      const first = body()[firstOn][key];
+      const last = body()[lastOn][key];
+      return {
+        key: key,
+        readings: seen.length,
+        first: first,
+        firstOn: firstOn,
+        last: last,
+        lastOn: lastOn,
+        /* Null, not zero, on a single reading — see `perWeek` above. */
+        change: seen.length > 1 ? last - first : null
+      };
+    });
+  }
+
   /* ---------- mutations: the set log ----------
 
      Writing a set is a separate verb from ticking the exercise off, and the two
@@ -1577,6 +1785,8 @@
     addExercise, updateExercise, removeExercise,
     dayEntries, dayVolume, lastPerformance, exerciseSeries, suggestSet, askedSets,
     addSet, updateSet, removeSet, restoreSet, setAmount, setPerfNote, clearPerf, restorePerf,
+    body, bodyDays, bodyEntry, setBody, clearBody, restoreBody,
+    weightWeeks, weightTrend, tapeDays, tapeHistory,
     freezeStats, applyFreeze, clearFreeze,
     updateSettings, exportJson, inspectBackup, importJson, unreadableBackup, resetAll,
     subscribe: (fn) => (listeners.add(fn), () => listeners.delete(fn))

@@ -589,6 +589,55 @@
         }
         break;
       }
+      /* --- the tape and the scale ---
+         A record, not a task: none of these touch a day, a streak or a log. */
+      case 'weigh-in':
+        UI.openWeighIn(actEl.dataset.date || S.today());
+        break;
+      case 'weigh-save': {
+        const el = $('#bw_kg');
+        const raw = el ? String(el.value).trim() : '';
+        const kg = parseFloat(raw);
+        if (raw === '' || isNaN(kg) || kg <= 0) {
+          UI.toast('<span>A weight, in numbers. Blank removes the reading instead.</span>', 'bad');
+          break;
+        }
+        S.setBody(sheetDate, { kg: kg, u: S.settings().weightUnit === 'lb' ? 'lb' : 'kg' });
+        UI.closeSheet();
+        break;
+      }
+      case 'weigh-clear': {
+        const before = S.bodyEntry(sheetDate);
+        S.setBody(sheetDate, { kg: '' });
+        UI.closeSheet();
+        offerUndo('<span>Reading removed.</span>', () => S.restoreBody(sheetDate, before));
+        break;
+      }
+      case 'tape-open':
+        UI.openTape(actEl.dataset.date || S.today());
+        break;
+      case 'tape-save': {
+        /* Read every field, blank included: a blank CLEARS rather than being
+           skipped, so a measurement typed by mistake can be taken back out. */
+        const patch = {};
+        A.BODY_KEYS.forEach((key) => {
+          const el = document.getElementById('bm_' + key);
+          if (el) patch[key] = String(el.value).trim();
+        });
+        const before = S.bodyEntry(sheetDate);
+        S.setBody(sheetDate, patch);
+        const after = S.bodyEntry(sheetDate) || {};
+        const n = A.BODY_KEYS.filter((k) => after[k] != null).length;
+        UI.closeSheet();
+        if (!n) {
+          UI.toast('<span>Nothing was filled in, so nothing was recorded.</span>');
+        } else {
+          offerUndo('<span>' + n + (n === 1 ? ' measurement' : ' measurements') + ' recorded.</span>',
+                    () => (before ? S.restoreBody(sheetDate, before) : S.clearBody(sheetDate)));
+        }
+        break;
+      }
+
       case 'perf-note': {
         const l = S.log(date);
         const current = ((l && l.perf && l.perf[id]) || {}).note || '';

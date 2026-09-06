@@ -532,5 +532,61 @@ console.log('\nthe rest timer, through the router');
   ok('a refused set starts no rest', !UI.rest(), UI.rest());
 }
 
+console.log('\nthe tape and the scale, through the router');
+{
+  S.resetAll();
+  const day = S.today();
+
+  const dayBefore = JSON.stringify(S.dayStatus(day));
+  click({ act: 'weigh-in' });
+  type('bw_kg', '59.4');
+  click({ act: 'weigh-save', date: day });
+  ok('a weigh-in reaches the store', (S.bodyEntry(day) || {}).kg === 59.4, S.bodyEntry(day));
+  ok('and carries the display unit it was typed in', S.bodyEntry(day).u === 'kg');
+
+  /* It is a record, not a task: this is the assertion that would fail the day
+     somebody wires body data into the streak. */
+  ok('and it changes nothing about the day at all',
+     JSON.stringify(S.dayStatus(day)) === dayBefore,
+     dayBefore + ' -> ' + JSON.stringify(S.dayStatus(day)));
+
+  type('bw_kg', '');
+  click({ act: 'weigh-save', date: day });
+  ok('a blank weight is refused rather than stored as zero', S.bodyEntry(day).kg === 59.4, S.bodyEntry(day));
+
+  type('bw_kg', 'heavy');
+  click({ act: 'weigh-save', date: day });
+  ok('and so is a word', S.bodyEntry(day).kg === 59.4, S.bodyEntry(day));
+
+  // The tape, saved through the same router.
+  click({ act: 'tape-open' });
+  type('bm_chest', '92');
+  type('bm_waist', '75');
+  type('bm_arm_l', '30');
+  type('bm_arm_r', '31');
+  let lastAction = null;
+  const realToastAction = UI.toastAction;
+  UI.toastAction = (msg, action) => { lastAction = action; return realToastAction(msg, action); };
+  click({ act: 'tape-save', date: day });
+  ok('the filled fields reach the store',
+     S.bodyEntry(day).chest === 92 && S.bodyEntry(day).arm_r === 31, S.bodyEntry(day));
+  ok('and the weigh-in from earlier is still there', S.bodyEntry(day).kg === 59.4, S.bodyEntry(day));
+  ok('the fields left blank recorded nothing',
+     S.bodyEntry(day).neck === undefined && S.bodyEntry(day).calf_l === undefined, S.bodyEntry(day));
+  ok('and it offers an undo', lastAction && lastAction.act === 'undo-last', lastAction);
+  click({ act: 'undo-last', id: lastAction.id });
+  ok('which puts the record back as it was',
+     S.bodyEntry(day).chest === undefined && S.bodyEntry(day).kg === 59.4, S.bodyEntry(day));
+  UI.toastAction = realToastAction;
+
+  /* Saving an empty tape must not create an entry, or every stray tap would
+     leave a measuring session on the record. */
+  S.resetAll();
+  click({ act: 'tape-open' });
+  A.BODY_KEYS.forEach((k) => type('bm_' + k, ''));
+  click({ act: 'tape-save', date: S.today() });
+  ok('an empty tape records nothing at all', S.bodyDays().length === 0, S.bodyDays());
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

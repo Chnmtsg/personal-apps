@@ -1200,3 +1200,39 @@ body:has(.today-strip) .toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 80p
 @media (prefers-reduced-motion: reduce) {
   .rest-track > i { transition: none; }
 }
+
+/* --- the tape and the scale ---
+   A record rather than a task, and it is styled as one: no ticks, no accent,
+   no state colours. The only colour in here is the validated chart mark. */
+.bodyhead { display: flex; align-items: baseline; gap: var(--sp-sm); flex-wrap: wrap; }
+.bodyhead b { font-size: var(--fs-3xl); font-weight: 800; font-variant-numeric: tabular-nums; }
+.bodyhead span { font-size: var(--fs-sm); color: var(--muted); }
+.bodyrate {
+  margin: var(--sp-sm) 0 0; font-size: var(--fs-md); color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.bodynote { margin-top: var(--sp-sm); }
+.bodychart { margin-top: var(--sp-md); }
+/* Fixed height, full width: the columns carry the shape and the axis is the
+   card edge. `preserveAspectRatio: none` on the svg does the stretching. */
+.bodychart svg { display: block; width: 100%; height: 64px; }
+.bodychart-foot {
+  display: flex; justify-content: space-between; gap: var(--sp-sm);
+  margin-top: 6px; font-size: var(--fs-xs); color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+/* The measured value, with its change since the first reading underneath. The
+   change is never coloured: +1 cm on the waist is not a failure and +1 cm on
+   the arm is not a victory, and the app does not get to decide which. */
+.tapeval {
+  flex: none; text-align: right; font-weight: 700;
+  font-variant-numeric: tabular-nums; font-size: var(--fs-md);
+}
+.tapeval > i {
+  display: block; font-style: normal; margin-top: 2px;
+  font-size: var(--fs-xs); font-weight: 600; color: var(--faint);
+}
+/* The tape sheet packs twenty fields, so a paired row puts L and R side by side
+   and the previous reading sits under each as a hint rather than a value. */
+.field.minifield { margin-bottom: var(--sp-md); }
+.field.minifield > input { width: 100%; }

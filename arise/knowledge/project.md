@@ -118,6 +118,12 @@ none: an exercise that prescribes no rest counts up rather than being handed a
 number the app made up. It is never saved — a half-finished rest is not
 something the user did.
 
+**The tape and the scale** live on Stats and are a record rather than a task —
+nothing in them counts toward a day or a streak. Body weight is reported as a
+weekly average because a single morning is water and food, and the tape is never
+pre-filled because twenty fields saved in one tap would record measurements
+nobody took.
+
 **The deload cycle and the stopping rule** are the recovery half, and they are
 first-class rather than a footnote. Stress plus recovery is adaptation; stress
 without recovery is damage. Every feature that raises the standard is only safe
@@ -199,5 +205,6 @@ These are decisions, not gaps. Re-proposing one needs a reason.
 Future versions may include
 
 - Cloud sync and multi-device
-- Progress photos and body measurements
+- Progress photos
 - Custom training programmes beyond the two built-in splits
+- Inches as an alternative to centimetres on the tape

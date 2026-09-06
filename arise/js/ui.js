@@ -986,6 +986,139 @@
       .join('');
   }
 
+  /* ---------- the tape and the scale ----------
+
+     A record, never a task. Nothing here scores a day, and the copy has to keep
+     saying so — a weigh-in that looked like a tick would turn standing on the
+     scales into training. */
+
+  /**
+   * Body weight by week, as columns.
+   *
+   * WEEKLY AVERAGES, because that is what the programme says to read and a
+   * single morning is water and food. A week with no readings is simply absent:
+   * a gap in the record is not a measurement of nothing, which is the same rule
+   * the top-set chart runs on.
+   *
+   * The baseline is the lightest week drawn rather than zero. A person moving
+   * from 59 to 61 kg on a 0-61 axis is three pixels of change, and a chart that
+   * cannot show the thing it is drawn for is decoration.
+   */
+  function weightChart(trend) {
+    const rows = trend.weeks;
+    if (rows.length < 2) return '';
+    const top = Math.max.apply(null, rows.map((r) => r.kg));
+    const floor = Math.min.apply(null, rows.map((r) => r.kg));
+    const span = Math.max(0.5, top - floor * 0.997);
+    const W = 320;
+    const H = 64;
+    const slot = W / rows.length;
+    const bw = Math.max(2, Math.min(28, slot - 2));   // 2px surface gap
+    const cols = rows
+      .map((r, i) => {
+        const h = Math.max(2, ((r.kg - floor * 0.997) / span) * H);
+        const rad = h > 6 ? Math.min(4, bw / 2) : 0;
+        return `<rect x="${(i * slot).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${bw.toFixed(1)}"
+          height="${h.toFixed(1)}" rx="${rad}" ry="${rad}" fill="var(--chart-did)"
+          ><title>${esc(
+            'Week of ' + A.prettyDate(r.week) + ' · ' + A.round1(r.kg) + ' ' + trend.unit +
+            ' · ' + r.readings + (r.readings === 1 ? ' reading' : ' readings')
+          )}</title></rect>`;
+      })
+      .join('');
+    return `<div class="bodychart">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+        aria-label="${esc(
+          'Body weight by week, ' + A.round1(floor) + ' to ' + A.round1(top) + ' ' + trend.unit +
+          ' over ' + rows.length + ' weeks.'
+        )}">${cols}</svg>
+      <div class="bodychart-foot">
+        <span>${esc(A.prettyDate(rows[0].week))}</span>
+        <span>${esc(A.round1(floor) + '–' + A.round1(top) + ' ' + trend.unit)}</span>
+        <span>${esc(A.prettyDate(rows[rows.length - 1].week))}</span>
+      </div>
+    </div>`;
+  }
+
+  /** The scale, in a sentence and a chart. */
+  function weightBlock() {
+    const trend = S.weightTrend(12);
+    if (!trend) {
+      return `<div class="promptrow">
+        <span class="promptrow-plate" aria-hidden="true">${icon('chart')}</span>
+        <div class="promptrow-body">Three mornings a week, after the toilet and before food.
+          One morning is water and food; a week of them is a weight.
+          <button class="link" data-act="weigh-in">Log the first one →</button></div>
+      </div>`;
+    }
+    const last = trend.weeks[trend.weeks.length - 1];
+    return `<section class="card">
+      <div class="bodyhead">
+        <b>${esc(A.round1(trend.latest) + ' ' + trend.unit)}</b>
+        <span>${esc(
+          'week of ' + A.prettyDate(trend.to) + ' · average of ' + last.readings +
+          (last.readings === 1 ? ' reading' : ' readings')
+        )}</span>
+      </div>
+      ${
+        trend.perWeek == null
+          ? `<p class="footnote bodynote">One week on the record. A rate needs two.</p>`
+          : `<p class="bodyrate">${esc(
+              A.fmtDelta(trend.change, trend.unit) + ' over ' +
+              Math.round(trend.spanWeeks) + (Math.round(trend.spanWeeks) === 1 ? ' week' : ' weeks') +
+              ' · ' + A.fmtDelta(trend.perWeek, trend.unit) + ' a week' +
+              ' · ' + A.fmtDelta(trend.perMonth, trend.unit) + ' a month'
+            )}</p>`
+      }
+      ${weightChart(trend)}
+      <p class="footnote">Weekly averages, never a single morning — a kilo of day-to-day
+        swing is water and food rather than muscle or fat. ${
+          last.readings === 1 ? 'This week rests on one reading so far.' : ''
+        }</p>
+    </section>`;
+  }
+
+  /** The tape: what was measured, and what has changed since it was first taken. */
+  function tapeBlock() {
+    const hist = S.tapeHistory();
+    const taken = hist.filter((r) => r.readings);
+    if (!taken.length) {
+      return `<div class="promptrow">
+        <span class="promptrow-plate" aria-hidden="true">${icon('target')}</span>
+        <div class="promptrow-body">The tape catches what the scale cannot: whether the weight
+          went on the chest and arms or the waist.
+          <button class="link" data-act="tape-open">Take the first measurements →</button></div>
+      </div>`;
+    }
+    const done = {};
+    taken.forEach((r) => { done[r.key] = r; });
+    const rows = A.BODY_FIELDS.map((f) => {
+      const keys = f.paired ? [f.id + '_l', f.id + '_r'] : [f.id];
+      const got = keys.map((k) => done[k]).filter(Boolean);
+      if (!got.length) return '';
+      const value = keys
+        .map((k) => (done[k] ? A.round1(done[k].last) : '—'))
+        .join(' / ');
+      /* Each side carries its own unit rather than one appended at the end:
+         "+1.5 / no change cm" is what sharing one costs, and a pair where only
+         one side moved is exactly the case worth reading correctly. */
+      const change = got.every((r) => r.change == null)
+        ? ''
+        : keys.map((k) => (done[k] && done[k].change != null ? A.fmtDelta(done[k].change, 'cm') : '—')).join(' / ');
+      return `<div class="row">
+        <div class="body"><div class="name">${esc(f.name)}${f.paired ? ' · L / R' : ''}</div>
+          <div class="sub">${esc(
+            'measured ' + got[0].readings + (got[0].readings === 1 ? ' time' : ' times') +
+            ' · last ' + A.prettyDate(got[0].lastOn)
+          )}</div></div>
+        <span class="tapeval">${esc(value + ' cm')}${
+        change ? `<i>${esc(change)}</i>` : ''
+      }</span>
+      </div>`;
+    }).join('');
+    return `<div class="card flush">${rows}</div>`;
+  }
+
   /** One plain sentence about a real record, with no invented currency in it. */
   function lifeSentence(life) {
     const bits = [];
@@ -1184,6 +1317,21 @@
 
       <div class="label">Sessions a week · target ${S.settings().goalPerWeek}</div>
       <div class="card"><div class="bars">${bars}</div></div>
+
+      <div class="label split">
+        <span>Body weight</span>
+        <button class="link" data-act="weigh-in">Weigh in</button>
+      </div>
+      ${weightBlock()}
+
+      <div class="label split">
+        <span>The tape</span>
+        <button class="link" data-act="tape-open">Measure</button>
+      </div>
+      ${tapeBlock()}
+      <p class="footnote">Nothing here counts toward a day or a streak. Standing on
+        the scales is not a training session, and a month you did not measure is
+        not a month you missed.</p>
     `;
   }
 
@@ -1260,6 +1408,80 @@
         "fourteen sessions kept, then the shoes". It is earned on the best run your streak
         ever reached, so a slip afterwards cannot take back something you already did.</p>
     `;
+  }
+
+  /**
+   * The weigh-in. One field, because it is done three mornings a week and
+   * anything longer would not get done.
+   *
+   * It carries the unit it was typed in, exactly as a logged set does, so
+   * switching the display unit later re-reads the history rather than
+   * re-valuing it.
+   */
+  function openWeighIn(dateKey) {
+    const k = dateKey || S.today();
+    const unit = S.settings().weightUnit === 'lb' ? 'lb' : 'kg';
+    const cur = S.bodyEntry(k);
+    const shown = cur && cur.kg != null ? A.round1(A.convertWeight(cur.kg, cur.u || 'kg', unit)) : '';
+    const trend = S.weightTrend(12);
+    openSheet('Weigh in', `
+      <p class="muted" style="margin-top:0">${esc(A.prettyDate(k))}. After the toilet, before
+        food, same conditions each time. One morning is not a weight — the app reads the
+        weekly average.</p>
+      <label class="field"><span>Body weight (${esc(unit)})</span>
+        <input type="number" inputmode="decimal" step="0.1" min="0" id="bw_kg" value="${esc(shown)}"></label>
+      ${
+        trend
+          ? `<p class="footnote" style="margin-top:0">Last week's average was ${esc(
+              A.round1(trend.latest) + ' ' + trend.unit
+            )}.</p>`
+          : ''
+      }
+      <div class="btn-row"><button class="btn primary block" data-act="weigh-save" data-date="${k}">Save</button></div>
+      ${
+        cur && cur.kg != null
+          ? `<button class="btn ghost danger block" data-act="weigh-clear" data-date="${k}" style="margin-top:8px">Remove this reading</button>`
+          : ''
+      }
+    `);
+    const field = $('#bw_kg');
+    if (field && field.focus) field.focus();
+  }
+
+  /**
+   * The tape. Every field optional, and deliberately NOT pre-filled.
+   *
+   * The set log pre-fills because you confirm each set as you do it. A whole
+   * form of last month's numbers, saved in one tap, would record ten
+   * measurements you did not take. The previous reading is shown BESIDE each
+   * field instead, so it is there to compare against and impossible to save by
+   * accident.
+   */
+  function openTape(dateKey) {
+    const k = dateKey || S.today();
+    const cur = S.bodyEntry(k) || {};
+    const hist = {};
+    S.tapeHistory().forEach((r) => { hist[r.key] = r; });
+    const box = (key, label) => {
+      const prev = hist[key] && hist[key].readings ? hist[key] : null;
+      return `<label class="field minifield"><span>${esc(label)}</span>
+        <input type="number" inputmode="decimal" step="0.1" min="0" id="bm_${key}"
+          value="${esc(cur[key] != null ? A.round1(cur[key]) : '')}">
+        ${prev ? `<small class="field-note">was ${esc(A.round1(prev.last) + ' cm, ' + A.prettyDate(prev.lastOn))}</small>` : ''}
+      </label>`;
+    };
+    openSheet('Measurements', `
+      <p class="muted" style="margin-top:0">${esc(A.prettyDate(k))}. First thing in the morning,
+        before eating, tape snug but not compressing. Centimetres.</p>
+      <p class="footnote" style="margin-top:0">Fill in what you measured and leave the rest
+        blank — a blank field records nothing rather than repeating last month's number.</p>
+      ${A.BODY_FIELDS.map((f) =>
+        f.paired
+          ? `<div class="grid-2">${box(f.id + '_l', f.name + ' L')}${box(f.id + '_r', f.name + ' R')}</div>`
+          : box(f.id, f.name)
+      ).join('')}
+      <div class="btn-row"><button class="btn primary block" data-act="tape-save" data-date="${k}">Save measurements</button></div>
+    `);
   }
 
   function openRewardEditor(id, draft) {
@@ -2038,6 +2260,8 @@
   UI.openTextPrompt = openTextPrompt;
   UI.resolveTextPrompt = resolveTextPrompt;
   UI.openRewardEditor = openRewardEditor;
+  UI.openWeighIn = openWeighIn;
+  UI.openTape = openTape;
   UI.openPicker = openPicker;
   UI.refreshPicker = refreshPicker;
   UI.openPlanEditor = openPlanEditor;

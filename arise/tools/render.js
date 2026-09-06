@@ -1033,7 +1033,10 @@ behaves('every state class the views emit is actually styled', () => {
                   '.spark', '.spark-svg', '.spark-name', '.spark-val',
                   /* the rest between sets */
                   '.today-strip.is-rest', '.rest-track', '.rest-track > i',
-                  '.today-strip.is-rest.is-ready'];
+                  '.today-strip.is-rest.is-ready',
+                  /* the tape and the scale */
+                  '.bodyhead', '.bodyrate', '.bodychart', '.bodychart-foot',
+                  '.tapeval', '.field.minifield'];
   const missing = needed.filter((sel) => css.indexOf(sel) < 0);
   if (missing.length) return 'no rule for: ' + missing.join(', ');
   return css.indexOf(':has(:checked)') < 0 ? '' : 'a dead :has(:checked) rule is still in the sheet';
@@ -1299,6 +1302,103 @@ behaves('a rest is never written to the record', () => {
   const same = S.exportJson() === before;
   UI.stopRest();
   return same ? '' : 'the timer reached the stored state';
+});
+
+/* ---------- the tape and the scale ---------- */
+console.log('\nthe tape and the scale');
+
+S.resetAll();
+UI.setViewDate(S.today());
+
+behaves('with nothing measured, Stats invites the first reading rather than drawing zero', () => {
+  const html = renderRoute('progress');
+  /* Scoped to the body blocks on purpose. "0 kg total moved" higher up the
+     screen is a real total of zero — you have lifted nothing — which is a
+     different claim from a MEASUREMENT of zero, and only the second is a lie. */
+  const from = html.indexOf('Body weight');
+  const body = from < 0 ? '' : html.slice(from);
+  if (!body) return 'no body section at all';
+  if (/(^|[^0-9.])0 (kg|cm)/.test(body)) return 'a zero was drawn for something never measured';
+  if (body.indexOf('data-act="weigh-in"') < 0) return 'no route to the first weigh-in';
+  return body.indexOf('data-act="tape-open"') > 0 ? '' : 'no route to the first measurements';
+});
+
+behaves('a run of weigh-ins is reported as a weekly average, never as one morning', () => {
+  for (let w = 3; w >= 0; w--) {
+    [0, 2, 4].forEach((off, i) => {
+      const k = A.addDays(A.weekStart(A.addDays(S.today(), -w * 7)), off);
+      S.setBody(k, { kg: 59 + (3 - w) * 0.5 + (i === 1 ? 0.9 : 0), u: 'kg' });
+    });
+  }
+  const html = renderRoute('progress');
+  if (html.indexOf('average of 3 readings') < 0) return 'it does not say what the number is an average of';
+  if (html.indexOf('a week') < 0) return 'no rate of change';
+  return /Weekly averages, never a single morning/.test(html) ? '' : 'it does not say why';
+});
+
+behaves('and the weekly chart is drawn in the validated mark colour', () => {
+  const html = renderRoute('progress');
+  if (html.indexOf('class="bodychart"') < 0) return 'no chart';
+  if (html.indexOf('var(--chart-did)') < 0) return 'the columns are not the validated mark colour';
+  /* One series, so no legend box — the label above it names it. */
+  return html.indexOf('chart-key') < 0 ? '' : 'a legend was drawn for a single series';
+});
+
+behaves('one week of readings draws no chart and claims no rate', () => {
+  S.resetAll();
+  S.setBody(S.today(), { kg: 59, u: 'kg' });
+  const html = renderRoute('progress');
+  if (html.indexOf('class="bodychart"') >= 0) return 'a chart was drawn from one column';
+  if (/a week</.test(html)) return 'a rate was claimed from a single week';
+  return html.indexOf('A rate needs two') > 0 ? '' : 'it does not say why there is no rate';
+});
+
+behaves('the tape lists what was measured, with its change and its date', () => {
+  S.setBody(A.addDays(S.today(), -30), { chest: 92, arm_l: 30, arm_r: 31 });
+  S.setBody(S.today(), { chest: 95, arm_l: 31.5, arm_r: 32.5 });
+  const html = renderRoute('progress');
+  if (html.indexOf('95 cm') < 0) return 'the latest reading is not shown';
+  if (html.indexOf('+3 cm') < 0) return 'the change since the first reading is not shown';
+  if (html.indexOf('Arm · L / R') < 0) return 'a paired measurement is not shown as a pair';
+  return html.indexOf('31.5 / 32.5 cm') > 0 ? '' : 'the two sides are not shown together';
+});
+
+behaves('a measurement taken once shows a value and no change', () => {
+  S.setBody(S.today(), { neck: 37 });
+  const html = renderRoute('progress');
+  if (html.indexOf('37 cm') < 0) return 'the reading is missing';
+  /* "no change" would be a claim; one reading supports neither. */
+  return /37 cm<i>/.test(html.replace(/\s+/g, '')) ? 'it claimed a change from one reading' : '';
+});
+
+behaves('Stats says plainly that none of this scores a day', () => {
+  const html = renderRoute('progress');
+  return /not a training session/.test(html) ? '' : 'nothing says the record is not a task';
+});
+
+behaves('the weigh-in sheet asks for one number and says what it is for', () => {
+  sheetBody.innerHTML = '';
+  UI.openWeighIn(S.today());
+  const html = sheetBody.innerHTML;
+  if (html.indexOf('id="bw_kg"') < 0) return 'no weight field';
+  if ((html.match(/<input/g) || []).length !== 1) return 'the quick weigh-in grew more than one field';
+  return /weekly average/.test(html) ? '' : 'it does not say a single morning is not a weight';
+});
+
+behaves('the tape sheet offers every field and pre-fills none of them', () => {
+  S.resetAll();
+  S.setBody(A.addDays(S.today(), -30), { chest: 92, arm_l: 30 });
+  sheetBody.innerHTML = '';
+  UI.openTape(S.today());
+  const html = sheetBody.innerHTML;
+  const missing = A.BODY_KEYS.filter((k) => html.indexOf('id="bm_' + k + '"') < 0);
+  if (missing.length) return 'no field for: ' + missing.join(', ');
+  /* THE point of this test. Pre-filling would record ten measurements nobody
+     took the moment the form was saved. The old reading is a hint beside the
+     box, never a value inside it. */
+  if (/id="bm_chest"[^>]*value="92"/.test(html)) return 'last month\'s reading was pre-filled into the box';
+  if (html.indexOf('was 92 cm') < 0) return 'the previous reading is not shown beside the field';
+  return /leave the rest\s+blank/.test(html) ? '' : 'it does not say a blank records nothing';
 });
 
 behaves('the page can grow past the viewport, so a fixed bar cannot eat the end of it', () => {
