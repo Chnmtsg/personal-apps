@@ -177,11 +177,10 @@ two it is, is **derived** by comparing against `STOCK_EX_ICON` and the seed the
 item came from, never stored. No flag, no migration, nothing overwritten.
 
 `goalGlyph` and `sectionGlyph` used to sit beside it and had no callers anywhere
-in the tree — Today and Plan both went straight to `icon(SECTION_ICON[…])`, so
-the goal editor's Icon field wrote a value that rendered on no screen. Both
-resolvers and both fields are gone. The stored `icon` keys stay on goals,
-exercises, habits and rewards: they cost nothing, and removing a stored field is
-the one thing the migration rules forbid.
+in the tree, so the goal editor's Icon field wrote a value that rendered on no
+screen. Both resolvers, both fields and the goals themselves are gone now. The
+stored `icon` keys stay on exercises and rewards: they cost nothing, and removing
+a stored field is the one thing the migration rules forbid.
 
 A native `<option>` cannot hold an SVG, and `openSheet` puts its title through
 `textContent`. Those two places take the plain name — which argues for no glyph
@@ -317,8 +316,10 @@ Reduce visual clutter.
 
 Design mobile-first. This is installed to a phone home screen.
 
-**Minimum touch target 44x44 px.** This includes the goal tick, icon buttons, list
-rows, toggles and header chips.
+**Minimum touch target 44x44 px.** This includes the exercise tick, every set
+row, the two number fields and the button beside them, icon buttons, list rows,
+toggles and header chips. The set row in particular: correcting a mistyped set is
+a tap on the row itself, so the row is the target and not just the ✕ beside it.
 
 Where a control must stay visually small, grow the *target* rather than the
 graphic: give the button the full 44px and paint the smaller chrome on an inner
@@ -329,9 +330,9 @@ No horizontal scrolling — with exactly one written exception, because a rule w
 two silent violations is weaker than a rule with one stated one.
 
 **Data plots may scroll sideways; controls may not.** `.heat` (eighteen weeks)
-and `.rungs` (the full ladder) have no honest form at 360px, and clipping either
-would hide the data the screen exists to show. Both carry an edge fade so the
-overflow is visible rather than silent. Everything else wraps: the category
+has no honest form at 360px, and clipping it would hide the data the screen
+exists to show. It carries an edge fade so the overflow is visible rather than
+silent. Everything else wraps: the category
 filter used to scroll with its scrollbar hidden in both engines, which made its
 off-screen entries undiscoverable on the screen you reach while adding an
 exercise. `body` stays `overflow-x: hidden` regardless.
@@ -341,15 +342,28 @@ Respect `env(safe-area-inset-bottom)` for anything fixed to the bottom.
 **The day's work belongs in the bottom third.** A phone is held in one hand, and
 the top corners of a 6-inch screen are the hardest pixels on it to reach. The
 primary action of a screen goes near the tab bar, not under the clock — which is
-why Today ends in a fixed strip carrying the next thing by name and one tap to
-keep it. Anything fixed there must clear the tab bar *and* be cleared in turn by
+why Today ends in a fixed strip carrying the next exercise by name and one tap
+that jumps to its weight field. The strip scrolls to the row rather than logging
+anything: the numbers are the user's to type, and a button that filled them in
+would be the app writing a set nobody did.
+
+**While a rest runs, the rest owns that strip.** It is the more urgent of the two
+answers to "what now", and it is the one block in the app whose subject is
+progress through a fixed length of time — which is the whole of the rule for
+ember. The next exercise is still underneath and comes back the moment the rest
+is skipped or done. The countdown carries `role="timer"` with `aria-live="off"`:
+a live region here would announce a new number every second, and the number is
+there to be glanced at rather than read out. Anything fixed there must clear the tab bar *and* be cleared in turn by
 the toasts, or a message lands behind the thing that raised it.
 
-**A gesture is an accelerator, never the only route.** Swipe right to keep a goal,
-left to skip, press and hold to log part of it — all three end in the same
-functions a tap goes through, and every one of them is still reachable by tapping
-a visible control. A gesture nobody is told about is a gesture nobody has, so
-Today carries one line saying what they are.
+**A gesture is an accelerator, never the only route.** Today used to carry three
+— swipe right to keep a goal, left to skip, press and hold to log part of it.
+They went with the goal cards rather than being remapped onto the exercise rows,
+because an exercise has no single yes/no answer: it is a list of sets and the
+numbers have to be typed. If a gesture is ever added back, it must end in the
+same function a tap goes through, stay reachable by tapping a visible control,
+and be stated somewhere on the screen — a gesture nobody is told about is a
+gesture nobody has.
 
 **Give a destructive or lossy action an undo where it happened.** A completion
 toast carries UNDO for five seconds rather than making the user find the sheet

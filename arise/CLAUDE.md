@@ -2,8 +2,14 @@
 
 ## Purpose
 
-Discipline is an offline-first personal-development tracker: goal progression,
-streaks, a weekly training program, reading and journal.
+Discipline is an offline-first training log. A weekly training plan, and a
+record of every set you actually did: the exercise, the weight, the reps, and
+what it was last time.
+
+It was a personal-development tracker until 2026-09 — goals, reading, a journal,
+a 66-day habit run, XP and a rank ladder. All of that was removed at the user's
+request in favour of one subject done properly. Nothing was deleted from anybody's
+stored data; see the second invariant below.
 
 The goal is long-term maintainability, reliability, and clean architecture.
 
@@ -14,8 +20,8 @@ Never sacrifice maintainability for short-term speed.
 every string in the app. Three things deliberately did **not** move, and moving
 any of them later would be a breaking change, not a tidy-up:
 
-- `localStorage` key `arise.state.v1` — renaming it orphans every user's goals,
-  logs, streaks and journal, with no recovery. It is the one thing that must
+- `localStorage` key `arise.state.v1` — renaming it orphans every user's plan,
+  logs, sets and streaks, with no recovery. It is the one thing that must
   never change.
 - the `window.Arise` / `window.Store` / `window.UI` globals, and the `arise/`
   folder itself.
@@ -32,8 +38,8 @@ All paths in this file are relative to `arise/`.
 - `manifest.webmanifest` — PWA manifest
 - `sw.js` — service worker, offline app shell
 - `js/` — the application, loaded in this order:
-  `data.js` → `program.js` → `goals.js` → `run.js` → `photos.js` → `store.js` →
-  `ui.js` → `app.js`
+  `data.js` → `program.js` → `photos.js` → `store.js` → `ui.js` → `app.js`
+  (`goals.js` and `run.js` were deleted in 2026-09 with the features they held)
 - `icons/` — generated PNG and SVG icons
 - `knowledge/` — project references for this app
 - `tools/` — test and utility scripts
@@ -95,18 +101,26 @@ node tools/render.js
 node tools/wire.js
 ```
 
-or `npm test`, which runs both.
+or `npm test`, which runs all three.
 
 `smoke.js` loads `js/` into a sandbox with a fake `localStorage` and asserts the
-data layer and progression engine: ladder maths, earned advancement, step-back,
-streaks, freezes, the reading gate, frozen history, and every state migration.
+data layer: the set log, volume, prefill from the last session, unit conversion,
+streaks, freezes, frozen history, the training programme, and every state
+migration — including that nothing the removed features stored has been thrown
+away.
 
 `render.js` renders every view, every sheet and every programmed day against a
 stub DOM, failing on anything that renders `undefined`, `NaN` or
-`[object Object]`.
+`[object Object]`. It also carries the token, emoji and escaping guards, and
+asserts that every state class the views emit is actually styled.
 
-There is no typechecker. These two scripts are the whole safety net, so a change
-they cannot cover needs saying so out loud.
+`wire.js` drives `js/app.js` through its real click router: typing a weight and
+some reps and pressing Log set has to arrive in the store, and the emitted
+`data-act` names are cross-checked against the handled ones so a control wired to
+a handler that does not exist fails the build.
+
+There is no typechecker. These three scripts are the whole safety net, so a
+change they cannot cover needs saying so out loud.
 
 Two things they cannot catch.
 
@@ -213,7 +227,7 @@ things it used to buy are now the platform's decision:
   is genuinely gone until the app is behind a host that sends headers.
 
 **Each origin is its own storage.** Moving from `localhost:8123` to a hosted URL
-starts empty; the user's goals, logs and journal do not follow. Export from
+starts empty; the user's plan, logs and sets do not follow. Export from
 More → Export on the old origin and import on the new one before using it.
 
 ---
@@ -224,26 +238,63 @@ These are the rules the app is built on. Breaking one is a Critical finding.
 `knowledge/project.md` states them as product constraints; this is the
 engineering form.
 
-**A day you have lived is never re-judged.** Every goal entry stores the target
-it was judged against, every day's log freezes its own exercise list, and every
-goal keeps a `scheduleHistory`, an `activeHistory` (when it was paused) and a
-`baselineHistory` (which baseline it ran from). Editing a goal, switching
-difficulty, moving a baseline, pausing it or changing a schedule must never reach
-back and change what a past day meant. Resolve a past day from those dated
-histories, never from the goal's current value — see
-`knowledge/coding-standards.md`.
+**Discipline is a training log. It tracks exercises, sets, weight and reps, and
+nothing else.** In 2026-09 the goal engine, the reading gate, the journal, the
+66-day habit run, the daily-habit list, the XP/level/rank system, the milestone
+ladder and the weekly chest were all removed at the user's request. What is left
+is one subject: the weekly plan, the session, and the record of what was
+actually lifted. A feature that does not answer *"what did I train, with what,
+and is it going up"* does not belong here.
+
+**Nothing that was removed was deleted from anybody's data.** `migrate()` stops
+LOOKING at `goals`, `goalLogs`, `reading`, `journal`, `lines`, `cookies`,
+`challenges`, `run`, `habits`, `claimed` and `weeklyClaims`; it does not touch
+them. They ride along in `arise.state.v1` and in every export, forever, because
+deleting a year of somebody's journal in a migration is the one mistake with no
+recovery. There is a test by name (`a goal from the old app is still in the
+state`). **Do not "tidy" them out later.** The code for the removed features is
+on `master` in the commit before this one if any of it is ever wanted back.
+
+**A day you have lived is never re-judged.** Every day's log freezes its own
+exercise list the first time the day is opened (`ensureLog`), and every set
+stores the weight, the unit and the reps ON ITSELF. So renaming an exercise,
+changing its prescription, editing the weekly plan or switching the display unit
+cannot reach back and change what last Tuesday weighed. This is the single
+easiest rule in the app to break without anybody noticing; `tools/smoke.js`
+asserts it by name under 'history is never rewritten'.
+
+**A set carries its own unit.** `{ w: 60, u: 'kg', r: 8 }`. Storing kilos and
+converting on the way in would be tidier by one field and wrong by rounding —
+60 kg becomes 132.3 lb becomes 60.01 kg, and a round number the user typed stops
+reading as one. Carrying the unit also makes `settings.weightUnit` a *display*
+choice: switching it re-reads history rather than re-valuing it, so no stored day
+moves. A mixed history reads correctly in either unit, which is the whole point.
+
+**`w: null` is a bodyweight set, and it is a real answer.** A chin-up set is
+eight reps and no load. Writing `0` would put it in the volume total as a
+zero-kilo barbell, and a bodyweight day would report "0 kg moved" — a different
+and false claim. `setVolume` returns 0 for it, the reps still count, and the
+session line falls back to reps rather than printing a zero. Tested both in the
+engine and on the screen.
+
+**Logging can complete an exercise. It can never un-complete one.**
+`maybeComplete` ticks the row when the last prescribed set is filled in (or the
+prescribed minutes or kilometres are reached). Nothing in the set log ever
+removes that tick — correcting a mistyped set must not quietly retract a session
+the user knows they did. Taking it back is the user's own tap on the tick.
 
 **Day status is derived, never stored.** Every number is recomputed from the
 logs, so nothing can drift out of sync. This is why `commit()` must stay O(1),
-why the best-streak high-water mark is maintained on read, and why day status and
-goal timelines are memoised per revision.
+why the best-streak high-water mark is maintained on read, and why day status is
+memoised per revision.
 
 **State is local and versioned.** Everything lives in `localStorage` under
-`arise.state.v1`, described by `STATE_VERSION` in `js/store.js`. Every migration
-must be additive and must tolerate state written by an older version. Never
-delete or overwrite user data in a migration; a one-time change must be guarded
-by its own flag, not by the version number alone. Read an incoming flag before
-merging seed defaults over it, or the default will mask the real value.
+`arise.state.v1`, described by `STATE_VERSION` in `js/store.js` (7: the
+performance record). Every migration must be additive and must tolerate state
+written by an older version. Never delete or overwrite user data in a migration;
+a one-time change must be guarded by its own flag, not by the version number
+alone. Read an incoming flag before merging seed defaults over it, or the default
+will mask the real value.
 
 `arise.state.v1.unreadable` is the one deliberate exception to the single-key
 rule. It is a lifeboat, not state: nothing in the normal read path touches it. It
@@ -251,187 +302,72 @@ holds the raw bytes of a state that failed to parse, written once and verified b
 read-back, so that seeding a fresh start can never be the thing that destroys the
 user's only copy. If that copy cannot be made, `store.js` blocks writes instead.
 
-**Escape all user text.** Goal, exercise and habit names and journal text are
-user-controlled. Everything reaching `innerHTML` goes through `esc()` — toasts
-included, not just views.
+**A stored record is read defensively, never trusted.** `normalisePerf` runs on
+every load: an unreadable weight becomes bodyweight, unreadable reps become zero,
+an unknown unit falls back to kilos, a null set is dropped, a garbage entry
+becomes an empty one. It repairs and never invents. The alternative on a
+half-written entry is a `NaN` on a screen, and a number the user cannot explain
+is worse than a blank.
+
+**Escape all user text.** Exercise names, plan notes, per-exercise notes and
+reward names are user-controlled. Everything reaching `innerHTML` goes through
+`esc()` — toasts included, not just views.
 
 **Adding a `js/` file touches four places.** `index.html`, `sw.js` ASSETS, and
-the load lists in `tools/smoke.js` and `tools/render.js`.
-`tools/package.js` cross-checks the first two against each other, so a file the
-shell loads but the worker never precaches fails the build instead of vanishing
-the first time the user is offline.
+the load lists in `tools/smoke.js` and `tools/render.js`. `tools/package.js`
+cross-checks the first two against each other, so a file the shell loads but the
+worker never precaches fails the build instead of vanishing the first time the
+user is offline.
 
-**A render never writes.** `renderRun` called the store's check-in, which is a
-write during a render *and* a hang: `commit` notifies the view, the view
-re-renders, the render checks in again — and softening does not change the logs,
-so `needsIntervention` never clears. It froze the Run screen for exactly the user
-the check-in exists to help. The daily check-in is an event owned by `js/app.js`
-(boot and the day rollover), guarded to once a day; a render reads
-`run.lastPatchDay` and calls `A.Run.recommend`, both pure. `tools/render.js`
-asserts the store is byte-identical across two renders of every run state.
+**A render never writes.** A view reads the store and returns a string. Anything
+that mutates is an event owned by `js/app.js`. The rule exists because a write
+during a render is also a hang: `commit` notifies the view, the view re-renders,
+the render writes again. `suggestSet` is the one that looks like it might break
+this and does not — it SUGGESTS and stores nothing, so an exercise the user
+skipped leaves no trace claiming otherwise. There is a test by name.
 
-**A run day counts toward the streak, from its record and never from the
-programme.** `computeDayStatus` reads `run.log[day]` — the entries frozen when
-that day opened — so easing a habit in week five cannot change what week two was
-scored out of. Re-deriving it from the run as it stands demotes a complete day to
-a partial one, which `tools/smoke.js` asserts by name. A day with no run record
-contributes nothing, deliberately: a day the user never opened the app on is one
-we know nothing about, and must not become a day the run retroactively decided
-they failed. The daily check-in opens today's record, so *tapping* the run is
-never worse than ignoring it. `runCountsTowardDay` turns it off, the way
-`goalsCountTowardDay` does.
+**One place asks, one place records.** The plan item says what was ASKED
+(`targetPhrase`); `log.perf` says what was DONE (`describeEntry`). They are
+separate objects and are never derived from each other. `describeEntry` reads
+the ENTRY and not the exercise, so an exercise that used to be measured in reps
+and is measured in minutes now still reads back correctly on the days it was
+logged — asking the current shape for `perf.min` there printed `NaN min`.
 
-**One function owns what today asks.** The app has two answers to that question:
-the screens draw the day from the programme (`A.Run.runDay` → `activeOn`) and
-every score reads the record (`runEntriesOn` → `computeDayStatus`). `runCheckIn`
-freezes the record when the day opens, so any edit made after that opens a gap,
-and each gap was its own bug — a removed habit left a row nothing could tick and
-the day could never be completed; an edited checklist changed nothing until
-tomorrow. `store.reconcileToday()` is the single owner: membership from the
-programme, the ask from the record wherever it already has one, rows for habits
-no longer live today dropped. Every run-editing verb goes through it. It reads
-`runToday()` itself and can touch no other day, which is what keeps the
-frozen-history rule a rule rather than a comment — there is a test by that name.
-
-**A run habit must be the only place a thing is tracked.** Eleven were removed
-in 2026-08 — `read`, `meditate`, `deep_work`, `water`, `sleep_window`,
-`pushups`, `squats`, `plank`, `run`, `strength` and `journal` — because each
-repeated a seed goal, a daily habit, an exercise in the weekly plan or the
-journal itself, and Today was showing the same commitment up to three times with
-three separate ticks. The catalog is fourteen habits now and holds what nothing
-else does: skincare, vitamins, floss, brush teeth, cold finish, daylight,
-screens-off, walk, mobility, stretch, language, course, write. Shrinking it was safe
-only because an unknown id is already a designed state — a stored run keeps the
-habit, hides it from the day, and the run screen says so.
-
-**A custom run habit carries its own definition, on its own entry.** The catalog
-is still closed and still the default; a habit the user writes is not added to
-it. It lives on the run habit entry as `custom: { name, unit, start, target,
-step, min, friction }`, with an id prefixed `c_`, so it exists inside that run
-and nowhere else and nothing outside can reference it. That shape is why it cost
-almost nothing: every function in `run.js` already received the entry it was
-working on and only ever asked the catalog for the definition behind it, so one
-resolver — `defOf(p)` — serves both. Use `defOf(entry)` when you have the entry
-and `habitIn(run, id)` when you only have an id; plain `habit(id)` is the
-catalog and cannot see a custom habit.
+**Asking "what did I lift last time" is keyed on the exercise, not the plan
+item.** The same lift on Monday and on Thursday is two plan items with two ids,
+and the question does not care which day of the week it was.
+`lastPerformance(exerciseId, before)` walks the logs; `suggestSet` prefers the
+set already typed today, then last session, then the plan's own prescription,
+and says which of the three it used so the screen can say so too.
 
 **Token discipline is asserted, not reviewed.** `tools/render.js` fails on a
-pixel-sized icon outside the six `*-plate` rules and the medal, on any off-scale
-`font-size` outside the four named glyph boxes, on a literal size or padding in a
+pixel-sized icon outside the `*-plate` rules, on any off-scale `font-size`
+outside the named glyph boxes, on a literal `font-size` or `padding` in a
 `style=` attribute in `js/ui.js`, and on a control strip that scrolls sideways.
 Each of those was found by a review rather than by a test, having drifted into
 exactly the literals the scale and the spacing system were introduced to end.
 
-Two of them are worth knowing about specifically. An icon beside a label is sized
-in `em` so it grows when the reader raises their system text size — eleven were
-pinned to pixels, which left a 12px flame beside 15px text. And `--fs-4xl` /
-`--fs-5xl` exist because the scale stopped at 26 while the day counter is 54: a
-scale that cannot express the largest thing on the screen invites the next
-literal.
+An icon beside a label is sized in `em` so it grows when the reader raises their
+system text size — eleven were pinned to pixels, which left a 12px flame beside
+15px text. And `--fs-4xl` / `--fs-5xl` exist because the scale stopped at 26
+while the day counter is 54: a scale that cannot express the largest thing on
+the screen invites the next literal.
 
-**Nothing in this app types an emoji, and `tools/render.js` enforces it.** The
-purge was designed, documented and half-finished once already: `exGlyph`
-suppressed every seed exercise glyph while its twin `goalGlyph` was written and
-**never called from anywhere in the tree**, so Today drew its icons and Read
-painted five cartoon faces. Roughly 150 sites were typed against a guidelines
-line that says chrome icons are drawn.
-
-The fix was overwhelmingly deletion — exactly one new icon was needed (`snow`,
-for the streak freeze; nothing else in the table can mean "freeze"). Two form
-fields went with it: the goal editor and the exercise editor each offered an Icon
-input, and the goal one **rendered nowhere on Today or Plan** because both draw
-the mark from the goal's AREA. A field that appears to do something and does
-nothing is worse than no field. The stored `icon` keys stay on both — deleting a
-stored field is the one thing the migration rules forbid — and `exGlyph` still
-honours an exercise glyph chosen before the field was removed.
-
-`exGlyph` decides "the user chose this glyph" by testing membership in the SET of
-every stock icon, never by a lookup keyed on the exercise NAME. Keyed by name it
-was defeated by an ordinary rename: `stockExIcon('Press-ups')` returns nothing
-for a renamed 'Push-ups', so the seed's own glyph — which nobody chose — passed
-both tests and rendered, and the single sentinel covered one of seventeen
-distinct seed icons. There is a test that renames a seeded exercise before
-asserting, and another that a glyph the user really typed still survives one.
+**Nothing in this app types an emoji, and `tools/render.js` enforces it.** Chrome
+icons are drawn from the table in `js/ui.js` — one stroke weight, one grid,
+`currentColor`. `exGlyph` decides "the user chose this glyph" by testing
+membership in the SET of every stock icon, never by a lookup keyed on the
+exercise NAME. Keyed by name it was defeated by an ordinary rename:
+`stockExIcon('Press-ups')` returns nothing for a renamed 'Push-ups', so the
+seed's own glyph — which nobody chose — passed both tests and rendered. There is
+a test that renames a seeded exercise before asserting, and another that a glyph
+the user really typed still survives one.
 
 The guard is a route sweep plus an editor-sheet sweep for pictographs. The tick,
 the cross, the arrows and the chevrons are carved OUT of the range on purpose:
-they take `currentColor` and read as typography. See `knowledge/ui-guidelines.md`
-for why each of the three old carve-outs — mood faces, difficulty glyphs,
-milestone medals — was overturned.
-
-**The run is built from the user's own practices; the catalogue is the floor.**
-The start screen used to open with three headed sections and fourteen cards of
-skincare, flossing and brushing teeth, above anything of the user's own. That is
-backwards — a run is for what somebody is trying to become, and the catalogue is
-what stops the screen being empty when they have nothing of their own yet. It
-reads goals first, then write-your-own, then the catalogue folded behind a
-disclosure.
-
-Making that real needed an engine change, not just a reorder. Custom habits used
-to be appended AFTER `buildRun`, and a custom offered to an empty run is refused
-for failing `min_habits` — the first of three, and the second, and the third. So
-they are part of the DRAFT now: `buildRun` takes an `extras` array of whole
-entries, `repair` strips whichever does not fit exactly as it does for a catalog
-habit, and the floor counts both kinds. The DEFAULT_PICKS fallback fires only
-when the user chose *nothing at all* — somebody who picked four of their own
-practices and no catalog habit has chosen, and handing them the default six would
-be the app overruling that. `tools/smoke.js` asserts a run of three practices and
-no catalog habit builds, validates across all 66 days and starts on day one.
-
-**A line a day is the user's to keep, and the seeded ones can all be deleted.**
-`state.lines` holds short attributed lines; Today shows one, rotated by the DATE
-the way the reading prompt is, so it holds for a day and can be argued with
-rather than changing on every repaint. A generic motivational quote fails this
-app's own test in `knowledge/project.md` — it says nothing true about anybody's
-life — but a line somebody CHOSE to keep passes, because the choosing is the
-fact. The seeded set is real, short and attributed, seeded ONCE behind
-`meta.linesSeeded` rather than by version number, so deleting them all is
-permanent and no update hands them back.
-
-**A run can be built from habits the catalog does not have, and that route has
-to be on the START screen.** The catalog is fourteen and closed, so writing your
-own is the only way a run holds anything else — and for a long time
-`run-custom-open` appeared in exactly one place, the mid-run "Add a habit" sheet.
-The one screen where the user decides what their 66 days will be was the one
-screen that could not reach it, and it does not even fix itself afterwards: a
-habit added to a live run cannot begin before day two, because `legalStartDays`
-counts from `today + 1`. Written on the start screen it begins on day one.
-
-Before a run exists there is nothing to add a habit TO, so the picker holds them
-as drafts — `UI.draftCustoms`, the same shape of answer `draftItems` already
-gives for checklists — and `startRun` places them after `buildRun`, which takes
-catalog ids only and `filter(isCatalogId)`s anything else. Each is offered to the
-run one at a time through `firstLegalStart(run, entry, 0)`; one that does not fit
-is DROPPED and named in the toast, never squeezed in, which is the contract
-`buildRun` already had for a selection too big for the budget.
-
-`S.takeRunRefusals()` carries that report, and it is module-local rather than on
-`state`: it describes one start, not the run it produced, and anything put on
-`state` is persisted, exported and migrated forever.
-
-**Asking where one more habit fits is a binary search, not a scan.**
-`firstLegalStart` answers "the earliest day this run could take this habit", and
-three callers use it — the add-habit sheet, `runAddHabit` and
-`runAddCustomHabit`. It binary-searches the legal start days because feasibility
-is *monotone* in the start day: every rule `validate` can fail on is either
-indifferent to the start day or improved by moving it later. The argument is
-written out in full above the function, and `tools/smoke.js` asserts the search
-agrees with a linear scan for every catalog habit at four budgets — the argument
-is why it is correct, the test is what keeps it true. If you add a rule to
-`validate` that a *later* start day can make worse, that test is the one that
-will catch you, and the search has to go.
-
-It replaced a linear scan in all three places. The sheet ran one per candidate
-habit, so opening it cost 220-390 full validations — 160-270ms in desktop Node
-and several times that on a phone — and the slowest case was "no room left in
-this run", because nothing short-circuited it. That case is one validation now.
-
-**The guarantee is kept by validating the definition, not the id.** A closed
-catalog used to be what stopped `doseOn` producing NaN on day 41. A custom habit
-is checked when it is written — name, positive step, target not below start,
-finite numbers — and the whole 66 days are walked before it is stored. A
-definition that later becomes corrupt is reported as `unknown_habit` and hidden
-from the day, exactly like a retired catalog id, rather than rendered.
+they take `currentColor` and read as typography. The stored `icon` key stays on
+every exercise — deleting a stored field is the one thing the migration rules
+forbid — and `exGlyph` still honours a glyph chosen before the field was removed.
 
 **The built-in programme reaches an existing account by a tap, never by a
 migration.** `js/program.js` holds the library and `PROGRAM_WEEK`, and
@@ -440,10 +376,10 @@ migration.** `js/program.js` holds the library and `PROGRAM_WEEK`, and
 `state.plan` outright, and doing that from a migration would throw away a week
 the user had built by hand. So editing `PROGRAM_WEEK` reaches a fresh install and
 nobody else, and the way it reaches everybody else is `S.reinstallProgram()`,
-behind the confirm on Plan → Training week. The sheet states what goes and what
-stays, because both halves matter: the library is additive and nothing is ever
-deleted from it, and no logged day moves, since `ensureLog` freezes each day's
-exercise list into that day's log the first time it is touched.
+behind the confirm on Plan. The sheet states what goes and what stays, because
+both halves matter: the library is additive and nothing is ever deleted from it,
+and no logged day moves, since `ensureLog` freezes each day's exercise list into
+that day's log the first time it is touched.
 
 `programPlan` resolves each week entry **by name** and `.filter(Boolean)`s what
 it cannot find, so one typo in `PROGRAM_WEEK` drops that lift out of the day in
@@ -463,13 +399,12 @@ downstream had to change.
 What is drafted, and it says so where the user reads it rather than only here:
 
 - **Saturday, in both contexts.** The source document lists an accessory session
-  and points at a section that never arrived. It was left empty for a long time
-  on the principle that nothing is invented; asked directly to fill it, it was
-  built from what the other four days LEAVE OUT — arms and rear delts get one
-  exposure each per week, grip and forearms none. It is the lightest training day
-  on purpose, because it sits between Lower B and a rest day and a fifth hard
-  session there would eat the recovery that makes the other four work. There is a
-  test asserting it stays the lightest.
+  and points at a section that never arrived. It was built from what the other
+  four days LEAVE OUT — arms and rear delts get one exposure each per week, grip
+  and forearms none. It is the lightest training day on purpose, because it sits
+  between Lower B and a rest day and a fifth hard session there would eat the
+  recovery that makes the other four work. There is a test asserting it stays the
+  lightest.
 - **The whole HOME context.** The document named "Context 1" and never described
   a second. This one assumes a barbell, a rack with pins, a bench and a bar to
   hang from — an ASSUMPTION, stated in its blurb, and the rows to swap if the
@@ -488,81 +423,31 @@ interval, any tempo); the exercise's `how` carries the **technique**. A cue is
 true every time you do the lift, an RIR target is true on this day of this
 programme, so they do not live in the same field.
 
-**Charts are inline SVG drawn from the record, and their two colours are
-VALIDATED steps rather than the UI tokens.** `--chart-did` and `--chart-ask`
-exist because a mark on a dark surface has to sit inside OKLCH L 0.48-0.67, and
-the UI tokens sit outside it — bright enough to glare at chart scale. Both pairs
-were run through the dataviz palette validator in both modes and pass all six
-checks: lightness band, chroma floor, CVD separation, normal-vision separation
-and contrast against the surface. The light-mode jade is more saturated than
-`--accent` because the hue runs out of chroma at that lightness and would
-otherwise read as grey. **Do not tidy them back to the UI tokens** — that
-reintroduces a failure the eye does not catch.
+**Charts are inline SVG drawn from the record, and the mark colour is a
+VALIDATED step rather than a UI token.** `--chart-did` and `--chart-ask` exist
+because a mark on a dark surface has to sit inside OKLCH L 0.48-0.67, and the UI
+tokens sit outside it — bright enough to glare at chart scale. Both pairs were
+run through the dataviz palette validator in both modes and pass all six checks.
+The light-mode jade is more saturated than `--accent` because the hue runs out of
+chroma at that lightness and would otherwise read as grey. **Do not tidy them
+back to the UI tokens** — that reintroduces a failure the eye does not catch.
+`--chart-ask` currently has no mark on it and stays anyway: it is a validated
+step, and re-deriving one later is exactly the work this note exists to prevent.
 
-That is not a hypothetical. The Plumage colour direction (2026-08-21) proposed
-`#0B7A67` for the light `--chart-did`, which is `--accent` exactly, and the
-validator failed it on the chroma floor at 0.094; its dark `--chart-ask` failed
-the lightness band at 0.674. Both were snapped to the nearest passing step
-before landing. A colour direction is not a substitute for the validator — run
-it every time either mark moves.
+The form was picked before the colour, which is the order that matters. The
+question on Stats is "is the bar going up", which is change over time on an
+uneven calendar — so it is one column per SESSION and nothing at all for the days
+between. A line would invent a continuous climb across days nothing was
+recorded, which is the one thing this app must never draw. The baseline is the
+lightest session shown rather than zero, because 60 to 65 kg on a 0-65 axis is
+four pixels; the label states both ends so nothing is hidden by that. **One axis,
+ever.** One series, so there is no legend box — the label above the chart names
+it, and a legend for a single series is ink with no job.
 
-The form was picked before the colour, which is the order that matters. The job
-is "what did I do against what was asked" — change over time with a moving
-baseline — so it is columns for what was logged plus a STEPPED line for the
-target. A line for the logged value would invent continuity across days nothing
-was recorded; a sloped target would claim the ask moved gradually. **One axis, in
-minutes, ever.** The two series are told apart by form as well as hue, and a
-legend is always present.
-
-`S.goalSeries` reads what each day was judged against, not the goal as it stands
-— so raising a target tomorrow cannot redraw a month already lived. A graph is
-the easiest place in this app to break that rule without anybody noticing, and
-`tools/smoke.js` asserts it by name. A day the schedule never asked for comes
-back `asked: false` rather than zero: a Saturday on a weekday goal is not a zero,
-and plotting it as one would draw a weekly sawtooth that means nothing.
-
-Stats uses **small multiples, one hue**, never a multi-line chart. Six practices
-would need six validated categorical hues; this palette has three colours with
-fixed jobs, and generating three more would put two indistinguishable hues on
-screen under CVD. Faceting lets the label carry identity instead.
-
-**The seed is the owner's own practice list, and it seeds no habits at all.**
-`SEED_GOALS` is six minutes-a-day ladders — English, AI practice, Read (summary
-gated), Gratitude, Geology software, Earning work — each stepping up when it is
-EARNED rather than when a week passes. `SEED_HABITS` is empty: every habit this
-app used to ship duplicated something it now tracks properly, and a habit nobody
-chose is a tick nobody meant.
-
-Three things on the owner's list are deliberately not seeded. "Become more
-mature" and "improve interpersonal skills" are outcomes rather than practices,
-and a daily number invented for either would be the app's own invention above the
-user's real record. Basketball, volleyball and swimming live in `GOAL_TEMPLATES`
-instead, because a seed cannot know which days somebody plays and guessing would
-put a missed session on the record for a day they were never on a court.
-
-A seed reaches a fresh install and nobody else, so `S.installPractices()` is how
-an existing account gets there — a tap behind a confirm, never a migration, the
-same answer `reinstallProgram` gives for the training week. Three rules, and the
-first is the one that matters:
-
-- Goals are **paused, never removed**. `removeGoal` also deletes every entry ever
-  logged against that goal, so clearing five of them would take months of record
-  with them. Archiving dates the stop in `activeHistory`, so no past day is
-  re-judged, and Plan resumes any of them in one tap.
-- A practice that already exists is left alone, and one that was **paused is
-  resumed rather than recreated** — matched against every goal, not only the live
-  ones. A second "Read" beside a paused one holding a year of summaries would
-  move the reading gate onto an empty goal and strand the history behind it.
-- Habits are cleared, which is safe in a way goals are not: `dayHabits` returns
-  `log.habits` for any day that has a log.
-
-**Goals have no minutes budget, and `minuteBudget()` on Plan is why that is
-survivable.** The run refuses to build a day nobody could physically do — it
-checks all 66 against a budget. Goals never had that check, so six practices can
-quietly ramp to six hours a day and nothing says so until the days start being
-missed. The line refuses nothing; it states what today asks and what the targets
-would cost. It is the accountability mirror pointed at time, and it is the one
-number nobody works out for themselves.
+Stats uses **small multiples, one hue**, never a multi-line chart. Eight lifts
+would need eight validated categorical hues; this palette has three colours with
+fixed jobs, and generating five more would put indistinguishable hues on screen
+under CVD. Faceting lets the label carry identity instead.
 
 **Stress plus recovery equals adaptation; stress without recovery equals damage.**
 Every feature in this app that raises the standard is only safe underneath that
@@ -572,13 +457,43 @@ sentence, so the recovery half is a first-class thing rather than a footnote.
 counted in whole weeks — stable, no stored anchor, cannot drift. It deliberately
 does NOT rewrite the plan: `ensureLog` freezes a day's exercise list the first
 time the day is opened, so reducing sets here would put the screen and the record
-in disagreement, which is the exact seam `reconcileToday` exists to close on the
-run side. The app also has no weight field and therefore cannot compute anyone's
-volume. What it does honestly is name the week and say what to do.
+in disagreement. What it does honestly is name the week and say what to do.
 
 `settings.deloadEveryWeeks` is 0 (off) by default and must be registered in
 `NUMERIC_SETTINGS` in `js/app.js` — a select hands back a string, and `'4' < 2`
 is false, so an unregistered value would silently never switch the cycle off.
+
+**The rest between sets is read out of the plan's own note, and the app invents
+none.** `A.restFromNote` parses `rest 90 s` / `rest 2–3 min` out of a plan item's
+`note`, which is where the programme already writes it. No new field, so no
+migration, and no second copy of the same number to keep in step. A range counts
+down to its LOWER bound — that is when the rest is over and you may start; the
+upper bound is how long you are ALLOWED to take, and counting to it would hold
+somebody at the rack for a minute nobody asked of them. An exercise whose note
+prescribes nothing counts UP instead, because a rest the app made up is exactly
+the invented number this project refuses to show. `tools/smoke.js` walks every
+item in both programmes and asserts each prescribed interval parses — nothing
+else in the app can see a rest that silently failed to.
+
+**The rest timer is view state and is never stored.** It lives in `js/ui.js` as
+one module-local object and dies with the page. Persisting it would mean telling
+somebody who reopened the app on the bus that they have forty seconds left of a
+rest they took at the gym. It is derived from `Date.now()` rather than counted in
+ticks, so a throttled or backgrounded tab comes back with the right number.
+
+`js/app.js` owns the heartbeat, because an interval is an event. It runs only
+while a rest runs and stops itself the moment there is none. **The rest is
+started BEFORE the store write**, and that ordering is load-bearing: the write
+commits, the commit notifies the view, the view repaints — so a rest started
+after it is one the screen does not learn about until something unrelated
+repaints. Both stub suites were happy with it the wrong way round; a real browser
+was not. `tools/wire.js` now watches what the tap's LAST paint contained.
+
+The block is drawn once per render and then written into a field at a time by
+`paintRest`. A full re-render every second would rebuild the weight and reps
+inputs and take whatever the user was part-way through typing with them.
+`paintRest` returns true exactly once, on the tick the rest runs out, so the
+device buzzes once rather than every half-second until somebody looks at it.
 
 **The training screen states a stopping rule, because the source material gives
 none.** Sharp pain, joint pain, chest symptoms, dizziness and numbness stop the
@@ -586,32 +501,6 @@ session; performance falling while effort rises, three broken nights, an injury
 that will not resolve, or loss of interest mean the block gets reassessed. That
 text is the safety brief and is not decoration — if the push features are ever
 extended, this is the half that has to grow with them.
-
-**A bad-day floor logs the real number and buys nothing.** `goal.floor` is the
-reduced version the user defines in advance, offered on a day that is not already
-done. It records what was actually done and the day stays honestly short: a
-reduced version that scored as kept would be the first lie in a ledger whose
-entire value is that it does not flatter anybody. It exists because the failure
-that actually breaks people is doing nothing. Not offered on a `time` goal — the
-time input cannot render "unset", so a blank one would store 07:00 as a floor
-nobody chose.
-
-**The cookie jar is the user's own words, and the app writes none of it.**
-`state.cookies` is a list of specific hard things the user has already done,
-read before a hard effort rather than after one. The mechanism is retrieval, not
-inspiration: under acute stress memory access narrows and negative material
-dominates, so the evidence has to be written while calm and read while not.
-
-The app has plenty it *could* generate entries from — completed days, the best
-streak, claimed milestones — and generating any would defeat the whole thing. "I
-am tough" is not a cookie and neither is a sentence a program wrote about you.
-Empty is the honest default for a fresh account, and `addCookie` is the only way
-one ever appears. Additive in the migration, in the same shape as
-`customRewards`; no version bump.
-
-It surfaces on Today only while the day is still open — after the day is kept it
-would be a trophy cabinet, which is a much weaker object than a thing you reach
-into mid-effort — and on Stats as part of the record.
 
 **"Never miss twice" is the one moment the app used to be silent on.**
 `S.missedYesterday()` fires only when yesterday broke, today is still open, and
@@ -622,120 +511,26 @@ account existed, and the instant today is complete — a warning that fires when
 there is nothing to fix is one people learn to ignore.
 
 Written as a fact and a next action, never as a reprimand. Harsh self-criticism
-measurably reduces follow-through: somebody who savages themselves after a miss
-abandons the domain, which is the opposite of what the line is for.
+measurably reduces follow-through: somebody who savages themselves after a missed
+session abandons the gym, which is the opposite of what the line is for.
 
-**A reached target is an old estimate, not a ceiling.** `advanceHint` used to say
-"Target reached — now just hold it", which answers the moment somebody outgrows
-their own goal by telling them to stop. Plan now carries `goal-raise`, which
-opens the editor with the target extended by as many rungs as the ladder already
-had. The suggestion is built from that goal's own history rather than pulled from
-nowhere, and it is still the editor — the baseline-and-target pair is what stops
-a progression running away, so the ceiling only ever moves because the user moved
-it.
+**A reward is a promise the user pays themselves, and the app pays nothing.**
+`state.customRewards` is the whole of Rewards now. The eleven-milestone ladder,
+the XP on each medal and the weekly chest went with the points system: a badge
+for fourteen days is the app paying itself, and `knowledge/project.md` says a
+reward that costs something real beats one that costs the app nothing. A reward
+is earned on the BEST run the streak ever reached, so a slip afterwards cannot
+revoke something already won, and collecting one records that the user actually
+bought the thing.
 
-**The journal can be one of the things a day asks for, and the switch is OFF.**
-`computeDayStatus` counts plan items, habits, goals, run entries — and, when
-`settings.journalCountsTowardDay` is on, one more item for the day's journal.
-It needs no frozen list the way `dayHabits` does: the thing being asked for and
-the thing that records it are the same object, so they cannot drift apart.
-
-It defaults to **false**, and that is load-bearing. Day status is derived rather
-than stored, so turning it on re-scores every day in the record — a day kept
-without a journal entry becomes a day missed. Every switch in that group behaves
-that way and it is the user's decision to make; shipping it ON would have made it
-the app's, silently, on an update nobody asked for.
-
-`setJournal` clears `dsCache` and `tlCache` while still not emitting. Those are
-two different things and only the second steals focus from the textarea — the
-first version cleared neither, so typing an entry completed nothing until some
-unrelated tap happened to commit. There is a test by name.
-
-**A goal template carries the shape of a practice, never the numbers.**
-`A.GOAL_TEMPLATES` fills in what is true of the ACTIVITY — unit, direction, step
-size, area, which weekdays — and leaves baseline and target to be typed in. They
-appear as placeholders and the sheet says so, because rule 1 of
-`knowledge/project.md` is that a goal runs from where the user actually is, and
-this app already learned that the expensive way: it shipped five seed goals as
-instructions and somebody who really wakes at 09:00 was asked for 07:30 on their
-first morning. Picking a template creates nothing — only saving the form does.
-
-There is deliberately no template for "become more mature" or "get better with
-people". They are outcomes rather than practices, and a daily number invented for
-one would be the app's own invention sitting above the user's real record, which
-is what "This Is Not A Game" forbids.
-
-**One commitment, one tick, one place — and a habit crosses to a goal by
-moving.** The app tracks daily things in three shapes: a **daily habit** is a
-tick that asks the same thing forever; a **goal** ramps from a baseline the user
-set to a target they chose and earns each step by *performing*; a **run habit**
-ramps on the *calendar* across a fixed 66 days. `S.habitToGoal` turns the first
-into the second, because "make this progress slowly, step by step" is what the
-goals engine already is.
-
-It is a MOVE, not a copy: the habit is removed in the same commit that creates
-the goal. A thing tracked in two places is a thing ticked twice on Today, which
-is the duplication the run's catalog was cut from twenty-five habits to fourteen
-to remove. The conversion opens the goal editor rather than converting on the tap
-— a habit carries no baseline, target or step, and only the user knows where they
-actually are today, so the numbers are asked for rather than invented.
-
-Nothing already lived moves: `dayHabits` returns `log.habits` for any day that
-has a log, so a day already opened keeps the habit list it froze and is scored
-out of the same total. The undo restores the habit under its **own id**;
-`addHabit` would mint a new one and every tick already recorded against the old
-id would stop belonging to it, with nothing to report that.
-
-What this does NOT do is join the run to anything. The run keeps its closed
-catalog and shares no data with goals — see below. Nothing stops a user creating
-a goal and a run habit for the same commitment by hand; that is still the rule
-above, enforced by the catalog being small rather than by name-matching, which
-would fire wrongly.
-
-**A goal can be brought INTO a run, and the bridge lives in the store.** The one
-place the two systems meet is `S.runCandidateGoals()`, and it is in `js/store.js`
-rather than in either engine on purpose: "the run and the goals share nothing" is
-an invariant about those two modules, and the store is the one thing that already
-owns both. Neither learns about the other.
-
-Two rules decide what can cross, and both come from the run engine rather than
-from taste. A run's dose only ever RISES toward its target — `doseOn` clamps
-upward and `validate` enforces `dose_monotonic` — so a ladder that counts down
-cannot exist in a run at all; that rules out every "less than" goal, unhappily
-including the two a 66-day run looks most made for, an earlier wake-up and an
-earlier bedtime. And a clock reading is not a dose: "06:15" is a point in the
-day, not an amount you can do more of, so a `time` goal has no ramp to walk.
-Ineligible goals are LISTED WITH THEIR REASON rather than hidden, the same way
-the add-habit sheet shows a habit with no legal day left.
-
-A goal carries no minutes cost, and the budget check is built on one. It is asked
-for rather than invented — the form asks the answerable form of the question,
-"minutes a day once you reach the target", and divides. That field also fixed the
-hand-written custom habit, which hardcoded one minute per unit: right for a habit
-measured in minutes, wrong for one measured in reps.
-
-**A goal the run takes over is PAUSED, in the same commit that starts the run.**
-Leaving it active puts the same commitment on Today twice — a goal row and a run
-row, two ticks for one act — which is the duplication the catalog was halved to
-remove. Paused, never deleted: everything already earned stays, `activeHistory`
-records the day it stopped so no past day is re-judged, and Plan's Paused section
-resumes it with one tap. A goal whose habit did NOT fit the budget is left
-running, because the run never took it.
-
-**The run and the goals share nothing.** `js/run.js` is a port of the
-`life-reset` Python engine and sits beside `js/goals.js`: a goal ramps a target
-the user chose from a baseline they set and earns each step by performing; a run
-picks from a closed 14-habit catalog, ramps on the calendar, and is
-feasible-by-construction on all 66 days. Neither reads the other's data, a user
-may have both, and merging them would mean migrating every custom goal onto a
-catalog id it does not have.
-
+**Streak freezes are earned and spent by hand.** One per 10 completed days, max
+5, applied to a specific past day. A streak that shatters on one bad day teaches
+people to quit; a freeze holds the chain without pretending a missed day
+happened.
 
 **The six screens are drawn from one design brief, and it is on disk.**
 `Arise Redesign (standalone).html` is a design-canvas export, gitignored, in this
-folder. It unpacks to eight artboards: `1a`/`1b`/`1c` are three directions for
-Today and `2a`–`2e` are Plan, Read, Stats, Rewards and More. The app is `1c` plus
-`2a`–`2e`. **Read it, never merge it** — it is a 1.3MB React bundle referencing
+folder. **Read it, never merge it** — it is a 1.3MB React bundle referencing
 three external origins, which is the artefact the inlining rule below is about.
 Decode it with:
 
@@ -746,11 +541,17 @@ JSON.parse(fs.readFileSync('Arise Redesign (standalone).html','utf8').split('\n'
 The system it draws: a header with a 26px-radius base on every screen, 11px
 letterspaced section labels, cards with a 38px icon plate, and three colours
 with fixed jobs — the accent for the live action and for anything done, the gold
-for anything that pays out or is waiting on you, and **ember for a block whose
-subject is progress through a fixed length of time, and for nothing else**. Ember
-is on exactly three things: Today's header while a countdown runs, the strip
-carrying today's next ask, and the run screen's header. See
-`knowledge/ui-guidelines.md`.
+for anything that pays out or is waiting on you, and ember for a block whose
+subject is progress through a fixed length of time.
+
+Ember was on three things and is on one now. The countdown header and the run
+header went with the features they belonged to; **Today's strip kept it, and the
+rest timer is what makes that honest.** The brief gave the strip ember for
+carrying "today's next ask", which was always a stretch of the rule — a next
+ask is not elapsed time. A rest countdown is the rule literally: a fixed length,
+and your progress through it. If the timer is ever removed, ember has no subject
+left, and the strip should go charcoal rather than keep a hue that no longer
+means anything. See `knowledge/ui-guidelines.md`.
 
 **The brief's structure survived a repaint; its colours did not.** The palette is
 Plumage since 2026-08-21 — a peacock ground, jade accent, saffron gold, magenta
@@ -758,13 +559,12 @@ ember — and it adds one concept the brief has no equivalent for. See the invar
 below.
 
 **Hue means one of two things, and the app must never let it mean both.** A
-header BAND carries location: five screens, five hues, teal through plum, and a
-band says which screen you are on and nothing else. Everything else carries
-meaning: three hues, four jobs, listed above. **No meaning hue may be used as a
-band and no band hue may be promoted into a meaning** — the day violet is both
-"Stats" and a state, neither means anything and the app has eleven colours and no
-argument. It is why the active tab is jade on every screen rather than the band's
-hue: nothing but the band may claim to tell you where you are.
+header BAND carries location: one hue per screen, and a band says which screen
+you are on and nothing else. Everything else carries meaning. **No meaning hue may
+be used as a band and no band hue may be promoted into a meaning** — a hue that
+is both "Stats" and a state means neither. It is why the active tab is jade on
+every screen rather than the band's hue: nothing but the band may claim to tell
+you where you are.
 
 The band costs the view layer nothing. `js/ui.js` already writes the route to
 `#view[data-route]` for scroll restoration, so `styles.css` resolves `--band`
@@ -775,33 +575,31 @@ with a `currentColor` hairline — and `--faint` clears AA on no band in either
 mode (3.59:1 on the dark teal), so a header steps it up to `--muted` for its own
 subtree.
 
-An artboard is a picture, not an authority. Two of its decisions were not taken,
-and both are written down where they were made: the value column keeps its
-direction in words (`targetPhrase`), because a bare "4 h" does not say which side
-of four hours you want; and More's header does not claim a last-export date,
-because no such timestamp exists in the state and inventing one is a migration.
+An artboard is a picture, not an authority. More's header does not claim a
+last-export date, because no such timestamp exists in the state and inventing one
+is a migration.
 
 **There is no top bar.** Every screen carries its own header, so a persistent
 brand bar would be a second one. The streak and days-kept chips it held are in
 Today's header and on Stats, which is where they linked to.
 
 **`index.html` is a shell. Nothing is inlined into it.** It links
-`./styles.css` and the eight `./js/*.js` in fixed order, plus the manifest and
+`./styles.css` and the six `./js/*.js` in fixed order, plus the manifest and
 icon links, and one `<meta http-equiv="Content-Security-Policy">`.
 
-A tooling export once replaced it with a 440KB self-extracting
-bundle that served `js/` and `styles.css` from `blob:` URLs decoded from a gzip
-payload — a snapshot taken mid-sprint. The app ran three fixes behind the tree
-for as long as it was there, and **both suites stayed green the whole time**,
-because they load `js/` from disk. That is the failure mode to watch for: a
-bundle makes the safety net measure code nobody runs. It also dropped the
-manifest and icon links (breaking PWA install) and added a Google Fonts
-`preconnect` to an app whose first constraint is that it makes no network calls.
-If a tool offers to inline the app into one file, say no.
+A tooling export once replaced it with a 440KB self-extracting bundle that served
+`js/` and `styles.css` from `blob:` URLs decoded from a gzip payload — a snapshot
+taken mid-sprint. The app ran three fixes behind the tree for as long as it was
+there, and **both suites stayed green the whole time**, because they load `js/`
+from disk. That is the failure mode to watch for: a bundle makes the safety net
+measure code nobody runs. It also dropped the manifest and icon links (breaking
+PWA install) and added a Google Fonts `preconnect` to an app whose first
+constraint is that it makes no network calls. If a tool offers to inline the app
+into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v72`. Without it an installed copy keeps
-serving the old shell.
+anything in `fonts/`. Currently `discipline-v74`. Without it an installed copy
+keeps serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by
 `unicode-range` exactly as Google Fonts serves them, referenced from
@@ -813,6 +611,7 @@ because there are no network calls.
 secrets. If a change needs a server, stop and raise it first.
 
 ---
+
 
 # Review Roles
 

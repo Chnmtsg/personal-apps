@@ -1,295 +1,293 @@
-# Discipline — Personal Development Tracker (PWA)
+# Discipline — Training Log (PWA)
 
-An offline-first personal development tracker: set goals that progress from **where you actually are**
-to a target **you** choose, keep a streak that survives real life, and plan your training week by week.
+An offline-first training log for one person, on one phone. A weekly plan, and a
+record of every set you actually did: the exercise, the weight, the reps, and
+what it was last time.
 
-**It is not a game.** The streak, the XP and the levels are instruments, not the point — the moment the
-number becomes the thing you are protecting, the app has started competing with the life it was built
-to serve. So the top bar carries days you actually kept rather than a rank, Today ends on facts rather
-than a scoreboard, and Stats opens on *31 hours of deep work* before it mentions a level. The test any
-feature has to pass is in `knowledge/project.md`: **does this tell you something true about your life,
-or does it only move a counter the app invented?**
+Vanilla HTML, CSS and JavaScript. No build step, no bundler, no framework, no
+dependencies, no server, no account, and no network calls of any kind. Your data
+lives in `localStorage` on your device and is never uploaded anywhere.
 
-No build step, no framework, no server, no account. Plain HTML/CSS/JS + a service worker.
+> **It used to be more than this.** Until 2026-09 Discipline was a
+> personal-development tracker: a goal ladder engine, a reading gate, a journal,
+> a 66-day habit run, XP, levels and ranks. All of it was removed in favour of
+> one subject done properly. **Nothing was deleted from stored data** — the app
+> stopped reading those keys, it did not drop them, and they are still in every
+> export. The code is on `master` in the commit before the conversion.
 
 ---
 
 ## Run it
 
-```cmd
-serve.cmd            :: http://localhost:8123 (opens your browser)
-serve.cmd 9000       :: pick another port
+Serve over `http://`, never `file://` — service workers and install-to-home-screen
+are blocked on `file://`.
+
+```bash
+cd arise
+serve.cmd          # http://localhost:8123
 ```
 
-or with any static server:
+Use `serve.cmd` rather than `python -m http.server`: the latter sends no cache
+headers, so the browser caches `sw.js` and never notices a new build.
 
-```cmd
-npx serve .
-python -m http.server 8123
-```
-
-> Open it over **http://**, not by double-clicking `index.html`. Service workers, offline
-> caching and "Install app" are blocked on `file://`.
-
-**Install as an app:** Chrome/Edge → address-bar install icon. iOS Safari: Share → *Add to Home Screen*.
+Live at **https://chnmtsg.github.io/personal-apps/**.
 
 ---
 
-## The progression engine
+## The set log
 
-This is the heart of the app, and it's built around three rules.
+This is the whole app. Every exercise on Today is a card, and every card takes
+numbers.
 
-### 1. Every goal has a baseline *and* a target
+```
+✓  Dumbbell Floor Press                    3 × 8
+   chest · triceps · front delts — 2 min rest
+   ─────────────────────────────────────────────
+   1   30 kg × 8                              ✕
+   2   30 kg × 8                              ✕
+   3   30 kg × 6                              ✕
+   ─────────────────────────────────────────────
+   [ 30 ] kg   ×   [ 8 ] reps        [ Log set ]
+   690 kg moved
+   Last time · Thu, Sep 3 · 27.5 kg · 3 × 8, 8, 7
+```
 
-A goal is `start → target`, not `start + step forever`. You wake at 7:30 and want 6:00; the ladder is
-six 15-minute rungs and **it stops at the bottom**. A progression with only a step size is a countdown
-to failure — at −15 min/week you're being asked to wake at 3:45am by week twelve, and at −30 you hit
-midnight by week fourteen. Discipline cannot do that: `valueAt(level)` is clamped to the target, and once
-you're there the goal switches to maintenance ("Target reached — now just hold it").
+**The boxes are already filled in.** With what you lifted last time, or with the
+set you just typed above it, or — if you have never done the lift — with the
+plan's own prescription. The screen says which of the three it used. Logging a
+set is usually confirming a number rather than typing one.
 
-### 2. You level up by performing, never because a week passed
+**Tap a set to correct it.** The row loads back into the boxes and the button
+becomes *Update*. The ✕ removes it and offers an undo.
 
-The classic version of this idea advances on the calendar: week 1 is 6:30, week 2 is 6:15, whether or
-not you managed week 1. That guarantees the app outruns you and everyone fails on a schedule.
+**Filling in the last prescribed set ticks the exercise off.** Nothing ever
+un-ticks it for you — correcting a typo must not retract a session you know you
+did. Taking it back is your own tap on the tick.
 
-Here, a step is **earned**: by default **5 good days out of the last 7** at your current level. Miss a
-week and you stay where you are. Miss **3 scheduled days in a row** and you step *back* one rung, so the
-app walks back down to meet you instead of leaving you behind. Both numbers are editable per goal, and
-the step-back can be switched off.
+**A blank weight is a bodyweight set**, not a zero-kilo one. Eight chin-ups are
+eight reps and no load; they count toward your reps and your sets, and nothing
+toward the weight you moved.
 
-### 3. Difficulty changes the size of a step, not the rules for earning one
+**Cardio and holds ask for what they are measured in.** A run takes kilometres
+and minutes; a plank takes minutes. Only rep exercises get set rows.
 
-| Mode | Step | 7:30 → 6:00 |
-|---|---|---|
-| 🌱 Easy | half | 12 rungs |
-| ⚖️ Normal | base (e.g. 15 min) | 6 rungs |
-| 🔥 Hard | double (e.g. 30 min) | 3 rungs |
+### The rest between sets
 
-Hard gets you there in half the levels — but only if you keep performing. Switching mode **re-scores
-your existing record** at the new step size: nothing is wiped, your streak is untouched, and **days you
-already completed stay completed** (see below). The next ask can jump, and the app says so.
+Logging a set starts the rest. There is no button to press, because a timer you
+have to remember to start is a timer nobody starts.
 
-### Days you completed can never be un-completed
+The interval comes out of the plan's own note — `rest 90 s`, `rest 2–3 min` —
+and the strip above the tab bar counts it down, filling as it goes and buzzing
+once when it is up. A range counts to its **lower** bound: that is when the rest
+is over and you may start again, not how long you are allowed to take. Past it
+the clock keeps going (`+0:20`), so "how long have I been standing here" stays
+answerable.
 
-Every logged entry stores the target it was judged against. Change difficulty, move the baseline,
-raise the target — a day you finished in March stays finished. Without this, switching to Hard would
-silently re-judge your history and break a streak you'd actually earned.
+An exercise whose note prescribes no rest **counts up instead**. The app will not
+invent an interval nobody wrote down.
 
-The same principle already governs the workout plan: the first time you touch a day, its exercise
-list is frozen into that day's log, so editing next week never rewrites last week.
+The timer is not saved. Close the app mid-rest and it is gone, because a
+half-finished rest is not something you did. Switch it off in More → Training
+if you would rather it stayed quiet.
+
+Same honesty as everywhere else in here: it counts from the clock rather than by
+ticking, so a phone that locks mid-rest still shows the right number when you
+come back — but the buzz only happens if the app is in front of you. A web
+app cannot get your attention when it is not on screen, and this one will not
+pretend otherwise.
+
+### Kilograms or pounds
+
+Every set stores the number you typed **and the unit you typed it in**. So
+switching the display unit in More re-reads your history rather than re-valuing
+it — nothing stored moves, no round number becomes 60.01, and a history with both
+in it reads correctly either way.
+
+---
+
+## What is never re-judged
+
+A day you have lived is fixed the moment you open it.
+
+- The day's exercise list is **frozen into that day's log** the first time you
+  touch it, so editing the weekly plan changes tomorrow and nothing already lived.
+- A set stores its own weight, unit and reps, so renaming an exercise, changing
+  its prescription, or switching what it is measured in leaves every set you
+  already logged exactly as it was.
+
+This is the rule the whole app is built on. It is also the easiest one to break
+without anybody noticing, which is why `tools/smoke.js` asserts it by name.
 
 ---
 
 ## Streaks that survive real life
 
-- **Grace window.** The day rolls over at **04:00** by default, not midnight. Finishing at 1am counts
-  for the night you meant, not the next morning. Configurable 00:00–06:00.
-- **Rest days don't punish you.** A goal scheduled Mon–Fri is not "missed" on Saturday; a day with
-  nothing scheduled holds the streak.
-- **Streak freezes.** One earned per 10 completed days (max 5), spent **by hand** on a specific past
-  day. A freeze holds the chain without adding a day to it — no silent magic on a day you missed.
-- **Per-goal streaks and an overall streak.** One bad day doesn't wipe every number in the app.
-- **Today is never a failure until it's over.** An unfinished today can lift your level; it can't
-  drop it.
-- **Best streak is a high-water mark.** Clearing or editing an old day never revokes a record.
-- **Clock changes are noticed.** Streaks are dated on this device, so winding the clock back is the
-  easy cheat. Discipline can't prevent it offline, so it detects it and says so instead of quietly
-  rewarding it.
+A streak that shatters on one bad day teaches people to quit.
 
----
-
-## Reading: write first, then it counts
-
-The reading goal is **gated on a summary**. You cannot mark it done — there is no tick to press. Writing
-the summary is what completes the day, so there's no separate checkbox to fall out of sync with it.
-
-- **Any length counts.** There's no minimum, because a character count only ever buys you `asdfasdf`.
-  A rotating prompt does the work instead ("Explain what you read as if to a curious twelve-year-old").
-- **The gate is necessary, not always sufficient.** Reading is still a progression goal with a
-  minutes ladder, so if you log minutes *below* the day's target the summary is saved and kept but
-  the goal reads unmet — the app says so on the form. Leave minutes blank and the summary alone
-  carries the day. Without this the ladder would be decorative and reading would level up on any
-  day you typed something.
-- **The journal is a different thing.** A daily journal (free text + mood) and a reading summary
-  (book, minutes, what you took from it) are separate records with separate histories. The **Read** tab
-  keeps both.
-- Clear the summary and the day goes back to incomplete, honestly.
+- **Rest days keep the chain.** A day with nothing scheduled does not break it
+  (switchable).
+- **A day counts as complete at a threshold you choose** — 60%, 80% or 100% of
+  what was scheduled.
+- **The day rolls over at 4am by default.** A session logged at 1am belongs to the
+  night before.
+- **Streak freezes.** One earned per 10 completed days, up to 5. You spend one by
+  hand on a specific past day. It holds the chain without pretending the session
+  happened.
+- **"Never miss twice."** After a broken day, while today is still open and still
+  asks for something, Today says so — as a fact and a next action, never as a
+  reprimand.
 
 ---
 
 ## What's in it
 
-**Today** — **DAY 12 / 66** at the top, then To-dos / Done / Skipped and the day's goals as cards, each
-with its ask, its streak and how close the next step is; the day's workout; the reading gate; habits;
-and a journal box. Page back with `‹` to backfill.
+### Today
 
-A goal card is worked with the whole card, not with the tick in its far corner — on a phone held in one
-hand that corner is the hardest pixel on the screen to reach:
+The day's session. The set log above, plus the seven-day rail (tap any day to
+open it), the day counter, your streak, and a strip pinned above the tab bar
+carrying the next exercise by name.
 
-- **swipe right** to keep it, **swipe left** to skip it. The card tints as it passes the commit point,
-  so letting go is never a guess.
-- **press and hold** to open the value sheet and log *part* of it. A goal logged short of its ask gets
-  its own gold state — not green, because it is not a kept day, and not blank, because the work happened.
-- every completion raises a toast carrying **UNDO** for five seconds.
+### Plan
 
-Pinned above the tab bar is the **day strip**: how much is left, the next thing by name, and one tap to
-keep it. When there is nothing left it says so — *Day kept.* — and stops asking.
+The seven training days. Add, reorder or remove exercises on any weekday, copy
+one day onto another, and install either built-in programme.
 
-### The run
+A **deload cycle** can be switched on — every Nth week, cut every working set by
+about 40%. Stress plus recovery is adaptation; stress without recovery is damage,
+and the recovery half is a first-class part of this app rather than a footnote.
 
-A **run** is a fixed length to count against — 66 days by default, because that is the figure the
-habit-formation research actually landed on rather than the 21 everyone repeats. It's optional: without
-one the counter just counts days since you started, because a finish line you didn't choose is a
-deadline, and this app doesn't set deadlines for people.
+Plan also carries the **stopping rule**, because the source material gives none:
+sharp pain, joint pain, chest symptoms, dizziness or numbness stop the session;
+performance falling while effort rises, three broken nights, an injury that will
+not resolve, or losing interest mean the block gets reassessed.
 
-The bar under the counter carries two numbers on one track, and the distinction is the point: grey is
-how much of the run has **elapsed**, orange is how many of those days you actually **kept**. Elapsed
-time is not progress, and Discipline won't draw it as if it were. Starting a new run archives the old one
-rather than deleting it; finished runs keep their record. Start or end one from **More → The run**.
+### Stats
 
-**Plan** — your goals (create, edit, pause, re-baseline) and the seven-day workout split. Whatever you
-schedule for Wednesday shows up on Wednesday.
+Everything recomputed from your logs, and nothing invented.
 
-**Read** — today's summary form, the daily journal with mood, and the full archive of both.
+- What you have actually done: days kept, exercises done, sets logged, reps, and
+  total weight moved.
+- **Top set per session**, one small chart per lift, over 90 days. One column per
+  session and nothing at all for the days between — a gap in the record is not a
+  zero, and a line across it would invent a climb that never happened.
+- **Heaviest set** per exercise, with the date.
+- An 18-week heat map, the muscle breakdown over a window you pick, the training
+  mix by category, and sessions a week against your target.
 
-**Stats** — **what you've actually done** first: `34 of 41 days kept · 34 training sessions · 14
-summaries written`, then the real total per goal — *31 hours* of deep work, *34 days* of getting up
-when you said you would. Minutes accumulate into hours; a wake-up time doesn't, because forty mornings
-at 06:30 don't sum to anything, so clock goals report days kept and nothing else.
+There is no XP, no level and no rank. They were removed: a real total outranks a
+synthetic one, and "3,150 kg moved" is a fact where "238 XP" is a fact about a
+spreadsheet.
 
-Streaks, level/XP, the goal ladders, an 18-week heat map, weekly goal history and a 30-day training mix
-sit below that — deliberately. The app invented XP; it did not invent the hours.
+### More
 
-**Rewards** — reached from the top of **More**, not from a tab of its own: it is the one screen you open
-after the fact rather than to do something, and the four daily screens are worth more thumb than it is.
+Weight unit, sessions a week, the deload cycle, streak rules, the day boundary,
+the exercise library, rewards, and backup.
 
-**your own rewards** first: promise yourself something real ("14 days of workouts → new
-sneakers", "30 days of reading → the next book"), tied either to your overall streak or to one goal's
-streak. Discipline tracks the distance and tells you when you've earned it; collecting it records that you
-actually bought the thing. No XP for that one — inventing points for buying yourself trainers is the
-kind of unearned number this app refuses to show. A reward is earned on the **best** run the streak
-ever reached, so a slip afterwards can't take back something you already won.
+**Your own rewards.** A promise you make to yourself — "fourteen sessions, then
+the shoes" — tied to your training streak. It pays out in the real world, so
+collecting it records that you actually bought the thing, and it is earned on the
+*best* run your streak ever reached, so a slip afterwards cannot take it back.
 
-Below that: 11 streak milestones from *Ignition* (3 days) to *Year of Arising* (365), a weekly chest,
-XP, levels and a rank ladder.
-
-**More** — difficulty, streak rules (rollover hour, freezes, whether goals count toward the day),
-reminders, the exercise library, habits, and export / import / reset.
-
-### Seeded goals
-
-Wake up · Lights out · Read (gated) · Meditate · Deep work (weekdays). Cold shower and Water ship
-disabled as examples. Add your own in any of seven areas with seven unit types (clock time, minutes,
-count, pages, km, litres, seconds).
-
-Bedtimes that cross midnight are handled: with `wrapAt`, 00:30 is correctly *later* than 23:30 rather
-than numerically smaller.
+**The exercise library.** Every exercise carries a category, what it works
+(nineteen muscle groups, and the totals overlap on purpose — a deadlift is back
+and legs and glutes), how-to notes, and optional pictures you add from your own
+photo library. Pictures live in IndexedDB and travel in the backup.
 
 ---
 
-## The built-in training program
+## The built-in training programme
 
-Discipline ships with a six-day dumbbell split, and every exercise carries its own coaching notes —
-tap **ℹ️** on any row in Today to see how to perform it, what to aim for, and what to avoid.
+Two contexts. The app stores **one** weekly plan, so these are alternatives
+rather than a pair — you are on site or you are at home, never both.
 
-An earlier version led that sheet with a generated stick-figure animation. It was removed: a figure
-that abstract could not tell its own movements apart — every upright pose rendered as the same
-vertical stroke — and a demonstration you cannot trust is worse than none. Written cues carry what
-actually matters anyway: setup, tempo, and what to avoid.
+**Context 1 — site (dumbbells only).** Mon Upper A, Tue Lower A, Wed rest,
+Thu Upper B, Fri Lower B, Sat accessory, Sun rest.
 
-| Day | Focus |
-|---|---|
-| Mon / Fri | Chest + shoulders + triceps |
-| Tue / Sat | Back + biceps + rear delts (Saturday adds core) |
-| Wed / Sun | Legs + calves + core |
-| Thu | Recovery — walk, light mobility, full-body stretch |
+**Context 2 — home (barbell).** The same pattern, assuming a barbell, a rack with
+pins, a bench and a bar to hang from. That assumption is stated in the app, along
+with the rows to swap if your setup differs.
 
-Two decisions shape how it appears in the app.
+Two things are **drafted rather than supplied**, and the app says so where you
+read it:
 
-**Warm-ups and stretches are one row, not ten.** A day counts as complete only when every item on
-it is ticked, so listing seven separate arm-circle rows would bury the six lifts that actually
-matter and make finishing a day an exercise in tapping. Each day gets a single `Warm-up` and
-`Stretch` item, with the whole sequence in its how-to notes. Nothing is lost.
+- **Saturday, in both contexts.** The source document lists an accessory session
+  and points at a section that never arrived. It was built from what the other
+  four days leave out — arms and rear delts get one exposure each per week, grip
+  and forearms none. It is the lightest day on purpose: it sits between Lower B
+  and a rest day, and a fifth hard session there would eat the recovery that makes
+  the other four work.
+- **The whole home context.** The document described one context and never a
+  second.
 
-**Rep ranges are shown as ranges.** A plan item carries an optional `repsMax`, so Monday's floor
-press reads `4 × 8–12` rather than being flattened to a single number that misstates the ask.
-
-Installing it on an existing account is additive where it can be and honest where it can't: an
-exercise you already had keeps your name, sets and reps and merely gains the notes it was missing,
-nothing is ever deleted, but **the weekly template is replaced** — that is what installing a
-program means. No logged day changes, because the first time you touch a day its exercises are
-frozen into that day's log. It runs exactly once, tracked by a flag, so a plan you rebuild
-afterwards is never overwritten by a later update.
+Installing a programme **replaces the weekly plan and never touches a logged
+day**. The library is additive: an exercise you already have keeps your name,
+sets and reps, and only gains the coaching notes it was missing.
 
 ---
 
 ## What a PWA can't do
 
-Discipline **tracks** your wake-up; it cannot wake you. Browsers don't run timers in the background, and iOS
-only delivers web push to a home-screen install, unreliably and without timing guarantees. The reminder
-setting sends a browser notification when the app is open and the day is nearly over — that's the
-honest limit. Keep using your phone's alarm.
+Being straight with you: a web app **cannot** be an alarm clock. Browsers do not
+run timers in the background, and iOS delivers web notifications to a
+home-screen install unreliably and without timing guarantees. Discipline tracks
+your training; it cannot get you to the gym. Keep using your phone's alarm.
 
-Everything lives in `localStorage` under `arise.state.v1` on your device — nothing is uploaded. Use
-**More → Export** for a JSON backup. Clearing your browser's site data wipes the app; export first.
+The reminder setting fires only while the app is open, near the day rollover.
 
-If Discipline ever finds saved data it cannot read, it does **not** quietly start over. The unreadable bytes
-are copied to `arise.state.v1.unreadable` and verified before anything is allowed to overwrite them, and
-Today shows a banner offering two routes: restore from a backup, or download the unreadable copy so the
-data leaves the device even though the app cannot parse it. If that copy cannot be made, Discipline refuses to
-write at all rather than replace your only data with a blank app.
-
-The same goes the other way. If a write is refused — storage full, or private browsing blocking it — Discipline
-says so in a banner and offers an export, instead of showing you green ticks for a day that was never
-saved. And because saving is debounced by a fraction of a second, a pending write is forced out when the
-app is backgrounded or closed, so the last tap of the day cannot be lost to a timer that never ran.
+**Each origin is its own storage.** Data on `localhost:8123` does not follow the
+app to the published URL — `localStorage` is per-origin. Export from More →
+Export on the old origin and import on the new one.
 
 ---
 
 ## Layout
 
 ```
-arise/
-  index.html              app shell
-  styles.css              design tokens + all views (dark, light-aware, mobile-first)
-  manifest.webmanifest    PWA manifest
-  sw.js                   service worker — offline app shell
-  js/data.js              dates, grace window, clock maths, seeds, modes, units, milestones
-  js/program.js           the built-in 6-day dumbbell program + how-to notes
-  js/goals.js             the progression engine — pure, storage-free, node-testable
-  js/store.js             state, persistence, streaks, freezes, reading/journal, XP
-  js/ui.js                view rendering + sheets/toasts/confetti
-  js/app.js               event wiring, celebrations, reminders, install prompt, SW
-  icons/                  generated PNG + SVG icons
-  tools/make_icons.py     regenerates the PNG icons (needs Pillow)
-  tools/smoke.js          data + engine tests
-  tools/render.js         renders every view and sheet against a stub DOM
-  serve.cmd               local HTTP server
+index.html              the shell — links the stylesheet and six scripts, nothing inlined
+styles.css              design tokens and every view
+sw.js                   service worker, offline app shell
+manifest.webmanifest    PWA manifest
+fonts/                  three Archivo .woff2 cuts, shipped with the app
+icons/                  generated PNG and SVG icons
+js/
+  data.js               dates, the set vocabulary, seeds
+  program.js            the two built-in programmes, as data
+  photos.js             exercise pictures (IndexedDB)
+  store.js              state, persistence, the set log, streaks
+  ui.js                 rendering, sheets, toasts
+  app.js                event wiring, service worker
+knowledge/              project references — read these before changing anything
+tools/                  the three test suites and the packager
+serve.cmd               local HTTP server
 ```
+
+---
 
 ## Tests
 
-```cmd
-node tools\smoke.js     :: 251 assertions — progression, streaks, freezes, gating, migration, storage recovery
-node tools\render.js    :: 108 checks — every view, sheet and programmed day
+```bash
+npm test          # smoke.js, render.js, wire.js
+npm run package   # → dist/, exits non-zero if the package is unshippable
 ```
 
-`smoke.js` covers the ladder maths (floor, caps, all three modes), earned-not-granted advancement,
-step-back, mode switching, frozen judgements, frozen schedules, midnight-crossing bedtimes,
-non-daily schedules, the reading gate, freezes, clock tampering, XP that never claws back, and
-v1 → v2 migration. It also holds the line on the two ways a lived day used to get re-judged —
-pausing a goal and re-baselining one — and on the storage recovery paths: unreadable data is
-quarantined before anything overwrites it, a refused write is announced rather than swallowed,
-and a pending write can be flushed.
+- **`smoke.js`** loads `js/` into a sandbox with a fake `localStorage` and asserts
+  the data layer: the set log, volume, unit conversion, the prefill from the last
+  session, frozen history, streaks, freezes, the programme, and every migration —
+  including that nothing the removed features stored has been thrown away.
+- **`render.js`** renders every view, sheet and programmed day against a stub DOM,
+  failing on anything that renders `undefined`, `NaN` or `[object Object]`. It
+  also carries the escaping, emoji and design-token guards, and asserts that every
+  state class the views emit is actually styled.
+- **`wire.js`** drives `js/app.js` through its real click router: typing a weight
+  and some reps and pressing Log set has to arrive in the store, and every
+  `data-act` the views emit is cross-checked against the handlers that exist.
 
-`render.js` runs the whole view layer against a stub DOM and fails on anything that renders
-`undefined`, `NaN` or `[object Object]`. It also asserts that the confirm and prompt sheets
-resolve correctly — that cancelling never runs the confirm branch, and that a dismissed
-confirmation cannot fire later against a different sheet.
+There is no build step and no typechecker. These three scripts are the whole
+safety net.
 
 ### A note on performance
 
-Day status is derived, never stored, so every number in the app is always consistent with the logs. That
-means `commit()` must stay O(1): the best-streak high-water mark is maintained on *read*, not on every
-tap, and both day status and goal timelines are memoised per revision. On a synthetic two-year account
-(730 days × 5 goals) a tap plus a full re-render is ~50ms, and a warm re-render ~11ms.
+Day status is memoised per revision, and `commit()` is O(1). Every number in the
+app is derived from the logs rather than stored, which is what keeps them from
+drifting out of sync — but it means the derivations have to stay cheap. If you
+add one that walks every day since install, memoise it the same way.

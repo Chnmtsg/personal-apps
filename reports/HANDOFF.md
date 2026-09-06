@@ -44,8 +44,8 @@ uploads `arise/dist`. A red build is a site that does not update, so check the
 Actions tab before believing "it didn't deploy".
 
 **If the origin changes, every existing user starts empty.** `localStorage` is
-per-origin; goals, logs, streaks and journal do not follow a domain move. The
-only bridge is More → Export on the old origin, Import on the new one.
+per-origin; the plan, the logs, the sets and the streaks do not follow a domain
+move. The only bridge is More → Export on the old origin, Import on the new one.
 
 ---
 
@@ -53,61 +53,139 @@ only bridge is More → Export on the old origin, Import on the new one.
 
 ```bash
 cd arise
-npm test          # smoke 608, render 228, wire 118 — all green
+npm test          # smoke 233, render 118, wire 64 — all green
 npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
-- `sw.js` VERSION → **`discipline-v71`**
-- `js/` is **eight** files, loaded in this order:
-  `data.js` → `program.js` → `goals.js` → `run.js` → `photos.js` → `store.js` →
-  `ui.js` → `app.js`
+- `sw.js` VERSION → **`discipline-v74`**
+- `js/` is **six** files, loaded in this order:
+  `data.js` → `program.js` → `photos.js` → `store.js` → `ui.js` → `app.js`
+  (`goals.js` and `run.js` were deleted this session — see §2)
 - `tools/` is `smoke.js`, `render.js`, `wire.js`, `package.js`, `serve.py`,
   `make_icons.py`, `shot.html`
-- `STATE_VERSION` is **6** — v5 added `muscles`, v6 split them into nineteen
-  groups. The v6 re-derivation is guarded by `meta.musclesV6`, read BEFORE the
-  seed-defaults merge: the seed sets it true so a fresh install skips the
-  upgrade, and merging that over an incoming v5 account would have masked the
-  real value and skipped it there too.
+- `STATE_VERSION` is **7** — v7 adds `log.perf`, the performance record. Purely
+  additive: a day logged before set logging existed gains an empty object and
+  keeps its tick. v6 split the muscle tags into nineteen groups and its
+  re-derivation is still guarded by `meta.musclesV6`, read BEFORE the
+  seed-defaults merge.
 - Exercise pictures live OUTSIDE `arise.state.v1`, in their own IndexedDB store
   (`js/photos.js`), and ride in the backup as a `photos` key. That separation is
   the point: photos in the state blob would risk `QuotaExceededError` on every
   write, which would cost the user the ledger.
-- Nothing is half-finished. No stashed edits, nothing uncommitted, and the
-  working tree is clean and in sync with `origin/master`.
+- `npm test` is green, `npm run package` succeeds, and **every screen has been
+  driven in a real browser** (headless Edge against `serve.cmd`, with a seeded
+  lived-in state, plus a real tap on Log set inside an iframe). Three bugs came
+  out of that which no stub suite could see — see §2.
 
 ---
 
-## 2. What this session built in arise
+## 2. What this session did: Discipline is a training log now
 
-**Discipline.** Every string the user sees is renamed. The `arise/` folder, the
-`window.Arise` globals and the `arise.state.v1` key deliberately did **not**
-move — renaming the storage key orphans every user's data with no recovery.
+The user asked for the app to be converted into a **fitness-only** app that
+tracks each exercise — sets, weight, reps. Three decisions were put to them and
+answered before anything was touched:
 
-**Reach.** Five tabs (Rewards moved under More). A goal card is worked with the
-whole card rather than the tick in its corner: swipe right to keep, left to
-skip, press and hold to log part of it. Today ends in a fixed strip carrying the
-next thing and one tap. Toasts carry UNDO for five seconds.
+1. **Full strip, data preserved.** Remove the non-fitness features from the code
+   and the UI; leave everything they stored in `arise.state.v1` untouched.
+2. **Per-set rows with prefill.** Each set is weight × reps, and last session's
+   numbers fill the boxes.
+3. **Per-unit fields.** A distance exercise logs km and minutes, a time exercise
+   logs minutes, only rep exercises get set rows.
 
-**Publishing.** GitHub Pages, via `.github/workflows/pages.yml`. `tools/package.js` copies the runtime set byte for byte — **it is
-not a build step and must never become one** — and fails the build when `sw.js`
-ASSETS and `index.html` disagree about `js/`.
+### What was removed
 
-**The 66-day run** (`js/run.js`), a port of the `life-reset` Python engine,
-sitting *beside* `goals.js` and sharing nothing with it. The Architect and
-Adaptation agents were dropped: both need a language model, and this app makes
-no network calls. What crossed over is the deterministic fallback each already
-had.
+`js/goals.js` and `js/run.js` are deleted. Gone with them: the goal ladder
+engine, goal templates, the practices installer, the reading gate, the journal,
+the Read tab, the 66-day habit run, the fixed-length countdown/challenge, the
+daily-habit list, XP, levels, ranks, the eleven-milestone ladder, the weekly
+chest, the line-a-day and the cookie jar. The tab bar is four tabs: Today, Plan,
+Stats, More.
 
-- a closed catalog (25 habits, trimmed to 14 in 2026-08 to stop it duplicating
-  goals, daily habits, the weekly plan and the journal), three phases, feasible on all 66 days
-- checklist habits — `vitamins`, `skincare`, `skincare_pm` — whose dose is a
-  list of named items rather than a number, editable per run
-- a habit picker, with a "start everything on day one" toggle that is on by
-  default and opts out of the two ease-them-in rules while keeping the budget
-- the day record: what each day asked, frozen when the day opened
-- `runCountsTowardDay` — a kept run day counts toward the streak
-- `tools/wire.js`, a third suite that drives `js/app.js` through its click router
+`styles.css` went from 126KB to 95KB — the rules for the removed screens were
+swept out mechanically (`scratchpad/deadcss.js` documents the method: a class
+counts as used if its name appears *anywhere* in source, which is deliberately
+conservative). All three suites were green before and after.
+
+### What was NOT removed, and must not be
+
+**No user data was deleted.** `migrate()` stops LOOKING at `goals`, `goalLogs`,
+`reading`, `journal`, `lines`, `cookies`, `challenges`, `run`, `habits`,
+`claimed` and `weeklyClaims`. It does not touch them. They ride along in the
+state blob and in every export, forever. There is a smoke test by name — *a goal
+from the old app is still in the state* — and the invariant is written at the top
+of `arise/CLAUDE.md`. **Do not tidy them out later.** Somebody's year of journal
+entries is in there.
+
+The code is recoverable: `git show <commit-before-this>:arise/js/goals.js`.
+
+### What was built
+
+The set log, in `js/data.js` (the vocabulary), `js/store.js` (the record) and
+`js/ui.js` (the card).
+
+- A set is `{ w, u, r }` — the weight, **the unit it was typed in**, and the reps.
+  Carrying the unit is what makes `settings.weightUnit` a display choice rather
+  than a re-valuation of history.
+- `w: null` is a bodyweight set, not zero. It counts toward reps and sets and
+  contributes nothing to volume.
+- `suggestSet` fills the boxes from the set already typed today, else last
+  session, else the plan — and says which. It stores nothing.
+- `maybeComplete` ticks the exercise when the last prescribed set is filled in,
+  and nothing ever un-ticks it.
+- `normalisePerf` repairs a half-written record on every load and never invents.
+- Stats gained a top-set chart per lift (one column per session, no line across
+  the gaps) and a heaviest-set table. The XP/rank row is gone.
+
+Every one of those has a test, in the suite that can see it: the engine in
+`smoke.js`, the markup in `render.js`, the tap in `wire.js`.
+
+### The rest timer, and what it did for ember
+
+Added after the conversion, on the user's instruction, and the two open flags it
+answers turned out to be one thing. Ember is allowed on exactly one kind of block
+— one whose subject is progress through a fixed length of time — and after the
+countdown and the run screen went, the only thing still wearing it was Today's
+strip, which the brief had given it for carrying "the next ask". That was always
+a stretch of the rule. A rest countdown is the rule literally, so the timer took
+the strip and ember has an honest subject again rather than being retired.
+
+How it works, and each of these is a rule rather than a detail:
+
+- The interval is parsed out of the plan item's own `note` (`rest 90 s`,
+  `rest 2–3 min`), which is where `js/program.js` already writes it. No new
+  field, so no migration and no second copy to keep in step.
+- A range counts to its **lower** bound. That is when the rest is over; the upper
+  bound is how long you are allowed to take.
+- An exercise that prescribes no rest **counts up**. Inventing an interval would
+  be exactly the made-up number this app refuses to show.
+- It is **never stored**. A half-finished rest is not something the user did, and
+  a persisted one would tell somebody on the bus they have 40 seconds left of a
+  rest they finished at the gym.
+- It is derived from `Date.now()`, not from counting ticks, so a throttled tab
+  comes back correct.
+- `More → Training → Rest timer` switches the whole thing off. On by default,
+  which is safe here in a way the other switches are not: it re-scores nothing.
+
+### Three bugs found while building this, and how
+
+Two by the new tests, one only by the browser — which is the argument for
+opening one.
+
+- `describeEntry` printed `NaN min` for an entry whose exercise had since been
+  re-measured. It reads the ENTRY now, not the exercise.
+- A bodyweight-only session reported "0 kg" in its header, which is a different
+  and false claim from "none of it was loaded". It falls back to reps.
+- **The rest was started AFTER the store write**, and the write is what
+  repaints — so the timer existed in view state and was not on screen until
+  something unrelated happened to render. Both stub suites passed it happily.
+  `tools/wire.js` now wraps `UI.render` and asserts what the tap's LAST paint
+  contained, which is the only shape of test that can see it.
+
+Three plural bugs came out of the browser too ("1 sessions kept"), and
+`render.js` grew a guard that strips tags before matching — the count and its
+noun usually sit in two elements, which is why the first two versions of that
+guard passed the bugs they were written for.
 
 ---
 
@@ -127,59 +205,57 @@ git log --oneline --diff-filter=D -- life-reset | head -1
 git checkout <that-commit>~1 -- life-reset
 ```
 
-`arise/js/run.js` is a port of the `life-reset` Python engine and its comments
-still say so. That history is why the code is shaped the way it is, so the
-references were left rather than scrubbed — the engine is simply no longer in
-the tree beside it.
+`arise/js/run.js` was a port of the `life-reset` Python engine. It was deleted in
+2026-09 with the 66-day run, and comes back from history the same way.
 
 ---
 
 ## 4. Open, in priority order
 
-1. **Clickjacking protection is gone, and a meta tag cannot bring it back.**
+1. **Nothing has been opened in a real browser since the conversion.** All three
+   suites are green and the package builds, but `render.js` uses a hand-rolled
+   stub DOM and `wire.js` a stub click router: neither can tell you a button is
+   reachable, visible, or the right size under a thumb. The set-log card is
+   **new markup with new CSS** — the two number fields, the button beside them,
+   the set rows — and that is exactly the class of thing a stub cannot check.
+   Run `serve.cmd`, open `http://localhost:8123`, clear the service worker, and
+   log a real session before believing any of it looks right.
+2. **Clickjacking protection is gone, and a meta tag cannot bring it back.**
    The CSP itself was restored as a `<meta http-equiv>` in `index.html` and is
    enforced on the live site — but `frame-ancestors` and `X-Frame-Options` are
    both ignored in meta, so the app can be framed by anyone. It needs a host
    that sends response headers. Pages does not.
-2. ~~**Carry the ledger across the other five screens.**~~ **Done, and it is not
-   the ledger any more.** The brief's own round-2 note opens "Today stays exactly
-   as 1c", and 1c is the *card* direction — the previous session had drawn Today
-   from 1a, the hairline one, so the five artboards and the shipped Today were in
-   two different languages. Asked, the user chose the drawn system: all six
-   screens are 1c + 2a-2e now, in the artboards' cool teal/amber palette rather
-   than the warm ember one. What that cost and what it bought is in
-   `arise/CLAUDE.md` under the design-brief invariant. Two artboard decisions
-   were deliberately not taken and both say so in the code.
-3. **The drafted training content is mine, not the owner's document.** Saturday's
+3. ~~**Ember has no job any more.**~~ **Answered by the rest timer** — and the
+   original note was wrong on the facts: ember was never unused, it still
+   painted Today's strip. What was gone were the countdown header and the run
+   header. The strip's claim to it was weak (a "next ask" is not elapsed time)
+   and the rest countdown makes it literal. If the timer is ever removed, ember
+   has no subject left and the strip should go charcoal rather than keep a hue
+   that means nothing.
+4. **The drafted training content is mine, not the owner's document.** Saturday's
    accessory session in both contexts, and the whole HOME context, were written
    for this app because the source material was asked for twice and never
    supplied. Both are labelled "drafted, not from the programme" in the day
    title, the context blurb and the code, and a smoke test asserts that wording
    survives. The HOME context assumes barbell + rack + bench + pull-up bar; if
-   that is wrong, the week table is the only thing to change. Replace either with
-   the real thing whenever it arrives.
-4. ~~**The SITE programme is missing its sixth day, and its second context.**~~
-   `js/program.js` now holds Context 1 (SITE, dumbbells only) — Mon Upper A, Tue
-   Lower A, Wed rest, Thu Upper B, Fri Lower B, Sat accessory, Sun rest. The
-   source document lists an accessory-and-mobility session on the Saturday and
-   points at a section that was never supplied, so that day carries the daily
-   mobility and nothing else; the week entry says so in a comment rather than
-   inventing a session. "CONTEXT 1" also implies a context 2 that has not
-   arrived. Both are drop-in: add the exercises, add the day, no plumbing.
-4. **The exfoliation schedule.** Decided, not built. The user's Mon/Thu toner
-   cadence is to be a *goal*, not a run habit — `goals.js` already does weekday
-   schedules and `run.js` assumes every habit is daily. Nothing was created for
-   them: Plan → new goal, schedule Mon/Thu, baseline 2/week → target 3/week.
-5. **Flattening `arise/` to the repo root.** With one project left, the nesting
+   that is wrong, the week table is the only thing to change.
+5. ~~**A rest timer between sets is the obvious next feature.**~~ **Built** —
+   see §2. The one thing it deliberately does NOT do is fire when the app is
+   not in front of you: a PWA cannot, and `knowledge/project.md` forbids
+   implying otherwise. The README says so in as many words.
+6. **Muscle tags are read live, not frozen.** Re-tagging an exercise changes what
+   past days are credited with in the muscle breakdown on Stats. Day completion,
+   streaks and the ledger are untouched — only the attribution moves — and there
+   is a test documenting it by name. Freezing them into each day's record, the
+   way the exercise list already is, was offered and not yet asked for.
+7. **A few dead CSS rules survived the sweep**, because their class names appear
+   inside a source comment (`.gatecard`, `.minifield`, `.archive` and a handful
+   more). Under 2KB. The sweep is conservative on purpose: a false positive
+   leaves one dead rule, a false negative deletes a rule a live screen needs.
+8. **Flattening `arise/` to the repo root.** With one project left, the nesting
    is arguably pointless — but the Pages workflow uploads `arise/dist` and the
    folder name is deliberate (see `arise/CLAUDE.md` on the rename). Not done,
    and not obviously worth doing.
-6. **Muscle tags are read live, not frozen.** Re-tagging an exercise changes
-   what past days are credited with in the muscle breakdown on Stats. Day
-   completion, streaks and the ledger are untouched — only the attribution
-   moves — and there is a test documenting it by name. Freezing them into each
-   day's record, the way the exercise list already is, was offered and not yet
-   asked for.
 
 ---
 
@@ -273,29 +349,28 @@ feature question:
 > *Does this tell the user something true about their life, or does it only move
 > a counter the app invented?*
 
-The user does not want a Duolingo-shaped app. XP, levels and ranks exist but sit
-deliberately **below** the real ledger — days kept, hours actually done,
-summaries written. The top bar carries days kept, not a rank. Custom rewards pay
-out in sneakers and books and grant no XP on purpose.
+The user does not want a Duolingo-shaped app. XP, levels, ranks and the
+milestone ladder were **removed** in 2026-09 rather than demoted: the real ledger
+is days kept, sets logged and kilos moved, and a synthetic number sitting beside
+those was competing with them. Custom rewards pay out in shoes and books and
+grant nothing but the record that the user bought the thing.
 
-Three rules the run added, in the same spirit:
+Three rules, in the same spirit:
 
-- **The run and the goals share nothing, deliberately.** A goal ramps a target
-  the user chose from a baseline they set, earning each step by performing. A run
-  picks from a closed catalog and ramps on the calendar. Merging them means
-  migrating every custom goal onto a catalog id it does not have.
 - **A day you have lived is never re-judged.** The one most likely to be broken
-  by a well-meaning feature. The run's day record exists for it:
-  `computeDayStatus` reads what a day *recorded*, never what the programme says
-  now.
-- **Feasibility is the product.** `validate` walks all 66 days. An infeasible day
-  41 is the most expensive bug this design can have, because the user does not
-  find it until day 41 — by which point they have earned 40.
+  by a well-meaning feature. Two mechanisms carry it: `ensureLog` freezes the
+  day's exercise list, and a set stores its own weight, unit and reps.
+- **The plan asks; the log records.** They are separate objects and neither is
+  derived from the other. Anything that reads a past day off the live exercise or
+  the live plan item is the bug, every time.
+- **Never invent a number.** A bodyweight set is not zero kilos. A day the app
+  was not opened is not a failure. A gap in a chart is not a zero. An estimated
+  one-rep max is a formula's opinion, not a lift that happened.
 
 Off limits without raising it first: any build step, bundler, framework or
-dependency; any network call, account or sync; a rewrite of the progression
-engine; any migration that recomputes a banked `bestStreak`; any expansion of the
-game layer onto Today.
+dependency; any network call, account or sync; any migration that recomputes a
+banked `bestStreak`; any migration that deletes the keys the removed features
+left behind; and bringing the game layer back.
 
 ---
 

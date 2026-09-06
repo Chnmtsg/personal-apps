@@ -87,7 +87,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-for (const f of ['data.js', 'program.js', 'goals.js', 'run.js', 'photos.js', 'store.js', 'ui.js']) {
+for (const f of ['data.js', 'program.js', 'photos.js', 'store.js', 'ui.js']) {
   vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8'), sandbox, { filename: f });
 }
 
@@ -123,7 +123,7 @@ function check(name, fn) {
 
 const view = resolve('#view');
 const sheetBody = resolve('#sheetBody');
-const ROUTES = ['today', 'plan', 'read', 'progress', 'rewards', 'more', 'run'];
+const ROUTES = ['today', 'plan', 'progress', 'rewards', 'more'];
 
 function renderRoute(r) {
   view.innerHTML = '';
@@ -131,48 +131,45 @@ function renderRoute(r) {
   return view.innerHTML;
 }
 
-/* A screen with a tab is two screens. Plan's second half — the seven training
-   days — is behind a segment now, so the route sweep alone would render the
-   goals side twice and never the other one, and half of Plan would leave the
-   suite with no cover at all. Every variant sweeps with the routes. */
-function checkVariants() {
-  UI.setPlanTab('week');
-  check('plan (training week)', () => renderRoute('plan'));
-  UI.setPlanTab('goals');
-}
-
 /* ---------- 1. empty state ---------- */
 S.load();
 console.log('\nfresh install');
 ROUTES.forEach((r) => check(r, () => renderRoute(r)));
-checkVariants();
 
-/* ---------- 2. a lived-in account ---------- */
+/* ---------- 2. a lived-in account ----------
+
+   The fixture has to carry LOGGED SETS, not only ticks. Every number this app
+   draws now comes out of `log.perf`, so a fixture that only completed days
+   would sweep every screen while leaving the whole subject of the app
+   untouched — which is exactly the gap the emoji purge shipped through once. */
 console.log('\npopulated account');
 const t = S.today();
 const ex0 = S.get().exercises[0].id;
 for (let d = 0; d <= 6; d++) if (!S.get().plan[d].length) S.addToPlan(d, ex0);
-/* Straight onto the object, not through `updateGoal` — that refuses to move a
-   `startDate` so the app cannot drop lived days out of a goal. Here nothing has
-   been logged yet, so this is a fixture rather than an edit. */
-S.get().goals.forEach((g) => { g.startDate = A.addDays(t, -30); });
-S.commit({ type: 'fixture' });
 
 for (let i = 30; i >= 0; i--) {
   const k = A.addDays(t, -i);
   if (i % 11 === 0 && i !== 0) continue; // leave gaps so "missed" renders
   S.ensureLog(k);
-  S.completeAll(k);
-  S.dayHabits(k).forEach((h) => S.toggleHabit(k, h.id));
-  S.goalsForDay(k).forEach((e) => {
-    if (e.goal.gate === 'summary') S.setReading(k, { book: 'Deep Work', minutes: 30, summary: 'What I took from today: attention is trainable.' });
-    else S.hitGoalTarget(k, e.goal.id);
+  S.dayPlan(k).forEach((item) => {
+    const ex = S.exerciseById(item.exerciseId);
+    const shape = A.logShape(ex);
+    if (shape === 'reps') {
+      const sets = Math.max(1, Number(item.sets) || 3);
+      for (let n = 0; n < sets; n++) {
+        // Climbing a little over the month, so a chart has a shape to draw.
+        S.addSet(k, item.id, 40 + Math.round((30 - i) / 6) * 2.5, Number(item.reps) || 8);
+      }
+    } else if (shape === 'time') {
+      S.setAmount(k, item.id, { min: Number(item.minutes) || 10 });
+    } else {
+      S.setAmount(k, item.id, { km: Number(item.km) || 3, min: 22 });
+    }
   });
-  S.setJournal(k, { text: 'Felt good.', mood: 3 });
+  S.completeAll(k);
 }
-S.claimReward('m3');
+S.addCustomReward({ name: 'New shoes', days: 14 });
 ROUTES.forEach((r) => check(r, () => renderRoute(r)));
-checkVariants();
 
 console.log('\npast + future days');
 UI.setViewDate(A.addDays(t, -3));
@@ -182,8 +179,6 @@ check('today (future, read-only)', () => renderRoute('today'));
 UI.setViewDate(t);
 
 console.log('\nsheets');
-const g0 = S.activeGoals()[0];
-const readGoal = S.activeGoals().find((x) => x.gate === 'summary');
 const sheet = (name, fn) =>
   check(name, () => {
     sheetBody.innerHTML = '';
@@ -191,12 +186,6 @@ const sheet = (name, fn) =>
     return sheetBody.innerHTML;
   });
 
-sheet('goal editor (new)', () => UI.openGoalEditor(null));
-sheet('goal editor (existing)', () => UI.openGoalEditor(g0.id));
-sheet('goal detail', () => UI.openGoalDetail(g0.id));
-sheet('goal re-baseline', () => UI.openGoalRestart(g0.id));
-sheet('goal value log', () => UI.openGoalLog(g0.id, t));
-sheet('reading', () => UI.openReading(t));
 sheet('exercise picker', () => UI.openPicker(1));
 sheet('plan item editor', () => UI.openPlanEditor(1, S.get().plan[1][0].id));
 sheet('exercise editor', () => UI.openExerciseEditor(null));
@@ -212,7 +201,9 @@ sheet('exercise how-to (no notes)', () => {
   S.removeExercise(bare.id);
 });
 sheet('confirm', () => UI.openConfirm({ title: 'Delete goal?', body: 'Its logged history goes with it.', confirmLabel: 'Delete goal', danger: true }));
-sheet('text prompt', () => UI.openTextPrompt({ title: 'New daily habit', label: 'Habit', placeholder: 'e.g. Meditate 10 min', confirmLabel: 'Add habit' }));
+sheet('text prompt', () => UI.openTextPrompt({ title: 'Note on this exercise', label: 'Note', placeholder: 'e.g. left shoulder tight', confirmLabel: 'Save note' }));
+sheet('reward editor (new)', () => UI.openRewardEditor(null));
+sheet('reward editor (existing)', () => UI.openRewardEditor(S.customRewards()[0].id));
 
 /* ---------- confirm / prompt callbacks ---------- */
 console.log('\nconfirm & prompt sheets resolve correctly');
@@ -266,15 +257,6 @@ behaves('a filled text prompt saves trimmed text', () => {
   return saved === 'Meditate 10 min' ? '' : `saved ${JSON.stringify(saved)}`;
 });
 
-console.log('\nevery unit renders in the goal editor');
-Object.keys(A.UNITS).forEach((u) => {
-  const g = S.addGoal({ name: 'Unit ' + u, unit: u, direction: 'up', baseline: 1, target: 10, step: 1 });
-  sheet('editor · ' + u, () => UI.openGoalEditor(g.id));
-  sheet('detail · ' + u, () => UI.openGoalDetail(g.id));
-  S.removeGoal(g.id);
-});
-
-/* ---------- every programmed day renders ---------- */
 console.log('\nevery day of the built-in program');
 S.resetAll();
 [1, 2, 3, 4, 5, 6, 0].forEach((d) => {
@@ -286,11 +268,6 @@ S.resetAll();
 });
 UI.setViewDate(t);
 
-console.log('\nno goals at all');
-S.get().goals.slice().forEach((g) => S.removeGoal(g.id));
-ROUTES.forEach((r) => check('empty goals · ' + r, () => renderRoute(r)));
-
-/* ---------- the view and the store must agree on which day it is ---------- */
 console.log('\nthe logical day, not the calendar date');
 
 /* A 24h grace window puts S.today() exactly one calendar day behind A.key() —
@@ -316,18 +293,6 @@ behaves('the week strip rings the logical day, not the calendar date', () => {
   return ringed === expected ? '' : `ringed dot ${ringed}, expected ${expected} for ${logical}`;
 });
 
-behaves('mood buttons carry the day they were rendered for', () => {
-  const html = renderRoute('read');
-  const buttons = html.match(/<button[^>]*data-act="mood"[^>]*>/g) || [];
-  if (buttons.length !== 5) return `found ${buttons.length} mood buttons, expected 5`;
-  const wrong = buttons.filter((b) => b.indexOf(`data-date="${logical}"`) < 0).length;
-  return wrong ? `${wrong} of 5 do not carry data-date="${logical}"` : '';
-});
-
-S.updateSettings({ dayBoundaryHour: 4 });
-UI.setViewDate(S.today());
-
-/* ---------- user text cannot become markup ---------- */
 console.log('\nuser-controlled icons are escaped, not injected');
 
 /* Icons are user text: the editors cap them at 4 characters, but importJson()
@@ -335,16 +300,14 @@ console.log('\nuser-controlled icons are escaped, not injected');
    The app renders no <img> of its own, which makes it a clean sentinel. */
 S.resetAll();
 const XSS = '<img src=x onerror="alert(1)">';
-const hostileGoal = S.activeGoals()[0];
 const hostileEx = S.get().exercises[0];
-S.updateGoal(hostileGoal.id, { icon: XSS });
-S.updateExercise(hostileEx.id, { icon: XSS });
-S.addHabit('Hostile habit', XSS);
+S.updateExercise(hostileEx.id, { icon: XSS, name: XSS });
+S.addCustomReward({ name: XSS, icon: XSS, days: 7 });
 for (let d = 0; d <= 6; d++) S.addToPlan(d, hostileEx.id);
-S.updateSettings({ requireHabits: true });
+S.setPerfNote(S.today(), S.dayPlan(S.today())[0].id, XSS);
 UI.setViewDate(S.today());
 
-behaves('no view renders a raw tag from a goal, exercise or habit icon', () => {
+behaves('no view renders a raw tag from an exercise, a note or a reward', () => {
   const dirty = ROUTES.filter((r) => renderRoute(r).indexOf('<img') >= 0);
   return dirty.length ? `raw markup reached: ${dirty.join(', ')}` : '';
 });
@@ -399,9 +362,7 @@ behaves('renaming a seeded exercise does not put its glyph back on screen', () =
   S.commit({ type: 'fixture' });
   S.addToPlan(day, seeded.id);
   UI.setViewDate(S.today());
-  if (!UI.workoutOpen()) UI.toggleWorkoutOpen();
   const html = renderRoute('today');
-  UI.toggleWorkoutOpen();
   return PICTO.test(html) ? 'a seed glyph came back after a rename' : '';
 });
 
@@ -411,9 +372,7 @@ behaves('while a glyph the user actually typed still survives a rename', () => {
   S.get().plan[day] = [];
   S.commit({ type: 'fixture' });
   S.addToPlan(day, mine.id);
-  if (!UI.workoutOpen()) UI.toggleWorkoutOpen();
   const html = renderRoute('today');
-  UI.toggleWorkoutOpen();
   S.removeExercise(mine.id);
   /* The rule is "a glyph the user chose wins" — the fix must not turn into
      "no exercise may ever show a glyph". */
@@ -421,13 +380,13 @@ behaves('while a glyph the user actually typed still survives a rename', () => {
 });
 
 behaves('and neither do the editor sheets', () => {
-  const g = S.activeGoals()[0];
+  const item = S.get().plan[1][0] || S.get().plan[A.weekday(S.today())][0];
   const checks = [
-    ['goal editor', () => UI.openGoalEditor(g.id)],
-    ['goal detail', () => UI.openGoalDetail(g.id, S.today())],
     ['exercise editor', () => UI.openExerciseEditor(S.get().exercises[0].id)],
     ['reward editor', () => UI.openRewardEditor(null)],
-    ['templates', () => UI.openGoalTemplates()]
+    ['exercise picker', () => UI.openPicker(1)],
+    ['plan item editor', () => UI.openPlanEditor(1, item.id)],
+    ['how-to', () => UI.openExerciseHow(item.exerciseId, item)]
   ];
   const bad = checks
     .filter(([, open]) => {
@@ -442,15 +401,14 @@ behaves('and neither do the editor sheets', () => {
 /* A form field that appears to do something and does nothing is worse than no
    field. The goal editor offered an Icon input whose value rendered nowhere on
    Today or Plan, because both draw the mark from the goal's AREA. */
-behaves('the editors offer no icon field, and saving still keeps the stored one', () => {
-  const g = S.addGoal({ name: 'Icon test', unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5, icon: 'X' });
+behaves('the editor offers no icon field, and saving still keeps the stored one', () => {
+  const e = S.addExercise({ name: 'Icon test', category: 'Other', unit: 'reps', sets: 3, reps: 10, icon: 'X' });
   sheetBody.innerHTML = '';
-  UI.openGoalEditor(g.id);
+  UI.openExerciseEditor(e.id);
   const html = sheetBody.innerHTML;
-  const kept = S.goalById(g.id).icon;
-  S.removeGoal(g.id);
-  if (html.indexOf('id="gg_icon"') >= 0) return 'the goal editor still offers an inert icon field';
-  if (sheetBody.innerHTML.indexOf('id="e_icon"') >= 0) return 'the exercise editor still offers one';
+  const kept = S.exerciseById(e.id).icon;
+  S.removeExercise(e.id);
+  if (html.indexOf('id="e_icon"') >= 0) return 'the exercise editor still offers an inert icon field';
   /* Stored, not deleted: removing a stored field is the one thing this project's
      migration rules forbid. */
   return kept === 'X' ? '' : 'the stored icon was thrown away with the field';
@@ -523,123 +481,6 @@ behaves('an unwritable device is told to export, not to restore', () => {
 
 /* A leg day of eight exercises pushed the habits, the streak and the journal
    two screens down, on the tab the user opens to do the day's work. */
-console.log('\na long workout does not take over Today');
-S.resetAll();
-UI.setViewDate(S.today());
-const wkDay = A.weekday(S.today());
-S.get().plan[wkDay] = [];
-S.commit({ type: 'fixture' });
-S.get().exercises.slice(0, 8).forEach((e) => S.addToPlan(wkDay, e.id));
-const planned = S.dayPlan(S.today()).length;
-
-behaves('the fixture really is a long day', () => (planned >= 6 ? '' : planned + ' exercises'));
-
-behaves('the workout starts folded, so a leg day costs one row', () => {
-  const html = renderRoute('today');
-  if (html.indexOf('class="section-fold') < 0) return 'the heading is not a disclosure';
-  if (html.indexOf('aria-expanded="false"') < 0) return 'it does not open folded';
-  const rows = (html.match(/class="item tight/g) || []).length;
-  return rows === 0 ? '' : rows + ' rows rendered while folded';
-});
-
-/* Folding may hide the list. It may not hide the fact that there is one. */
-behaves('and the folded heading still says how much of it is left', () => {
-  const html = renderRoute('today');
-  return html.indexOf('0 of ' + planned + ' done') > 0
-    ? '' : 'the heading does not carry the count';
-});
-
-/* The wrapper survives the fold even though its contents do not, so the
-   heading's `aria-controls` always resolves to something real. */
-behaves('the folded heading still points at an element that exists', () => {
-  const html = renderRoute('today');
-  if (html.indexOf('id="workoutBody"') < 0) return 'no body element to control';
-  return html.indexOf('aria-controls="workoutBody"') > 0 ? '' : 'the heading controls nothing';
-});
-
-/* Folding the section took the only way of finishing a workout with it. The
-   tick sits outside the fold so a finished workout is always one tap away. */
-behaves('a folded workout can still be ticked off', () => {
-  const html = renderRoute('today');
-  if (html.indexOf('data-act="workout-done"') < 0) return 'no tick on the folded heading';
-  if (html.indexOf('aria-expanded="false"') < 0) return 'the fixture is not folded';
-  // The tick must not be inside the button it sits beside — nested buttons do
-  // not survive a real browser, whatever the stub DOM says about them.
-  const head = html.slice(html.indexOf('class="section-fold'), html.indexOf('id="workoutBody"'));
-  const main = head.indexOf('data-act="workout-more"');
-  const tick = head.indexOf('data-act="workout-done"');
-  return head.slice(main, tick).indexOf('</button>') > 0 ? '' : 'the tick is nested inside the fold toggle';
-});
-
-behaves('ticking the heading marks the whole workout, and says so', () => {
-  S.toggleWorkout(S.today());
-  const html = renderRoute('today');
-  if (S.dayPlan(S.today()).some((i) => !S.log(S.today()).ex[i.id])) return 'not every exercise was ticked';
-  if (html.indexOf('All ' + planned + ' done') < 0) return 'the heading does not say it is finished';
-  return html.indexOf('section-fold is-open is-done') >= 0 || html.indexOf('is-done') > 0
-    ? '' : 'the heading is not drawn as done';
-});
-
-/* The tap is its own undo: the heading is the only place a whole workout can be
-   marked from, so a mis-tap there must not need the day cleared to correct. */
-behaves('and ticking it again takes the whole workout back off', () => {
-  S.toggleWorkout(S.today());
-  const done = S.dayPlan(S.today()).filter((i) => S.log(S.today()).ex[i.id]).length;
-  return done === 0 ? '' : done + ' exercises still ticked';
-});
-
-/* It says "workout". It must not quietly answer for the daily habits too, which
-   is what `completeAll` next door does. */
-behaves('the workout tick does not reach into the daily habits', () => {
-  const before = JSON.stringify((S.log(S.today()) || {}).hb || {});
-  S.toggleWorkout(S.today());
-  const after = JSON.stringify((S.log(S.today()) || {}).hb || {});
-  S.toggleWorkout(S.today());
-  return before === after ? '' : 'it ticked habits as well: ' + after;
-});
-
-/* Emptying `state.plan` is not enough once the day has been opened: `ensureLog`
-   freezes that day's exercise list, and `dayPlan` answers from the frozen copy.
-   That is the invariant working — a day you have started is never re-cast — so
-   the fixture has to drop the log as well as the weekly plan. */
-function restDayFixture() {
-  const keep = S.get().plan[wkDay];
-  const log = S.get().logs[S.today()];
-  delete S.get().logs[S.today()];
-  S.get().plan[wkDay] = [];
-  S.commit({ type: 'fixture' });
-  return () => {
-    S.get().plan[wkDay] = keep;
-    if (log) S.get().logs[S.today()] = log;
-    S.commit({ type: 'fixture' });
-  };
-}
-
-behaves('a rest day is not offered a workout tick at all', () => {
-  const restore = restDayFixture();
-  const html = renderRoute('today');
-  restore();
-  return html.indexOf('data-act="workout-done"') < 0 ? '' : 'it offers to complete nothing';
-});
-
-behaves('opening it shows every exercise, not a capped few', () => {
-  UI.toggleWorkoutOpen();
-  const html = renderRoute('today');
-  const rows = (html.match(/class="item tight/g) || []).length;
-  if (rows !== planned) return rows + ' rows for ' + planned + ' exercises';
-  if (html.indexOf('aria-expanded="true"') < 0) return 'it does not report itself as open';
-  return html.indexOf('data-act="workout-done"') > 0 ? '' : 'the tick vanished once it was opened';
-});
-
-behaves('and changing the day folds it again', () => {
-  UI.toggleWorkoutOpen();
-  UI.setViewDate(A.addDays(S.today(), -1));
-  if (UI.workoutOpen()) return 'it stayed open across a date change';
-  UI.setViewDate(S.today());
-  return '';
-});
-
-/* Muscle groups: what an exercise works, as opposed to what kind it is. */
 console.log('\nmuscles trained');
 
 behaves('the exercise editor offers every muscle group as a chip', () => {
@@ -785,6 +626,24 @@ behaves('a new exercise can be added without opening the library', () => {
   return html.indexOf('data-act="lib-add"') > 0 ? '' : 'no way to add one while folded';
 });
 
+/* Emptying `state.plan` is not enough once the day has been opened: `ensureLog`
+   freezes that day's exercise list, and `dayPlan` answers from the frozen copy.
+   That is the invariant working — a day you have started is never re-cast — so
+   the fixture has to drop the log as well as the weekly plan. */
+const wkDay = A.weekday(S.today());
+function restDayFixture() {
+  const keep = S.get().plan[wkDay];
+  const log = S.get().logs[S.today()];
+  delete S.get().logs[S.today()];
+  S.get().plan[wkDay] = [];
+  S.commit({ type: 'fixture' });
+  return () => {
+    S.get().plan[wkDay] = keep;
+    if (log) S.get().logs[S.today()] = log;
+    S.commit({ type: 'fixture' });
+  };
+}
+
 behaves('a rest day says so on the heading rather than opening onto nothing', () => {
   const restore = restDayFixture();
   const html = renderRoute('today');
@@ -794,16 +653,14 @@ behaves('a rest day says so on the heading rather than opening onto nothing', ()
 
 /* The row lost a line, so the dose has to still be on it — a workout row that
    does not say how much is not a workout row. */
-behaves('the tightened row still carries the dose', () => {
+behaves('an exercise row states what was asked as well as what it is', () => {
   S.get().exercises.slice(0, 3).forEach((e) => S.addToPlan(wkDay, e.id));
-  UI.toggleWorkoutOpen();
   const html = renderRoute('today');
   const first = S.dayPlan(S.today())[0];
   const ex = S.exerciseById(first.exerciseId);
-  if (html.indexOf('class="dose"') < 0) return 'no dose column at all';
+  if (html.indexOf('class="exercise-dose"') < 0) return 'no prescription column at all';
   if (html.indexOf(ex.name) < 0) return 'the exercise name went with it';
-  UI.toggleWorkoutOpen();
-  return '';
+  return html.indexOf(A.targetPhrase(first, ex)) > 0 ? '' : 'the prescription is not the plan item\'s own';
 });
 
 behaves('a healthy account shows no such banner', () => {
@@ -816,27 +673,6 @@ behaves('a healthy account shows no such banner', () => {
 });
 
 /* ---------- the goal editor offers no control that does nothing ---------- */
-console.log('\nthe goal editor hides fields that do not apply');
-
-function editorHtml(patch) {
-  const g = S.addGoal(Object.assign({ name: 'Field test', unit: 'minutes', direction: 'up', baseline: 1, target: 10, step: 1 }, patch));
-  sheetBody.innerHTML = '';
-  UI.openGoalEditor(g.id);
-  const html = sheetBody.innerHTML;
-  S.removeGoal(g.id);
-  return html;
-}
-
-behaves('the weekday picker is hidden while a goal runs every day', () => {
-  const html = editorHtml({ schedule: { type: 'daily' } });
-  return /id="gg_days"[^>]*hidden/.test(html) ? '' : 'weekday checkboxes offered on a daily goal';
-});
-
-behaves('and is shown once chosen weekdays are selected', () => {
-  const html = editorHtml({ schedule: { type: 'weekdays', days: [1, 2, 3] } });
-  return /id="gg_days"[^>]*hidden/.test(html) ? 'still hidden when the schedule needs it' : '';
-});
-
 behaves('a time-based exercise is not asked for reps', () => {
   const ex = S.addExercise({ name: 'Long Walk', category: 'Cardio', unit: 'time', minutes: 30 });
   sheetBody.innerHTML = '';
@@ -859,91 +695,6 @@ behaves('and a sets-and-reps exercise still is', () => {
     : 'the Reps field is hidden when it applies';
 });
 
-behaves('direction is shown as derived, not as a choice', () => {
-  const g = S.addGoal({ name: 'Derived', unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5 });
-  sheetBody.innerHTML = '';
-  UI.openGoalEditor(g.id);
-  const html = sheetBody.innerHTML;
-  S.removeGoal(g.id);
-  if (html.indexOf('<select id="gg_dir"') >= 0) return 'still an editable select';
-  return html.indexOf('id="gg_dir" readonly') > 0 ? '' : 'no read-only direction field';
-});
-
-behaves('the miss threshold is hidden while step-back is off', () => {
-  const html = editorHtml({ regress: false });
-  return /class="field" hidden>/.test(html) ? '' : 'miss threshold editable with step-back off';
-});
-
-behaves('and is shown while step-back is on', () => {
-  const html = editorHtml({ regress: { misses: 3 } });
-  return /class="field" hidden>/.test(html) ? 'hidden while step-back is on' : '';
-});
-
-/* ---------- the goal editor offers no control that does nothing ---------- */
-console.log('\nthe goal editor hides fields that do not apply');
-
-function editorHtml(patch) {
-  const g = S.addGoal(Object.assign({ name: 'Field test', unit: 'minutes', direction: 'up', baseline: 1, target: 10, step: 1 }, patch));
-  sheetBody.innerHTML = '';
-  UI.openGoalEditor(g.id);
-  const html = sheetBody.innerHTML;
-  S.removeGoal(g.id);
-  return html;
-}
-
-behaves('the weekday picker is hidden while a goal runs every day', () => {
-  const html = editorHtml({ schedule: { type: 'daily' } });
-  return /id="gg_days"[^>]*hidden/.test(html) ? '' : 'weekday checkboxes offered on a daily goal';
-});
-
-behaves('and is shown once chosen weekdays are selected', () => {
-  const html = editorHtml({ schedule: { type: 'weekdays', days: [1, 2, 3] } });
-  return /id="gg_days"[^>]*hidden/.test(html) ? 'still hidden when the schedule needs it' : '';
-});
-
-behaves('a time-based exercise is not asked for reps', () => {
-  const ex = S.addExercise({ name: 'Long Walk', category: 'Cardio', unit: 'time', minutes: 30 });
-  sheetBody.innerHTML = '';
-  UI.openExerciseEditor(ex.id);
-  const html = sheetBody.innerHTML;
-  S.removeExercise(ex.id);
-  if (html.indexOf('<span>Minutes</span>') < 0) return 'the first field is not labelled Minutes';
-  return html.indexOf('class="field" hidden><span>Reps</span>') > 0 ? '' : 'the Reps field is still offered';
-});
-
-behaves('and a sets-and-reps exercise still is', () => {
-  const ex = S.addExercise({ name: 'Some Press', category: 'Strength', unit: 'reps', sets: 3, reps: 10 });
-  sheetBody.innerHTML = '';
-  UI.openExerciseEditor(ex.id);
-  const html = sheetBody.innerHTML;
-  S.removeExercise(ex.id);
-  if (html.indexOf('<span>Sets</span>') < 0) return 'the first field is not labelled Sets';
-  return html.indexOf('<span>Reps</span>') > 0 && html.indexOf('class="field" hidden><span>Reps</span>') < 0
-    ? ''
-    : 'the Reps field is hidden when it applies';
-});
-
-behaves('direction is shown as derived, not as a choice', () => {
-  const g = S.addGoal({ name: 'Derived', unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5 });
-  sheetBody.innerHTML = '';
-  UI.openGoalEditor(g.id);
-  const html = sheetBody.innerHTML;
-  S.removeGoal(g.id);
-  if (html.indexOf('<select id="gg_dir"') >= 0) return 'still an editable select';
-  return html.indexOf('id="gg_dir" readonly') > 0 ? '' : 'no read-only direction field';
-});
-
-behaves('the miss threshold is hidden while step-back is off', () => {
-  const html = editorHtml({ regress: false });
-  return /class="field" hidden>/.test(html) ? '' : 'miss threshold editable with step-back off';
-});
-
-behaves('and is shown while step-back is on', () => {
-  const html = editorHtml({ regress: { misses: 3 } });
-  return /class="field" hidden>/.test(html) ? 'hidden while step-back is on' : '';
-});
-
-/* ---------- the how-to sheet, back to written cues ---------- */
 console.log('\nthe how-to sheet');
 
 behaves('the cues are the sheet, with no demonstration left behind', () => {
@@ -981,38 +732,22 @@ UI.setViewDate(S.today());
    version of this looked for the words "Where you are", which the comment
    explaining the removal happened to contain, so it passed on a sentence
    describing the thing being gone. */
-behaves('Today carries no scoreboard at all — the day is the whole screen', () => {
+behaves('Today carries no scoreboard at all — the session is the whole screen', () => {
   const html = renderRoute('today');
-  if (html.indexOf('class="gcard') < 0) return 'no goal cards on Today';
+  if (html.indexOf('class="exercise ') < 0) return 'no exercise cards on Today';
   if (html.indexOf('class="hero-stats"') >= 0) return 'the three-figure scoreboard is back on Today';
   const rails = (html.match(/class="week-strip/g) || []).length;
   return rails === 1 ? '' : `${rails} week strips on Today — the rail is meant to be the only one`;
 });
 
-behaves('the day counter leads, with the segments under it', () => {
+behaves('the day counter leads, with the session under it', () => {
   const html = renderRoute('today');
   const day = html.indexOf('class="daynum"');
-  const segs = html.indexOf('class="segbar');   // `segbar ledger` since the redesign
-  const cards = html.indexOf('class="gcard');
+  const rail = html.indexOf('class="week-strip');
+  const cards = html.indexOf('class="exercise ');
   if (day < 0) return 'no day counter';
-  if (segs < 0) return 'no To-do/Done/Skipped segments';
-  return day < segs && segs < cards ? '' : `order day=${day} segs=${segs} cards=${cards}`;
-});
-
-behaves('the segments count each bucket and only one is selected', () => {
-  const html = renderRoute('today');
-  const on = (html.match(/class="seg on"/g) || []).length;
-  const all = (html.match(/class="seg /g) || []).length;
-  if (all !== 3) return `found ${all} segments, expected 3`;
-  return on === 1 ? '' : `${on} segments marked selected`;
-});
-
-behaves('a target reads as words, not maths', () => {
-  const g = S.addGoal({ name: 'Fewer smokes', unit: 'count', direction: 'down', baseline: 20, target: 0, step: 2 });
-  const html = renderRoute('today');
-  S.removeGoal(g.id);
-  if (html.indexOf('≤') >= 0) return 'still rendering ≤';
-  return html.indexOf('at most') > 0 ? '' : 'no "at most" phrasing found';
+  if (rail < 0) return 'no seven-day rail';
+  return day < rail && rail < cards ? '' : `order day=${day} rail=${rail} cards=${cards}`;
 });
 
 behaves('a missed day is marked, not just coloured', () => {
@@ -1031,8 +766,8 @@ behaves('a throwing view is replaced by a recovery panel, not a blank page', () 
   // Break a store call Today genuinely depends on, so the failure is real.
   // (This used to break S.progress, which Today stopped calling once XP was
   // demoted off the screen — a test coupled to an implementation detail.)
-  const realProgress = S.goalsForDay;
-  S.goalsForDay = () => {
+  const realDayVolume = S.dayVolume;
+  S.dayVolume = () => {
     throw new Error('synthetic view failure');
   };
   // The app is supposed to log this one, so silence the sandbox rather than let
@@ -1044,7 +779,7 @@ behaves('a throwing view is replaced by a recovery panel, not a blank page', () 
     UI.go('today');
     html = view.innerHTML;
   } finally {
-    S.goalsForDay = realProgress;
+    S.dayVolume = realDayVolume;
     sandbox.console = realConsole;
   }
   if (html.indexOf('recovery') < 0) return `no recovery panel (got ${html.length} chars)`;
@@ -1078,18 +813,6 @@ behaves('the recovery panel escapes whatever the error said', () => {
   return html.indexOf('<img') < 0 ? '' : 'raw markup from an error message';
 });
 
-behaves('a ladder with thousands of rungs does not build them all', () => {
-  const huge = S.addGoal({ name: 'Runaway', unit: 'count', direction: 'up', baseline: 0, target: 10000, step: 0.25 });
-  sheetBody.innerHTML = '';
-  UI.openGoalDetail(huge.id);
-  const html = sheetBody.innerHTML;
-  const rungs = (html.match(/class="rung/g) || []).length;
-  S.removeGoal(huge.id);
-  if (rungs > 80) return `rendered ${rungs} rungs`;
-  return html.indexOf('more</span>') > 0 ? '' : 'truncated without saying so';
-});
-
-/* ---------- the app's own currency stays below the real numbers ---------- */
 console.log('\nfacts outrank points');
 
 S.resetAll();
@@ -1101,48 +824,41 @@ behaves('Today carries no XP, level or rank', () => {
   return bad.length ? `still showing: ${bad.join(', ')}` : '';
 });
 
-behaves('and shows days kept instead', () => {
+behaves('and shows sessions kept instead', () => {
   const html = renderRoute('today');
-  return html.indexOf('days kept') > 0 ? '' : 'no real total on Today';
+  return /\d+ sessions? kept/.test(html) ? '' : 'no real total on Today';
 });
 
-behaves('Stats leads with what actually happened, not the level', () => {
-  const html = renderRoute('progress');
-  const real = html.indexOf("What you've actually done");
-  /* Artboard 2c drops the level from a headed card to an unheaded grey row at
-     the very bottom, so this looks for the row rather than for a heading that no
-     longer exists. Demoted, not deleted, is still the whole assertion. */
-  const level = html.indexOf('class="lvlrow"');
-  if (real < 0) return 'no real ledger on Stats';
-  if (level < 0) return 'the level vanished entirely — it should be demoted, not deleted';
-  return real < level ? '' : 'the level still comes first';
+/* Caught in a real browser rather than by either suite: the ledger read
+   "1 sessions kept" and "1 days trained". A count and its noun are one string
+   and have to agree. */
+behaves('a count of one is not printed with a plural noun', () => {
+  S.resetAll();
+  UI.setViewDate(S.today());
+  const d = A.weekday(S.today());
+  const ex = S.get().exercises.find((e) => e.unit === 'reps');
+  S.get().plan[d] = [];
+  delete S.get().logs[S.today()];
+  S.commit({ type: 'fixture' });
+  S.addToPlan(d, ex.id);
+  const item = S.dayPlan(S.today())[0];
+  S.addSet(S.today(), item.id, 40, 8);
+  S.completeAll(S.today());
+  const pages = ['today', 'progress'].map(renderRoute).join(' ');
+  if (pages.indexOf('kept') < 0) return 'the fixture rendered no ledger line at all';
+  /* Tags stripped first. The count and its noun are often in two elements —
+     '<b>1</b><span>days trained</span>' — so a match against the raw markup
+     cannot see the pair, which is how the first version of this passed both of
+     the bugs it was written for. What the READER sees is one string.
+
+     And (^|[^0-9.]) rather than a word boundary, so "21 sessions" is not read
+     as a one, and because a backslash-b written through a code generator has a
+     way of arriving as a literal backspace. */
+  const text = pages.replace(/<[^>]+>/g, ' ').replace(/[\s ]+/g, ' ');
+  const bad = (text.match(/(?:^|[^0-9.])1 (?:sessions|days|lifts|sets|reps|exercises) [a-z]+/g) || []);
+  return bad.length ? 'plural after a one: ' + bad.map((x) => x.trim()).join(', ') : '';
 });
 
-/* The rule the artboard states in one line: the level is an instrument, not the
-   argument. It loses the accent colour, and it is the LAST thing on the screen.
-   Both halves are checkable, and both were decisions rather than styling. */
-behaves('the level is the last thing on Stats, and carries no accent', () => {
-  const html = renderRoute('progress');
-  const level = html.indexOf('class="lvlrow"');
-  if (level < 0) return 'no level row';
-  const after = html.slice(level);
-  if (/class="(ledgercard|statrow|heat|label)/.test(after.replace('class="lvlrow"', ''))) {
-    return 'something real is drawn below the level row';
-  }
-  return /class="lvlrow[\s\S]{0,600}(var\(--accent|var\(--gold)/.test(html)
-    ? 'the level row is painted in an accent' : '';
-});
-
-behaves('a clock goal reports days, never a sum of times', () => {
-  const g = S.addGoal({ name: 'Rise', unit: 'time', direction: 'down', baseline: 450, target: 360, step: 15 });
-  S.hitGoalTarget(S.today(), g.id);
-  const html = renderRoute('progress');
-  S.removeGoal(g.id);
-  // 450 + 450 would show up as a minutes-like total; days must be what appears.
-  return html.indexOf('1 day') > 0 ? '' : 'a clock goal did not report days kept';
-});
-
-/* ---------- rewards you promise yourself ---------- */
 console.log('\nyour own rewards');
 
 S.resetAll();
@@ -1174,34 +890,6 @@ behaves('an earned reward offers to be collected', () => {
   return ok ? '' : 'an earned reward has no collect button';
 });
 
-behaves('a reward tied to a deleted goal says so rather than breaking', () => {
-  const g = S.addGoal({ name: 'Temp goal', unit: 'count', direction: 'up', baseline: 1, target: 5, step: 1 });
-  const r = S.addCustomReward({ name: 'Prize', source: 'goal', goalId: g.id, days: 7 });
-  S.removeGoal(g.id);
-  const html = renderRoute('rewards');
-  S.removeCustomReward(r.id);
-  return html.indexOf('deleted goal') > 0 ? '' : 'a dangling goal link is not explained';
-});
-
-behaves('the editor hides the goal picker unless a goal is tracked', () => {
-  sheetBody.innerHTML = '';
-  UI.openRewardEditor(null);
-  const html = sheetBody.innerHTML;
-  if (html.indexOf('id="rw_name"') < 0) return 'no reward editor';
-  return html.indexOf('class="field" hidden><span>Which goal</span>') > 0 ? '' : 'the goal picker is offered for an overall reward';
-});
-
-behaves('and shows it for a goal-tracked reward', () => {
-  const g = S.addGoal({ name: 'Gym', unit: 'count', direction: 'up', baseline: 1, target: 5, step: 1 });
-  const r = S.addCustomReward({ name: 'Shoes', source: 'goal', goalId: g.id, days: 14 });
-  sheetBody.innerHTML = '';
-  UI.openRewardEditor(r.id);
-  const html = sheetBody.innerHTML;
-  S.removeCustomReward(r.id);
-  S.removeGoal(g.id);
-  return html.indexOf('class="field" hidden><span>Which goal</span>') < 0 ? '' : 'the goal picker is hidden when it applies';
-});
-
 behaves('a hostile reward name cannot inject markup', () => {
   const r = S.addCustomReward({ name: '<img src=x onerror=alert(1)>', source: 'overall', days: 3 });
   const html = renderRoute('rewards');
@@ -1213,40 +901,6 @@ behaves('a hostile reward name cannot inject markup', () => {
    was rendered on every run of this suite while nothing in the app produced a
    `goal-log` action at all, so the value log — and with it skipping a day —
    could not be opened. Assert the route, not just the markup. */
-behaves('the goal sheet can reach the value log', () => {
-  const gv = S.addGoal({ name: 'Reachable', unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5 });
-  sheetBody.innerHTML = '';
-  UI.openGoalDetail(gv.id, S.today());
-  const html = sheetBody.innerHTML;
-  S.removeGoal(gv.id);
-  return html.indexOf('data-act="goal-log"') >= 0 ? '' : 'no route in: the value log and skipping are unreachable';
-});
-
-behaves('a gated goal routes to its summary instead', () => {
-  const gg = S.activeGoals().find((x) => x.gate === 'summary');
-  if (!gg) return 'no gated goal to check';
-  sheetBody.innerHTML = '';
-  UI.openGoalDetail(gg.id, S.today());
-  const html = sheetBody.innerHTML;
-  if (html.indexOf('data-act="open-read"') < 0) return 'a gated goal offers no route to the summary it waits on';
-  return html.indexOf('data-act="goal-log"') < 0 ? '' : 'a gated goal offers a value log that cannot complete it';
-});
-
-/* The conversion sheet is a goal editor with one extra promise printed on it,
-   and the promise is the load-bearing part: the habit GOES. A form that made
-   that change without saying so would be the app deleting something the user
-   did not ask it to. */
-behaves('the habit-to-goal sheet says the habit will be moved, not copied', () => {
-  const h = S.addHabit('Cold shower', '🚿');
-  sheetBody.innerHTML = '';
-  UI.openGoalEditor(null, { name: h.name, icon: h.icon, fromHabit: h.id });
-  const html = sheetBody.innerHTML;
-  S.removeHabit(h.id);
-  if (html.indexOf('data-habit="' + h.id + '"') < 0) return 'the save button does not carry the habit';
-  if (html.indexOf('takes it off the habit list') < 0) return 'it does not say the habit is removed';
-  return html.indexOf('Make it a goal') > 0 ? '' : 'the button still reads as a plain new goal';
-});
-
 behaves('a deload week says so on Today, above everything else', () => {
   S.resetAll();
   UI.setViewDate(S.today());
@@ -1269,178 +923,15 @@ behaves('a deload week says so on Today, above everything else', () => {
 });
 
 behaves('the training week states a stopping rule, because the book gives none', () => {
-  UI.setPlanTab('week');
   const html = renderRoute('plan');
-  UI.setPlanTab('goals');
   if (html.indexOf('sharp pain') < 0) return 'no stopping rule anywhere on the training screen';
   return html.indexOf('performance falling while effort rises') > 0
     ? '' : 'the overtraining signs are not stated';
 });
 
-behaves('a bad-day floor is offered without pretending it keeps the day', () => {
-  S.resetAll();
-  const g = S.addGoal({ name: 'Floor render', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10, floor: 5 });
-  sheetBody.innerHTML = '';
-  UI.openGoalDetail(g.id, S.today());
-  const html = sheetBody.innerHTML;
-  S.removeGoal(g.id);
-  if (html.indexOf('data-act="goal-floor"') < 0) return 'no way to log the minimum';
-  return html.indexOf('will not mark the day kept') > 0
-    ? '' : 'it does not say the day is still short';
-});
-
-behaves('and a goal without a floor is offered no such thing', () => {
-  const g = S.addGoal({ name: 'No floor render', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10 });
-  sheetBody.innerHTML = '';
-  UI.openGoalDetail(g.id, S.today());
-  const html = sheetBody.innerHTML;
-  S.removeGoal(g.id);
-  return html.indexOf('data-act="goal-floor"') < 0 ? '' : 'it invented a minimum nobody set';
-});
-
-behaves('Today carries one line, read on the way in', () => {
-  S.resetAll();
-  UI.setViewDate(S.today());
-  const html = renderRoute('today');
-  if (html.indexOf('class="quoteline"') < 0) return 'no line on Today';
-  const line = S.lineForDay(S.today());
-  if (html.indexOf(line.text.slice(0, 20)) < 0) return 'the line shown is not the one for this day';
-  /* Above the day's work, not below it: it is meant to be read on the way in,
-     not handed over as a reward on the way out. */
-  const q = html.indexOf('class="quoteline"');
-  const cards = html.indexOf('class="gcard');
-  return cards < 0 || q < cards ? '' : 'the line sits below the day it is meant to open';
-});
-
-behaves('and none at all once they are all deleted', () => {
-  S.lines().slice().forEach((l) => S.removeLine(l.id));
-  const html = renderRoute('today');
-  return html.indexOf('class="quoteline"') < 0 ? '' : 'it invented a line with the list empty';
-});
-
-behaves('the cookie jar holds the user own words, and nothing the app wrote', () => {
-  S.resetAll();
-  sheetBody.innerHTML = '';
-  UI.openCookieJar();
-  const empty = sheetBody.innerHTML;
-  if (empty.indexOf('data-act="cookie-add"') < 0) return 'no way to add one';
-  /* The rule that makes the tool work, stated in the empty state: an entry has
-     to be a specific event, because a slogan cannot be reached for. */
-  if (empty.indexOf('is not a cookie') < 0) return 'the empty state does not say what an entry is';
-
-  S.addCookie('Finished the shift after the truck broke down and still trained.');
-  sheetBody.innerHTML = '';
-  UI.openCookieJar();
-  const full = sheetBody.innerHTML;
-  if (full.indexOf('truck broke down') < 0) return 'the entry is not shown';
-  return full.indexOf('data-act="cookie-rm"') > 0 ? '' : 'no way to take one out';
-});
-
-behaves('Today reaches for the jar only while the day is still open', () => {
-  S.resetAll();
-  // Goals only, so that completing them completes the DAY — the plan ships a
-  // full training week and the habits count too.
-  S.get().habits = [];
-  S.get().plan = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
-  S.commit({ type: 'fixture' });
-  S.addCookie('One specific hard day.');
-  UI.setViewDate(S.today());
-  const open = renderRoute('today');
-  if (open.indexOf('data-act="cookie-jar"') < 0) return 'the jar is unreachable from the day it is for';
-  S.goalsForDay(S.today()).forEach((e) => {
-    if (e.goal.gate === 'summary') S.setReading(S.today(), { book: 'B', minutes: 30, summary: 'Wrote it.' });
-    else S.hitGoalTarget(S.today(), e.goal.id);
-  });
-  const done = renderRoute('today');
-  /* After the day is kept it would be a trophy cabinet, which is a different and
-     much weaker object than a thing you reach into mid-effort. */
-  return done.indexOf('class="linkrow jarrow"') < 0 ? '' : 'it is still offering evidence after the work is done';
-});
-
-behaves('a goal at its target is told to raise it, not to hold it', () => {
-  S.resetAll();
-  const g = S.addGoal({ name: 'Hold test', unit: 'minutes', direction: 'up', baseline: 5, target: 10, step: 5 });
-  /* Walk it to the top so the timeline really reports atTarget. The startDate has
-     to move first — a goal only counts days from when it began, so logging days
-     before it existed advances nothing. */
-  g.startDate = A.addDays(S.today(), -60);
-  S.commit({ type: 'fixture' });
-  for (let i = 50; i >= 1; i--) S.hitGoalTarget(A.addDays(S.today(), -i), g.id);
-  const tl = S.goalTimeline(g.id);
-  UI.setPlanTab('goals');
-  const html = renderRoute('plan');
-  UI.setPlanTab('goals');
-  S.removeGoal(g.id);
-  if (!tl.atTarget) return 'the fixture never reached the target';
-  if (html.indexOf('now just hold it') >= 0) return 'it still tells you to hold';
-  return html.indexOf('data-act="goal-raise"') > 0 ? '' : 'no way to raise the ceiling';
-});
-
-behaves('a goal draws what it actually did, against what was asked', () => {
-  S.resetAll();
-  const g = S.addGoal({ name: 'Chart me', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10 });
-  S.goalById(g.id).startDate = A.addDays(S.today(), -20);
-  S.commit({ type: 'fixture' });
-  [2, 4, 6, 8].forEach((back, i) => S.setGoalValue(A.addDays(S.today(), -back), g.id, 10 + i * 5));
-  sheetBody.innerHTML = '';
-  UI.openGoalDetail(g.id, S.today());
-  const html = sheetBody.innerHTML;
-  S.removeGoal(g.id);
-  if (html.indexOf('<svg') < 0) return 'no chart drawn at all';
-  if (html.indexOf('var(--chart-did)') < 0) return 'the columns are not on the validated chart token';
-  if (html.indexOf('class="chart-ask"') < 0) return 'the target line is missing — there is no baseline to read against';
-  /* Two series means a legend is always present; identity must never rest on
-     hue alone. */
-  if (html.indexOf('chart-key did') < 0 || html.indexOf('chart-key ask') < 0) return 'no legend for two series';
-  /* One axis, always. A second scale would invent a relationship. */
-  if (/viewBox="0 0 \d+ \d+"[\s\S]{0,400}viewBox/.test(html)) return 'more than one plot in the chart';
-  return html.indexOf('<title>') > 0 ? '' : 'no per-column values anywhere, not even on hover';
-});
-
-behaves('and it says so plainly when there is not enough to draw', () => {
-  const g = S.addGoal({ name: 'Too new', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10 });
-  sheetBody.innerHTML = '';
-  UI.openGoalDetail(g.id, S.today());
-  const html = sheetBody.innerHTML;
-  S.removeGoal(g.id);
-  /* An empty chart is worse than a sentence: it reads as a bug. */
-  return html.indexOf('Not enough logged yet') > 0 ? '' : 'it drew an empty plot instead of saying why';
-});
-
-behaves('Stats facets the practices rather than inventing hues for them', () => {
-  S.resetAll();
-  S.activeGoals().forEach((g) => {
-    S.goalById(g.id).startDate = A.addDays(S.today(), -20);
-  });
-  S.commit({ type: 'fixture' });
-  S.activeGoals().forEach((g) => {
-    [2, 3, 5].forEach((back) => S.setGoalValue(A.addDays(S.today(), -back), g.id, 12));
-  });
-  const html = renderRoute('progress');
-  if (html.indexOf('class="spark"') < 0) return 'no per-practice graphs on Stats';
-  /* Small multiples, one hue. Six categorical hues would need six validated
-     steps and this palette has three colours with fixed jobs. */
-  const hues = (html.match(/fill="var\(--chart-[a-z]+\)"/g) || [])
-    .filter((x, i, all) => all.indexOf(x) === i);
-  return hues.length === 1 ? '' : 'the small multiples use ' + hues.length + ' hues: ' + hues.join(' ');
-});
-
-behaves('Plan states what the goals actually cost in time', () => {
-  S.resetAll();
-  UI.setPlanTab('goals');
-  const html = renderRoute('plan');
-  if (html.indexOf('class="minsum"') < 0) return 'nothing says what the day asks for in minutes';
-  if (html.indexOf('At their targets') < 0) return 'it does not say what the targets would cost';
-  /* The run checks its 66 days against a budget; goals never had that check, so
-     six practices can ramp to six hours a day with nothing saying so. */
-  return html.indexOf('Today these ask') > 0 ? '' : 'it does not say what today asks';
-});
-
 behaves('Plan offers every context, and marks the one that is installed', () => {
   S.resetAll();
-  UI.setPlanTab('week');
   const html = renderRoute('plan');
-  UI.setPlanTab('goals');
   const rows = (html.match(/data-act="program-install"/g) || []).length;
   if (rows !== A.PROGRAM_CONTEXTS.length) {
     return `${rows} install rows for ${A.PROGRAM_CONTEXTS.length} contexts`;
@@ -1452,66 +943,15 @@ behaves('Plan offers every context, and marks the one that is installed', () => 
   return html.indexOf('installed') > 0 ? '' : 'nothing says which one is on';
 });
 
-behaves('the route back to only-my-practices is on Plan', () => {
-  UI.setPlanTab('goals');
+/* Plan had two subjects behind a segment. It has one now, so the training week
+   must be the screen itself rather than a tab somebody has to find. */
+behaves('Plan opens straight onto the training week', () => {
   const html = renderRoute('plan');
-  return html.indexOf('data-act="practices-install"') > 0
-    ? '' : 'no way for an existing account to get to the seeded practices';
+  if (html.indexOf('data-act="plan-tab"') >= 0) return 'Plan still carries a tab with one destination';
+  const days = (html.match(/class="card flush plan-day/g) || []).length;
+  return days === 7 ? '' : `${days} weekday cards, expected 7`;
 });
 
-behaves('the template sheet fills in the shape and not the numbers', () => {
-  sheetBody.innerHTML = '';
-  UI.openGoalTemplates();
-  const html = sheetBody.innerHTML;
-  if (html.indexOf('data-act="goal-template"') < 0) return 'no template is offered';
-  const offered = (html.match(/data-act="goal-template"/g) || []).length;
-  const already = (html.match(/>have it</g) || []).length;
-  if (offered + already !== A.GOAL_TEMPLATES.length) {
-    return `${offered + already} rows for ${A.GOAL_TEMPLATES.length} templates`;
-  }
-  /* The whole point of the sheet, and the sentence that keeps it honest. */
-  return html.indexOf('The two numbers are yours') > 0
-    ? '' : 'it does not say the numbers are the user to supply';
-});
-
-behaves('and a template opens the editor with its shape, not a created goal', () => {
-  const t = A.GOAL_TEMPLATES.find((x) => x.unit === 'count') || A.GOAL_TEMPLATES[0];
-  const before = S.goals().length;
-  sheetBody.innerHTML = '';
-  UI.openGoalEditor(null, {
-    name: t.name, icon: t.icon, section: t.section, unit: t.unit,
-    direction: t.direction, baseline: t.baseline, target: t.target,
-    step: t.step, schedule: t.schedule
-  });
-  const html = sheetBody.innerHTML;
-  if (S.goals().length !== before) return 'opening the editor created a goal';
-  if (html.indexOf('value="' + t.name + '"') < 0) return 'the name is not carried across';
-  if (html.indexOf('data-habit=""') < 0) return 'it should not look like a habit conversion';
-  return html.indexOf('value="' + t.step + '"') > 0 ? '' : 'the step size is not carried across';
-});
-
-behaves('a plain new goal carries no habit and no such promise', () => {
-  sheetBody.innerHTML = '';
-  UI.openGoalEditor(null);
-  const html = sheetBody.innerHTML;
-  if (html.indexOf('takes it off the habit list') >= 0) return 'it promises to remove a habit that does not exist';
-  return html.indexOf('data-habit=""') > 0 ? '' : 'the save button should carry an empty habit id';
-});
-
-behaves('a future day keeps the goal sheet read-only', () => {
-  const gv = S.addGoal({ name: 'Later', unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5 });
-  sheetBody.innerHTML = '';
-  UI.openGoalDetail(gv.id, A.addDays(S.today(), 3));
-  const html = sheetBody.innerHTML;
-  S.removeGoal(gv.id);
-  return html.indexOf('data-act="goal-log"') < 0 ? '' : 'a future day offers a way to log it';
-});
-
-/* ---------- the day, reachable with one thumb ----------
-   The swipe and press-and-hold gestures live in js/app.js, which neither suite
-   loads — they have to be driven by hand in a browser. What can be checked here
-   is everything they share with a tap: the states a card renders in, and the
-   strip that carries the day's next ask down to where a thumb is. */
 console.log('\nreach');
 
 S.resetAll();
@@ -1521,18 +961,15 @@ behaves('Today pins what is left to a strip above the tab bar', () => {
   const html = renderRoute('today');
   if (html.indexOf('class="today-strip"') < 0) return 'no day strip';
   if (html.indexOf('left today') < 0) return 'the strip does not say what is left';
-  return /today-strip[\s\S]*data-act="(goal-hit|open-read)"/.test(html) ? '' : 'the strip offers no way to act on it';
+  return /today-strip[\s\S]*data-act="ex-focus"/.test(html) ? '' : 'the strip offers no way to act on it';
 });
 
 behaves('a kept day says so rather than asking for more', () => {
   const k = S.today();
-  S.goalsForDay(k).forEach((e) => {
-    if (e.goal.gate === 'summary') S.setReading(k, { book: 'Deep Work', minutes: 25, summary: 'Attention is trainable.' });
-    else S.hitGoalTarget(k, e.goal.id);
-  });
+  S.completeAll(k);
   const html = renderRoute('today');
-  if (html.indexOf('Day kept.') < 0) return 'a finished day still asks for something';
-  return html.indexOf('Keep it</button>') < 0 ? '' : 'it still offers a goal to keep';
+  if (html.indexOf('Session done.') < 0) return 'a finished session still asks for something';
+  return html.indexOf('data-act="ex-focus"') < 0 ? '' : 'it still offers an exercise to log';
 });
 
 behaves('a day being reviewed carries no strip — it is not today’s work', () => {
@@ -1540,24 +977,6 @@ behaves('a day being reviewed carries no strip — it is not today’s work', ()
   const html = renderRoute('today');
   UI.setViewDate(S.today());
   return html.indexOf('class="today-strip"') < 0 ? '' : 'a past day offers today’s action';
-});
-
-behaves('a goal logged short of its ask is neither done nor untouched', () => {
-  const g = S.addGoal({ name: 'Walk', unit: 'minutes', direction: 'up', baseline: 10, target: 60, step: 10 });
-  S.setGoalValue(S.today(), g.id, 3);
-  const html = renderRoute('today');
-  S.removeGoal(g.id);
-  if (/class="gcard[^"]*is-done/.test(html)) return 'short of the ask, and rendered as kept';
-  return /class="gcard[^"]*is-part/.test(html) ? '' : 'a partial log renders as if nothing happened';
-});
-
-behaves('a card names the goal it is for, so a gesture knows what it hit', () => {
-  // The day above was kept outright, so the cards are all under "Done".
-  UI.setTodayFilter('done');
-  const html = renderRoute('today');
-  UI.setTodayFilter('todo');
-  if (html.indexOf('class="gcard') < 0) return 'no cards to check';
-  return /<article class="gcard[^>]*data-goal="[^"]+"/.test(html) ? '' : 'no goal id on the card';
 });
 
 behaves('Rewards is reachable from More, now that it has no tab', () => {
@@ -1570,56 +989,304 @@ behaves('Rewards is reachable from More, now that it has no tab', () => {
 behaves('every tab in the shell is a route the app has', () => {
   const shell = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const tabs = (shell.match(/data-nav="[a-z]+"\s+data-icon/g) || []).map((s) => s.match(/data-nav="([a-z]+)"/)[1]);
-  if (tabs.length !== 5) return `the shell has ${tabs.length} tabs, not five`;
+  if (tabs.length !== 4) return `the shell has ${tabs.length} tabs, not four`;
   const unknown = tabs.filter((t) => ROUTES.indexOf(t) < 0);
   return unknown.length ? `tabs with no route: ${unknown.join(', ')}` : '';
 });
 
 /* ---------- the 66-day run ---------- */
-console.log('\nthe 66-day run');
-
-const RunE = A.Run;
-
-
-/* A class the view sets is only half of a visual state. `.pick:has(:checked)`
-   survived the markup changing from a label-and-checkbox to a button carrying
-   `.on`, so a chosen habit had the class, had `aria-pressed="true"`, passed the
-   test above — and looked identical to an unchosen one. Assert the stylesheet
-   knows about every state class the run UI emits. */
-behaves('every state class the run UI emits is actually styled', () => {
+behaves('every state class the views emit is actually styled', () => {
   // Comments stripped first: this file explains the bug it is guarding against,
   // and a scan that reads prose reports the thing it is describing.
   const css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '');
-  const needed = ['.pick.on', '.runrow.is-done', '.runrow.is-part', '.runitem.on',
-                  '.lat.kept', '.lat.part', '.lat.missed', '.lat.unopened', '.lat.today',
-                  '.lat.ahead', '.latphase.is-now', '.row.ahead',
-                  '.item.tight', '.item.tight .dose', '.section-fold.is-open',
-                  '.section-fold.is-done .fold-tick', '.fold-main', '.block-head', '.fold-bar', '.item.tight .exsub', '.item.tight .name', '.card.flush.runlist-card', '.item.habit-row', '.how-photo img', '.how-photo-add',
+  const needed = [/* the set log — the block the app is now for */
+                  '.exercise', '.exercise-head', '.exercise-tick', '.exercise-plate',
+                  '.exercise-name', '.exercise-dose', '.exercise.is-done', '.exercise.locked',
+                  '.setlist', '.setrow', '.setrow-n', '.setrow-main', '.setrow.is-editing',
+                  '.setentry', '.setfield', '.setentry-x', '.setentry-go', '.setentry-cancel',
+                  '.setmeta', '.setmeta-vol', '.setnote', '.setnote-add',
+                  /* the shared chrome */
+                  '.item', '.item.done', '.section-fold.is-open',
+                  '.fold-main', '.block-head', '.how-photo img', '.how-photo-add',
                   '.chip-pick.on', '.segbar.tight',
-                  /* the card system the six screens are drawn in */
-                  '.label', '.screenhead', '.headpill', '.dayhead.ember', '.dayhead-track > .kept',
-                  '.week-strip.rail .wd.on', '.segbar.countline .seg.on', '.gcard-plate',
-                  '.gcard.is-gated', '.gcard-tick.is-write', '.gcard.is-done', '.gcard.is-part',
-                  '.paycard', '.linkrow', '.segbar.tabs .seg.on', '.goalcard', '.goalcard-bar > i', '.footnote', '.gatecard.is-done', '.minifield', '.readprompt', '.archive[open] > summary .ico', '.ledgercard', '.statcard', '.lvlrow-bar > i', '.myreward.is-ready', '.btn.gold', '.promptrow', '.reward .claimed-mark', '.dest', '.dest > span.is-ready', '.label.split', '.mode-card.on',
-                  '.misstwice', '.linkrow.jarrow', '.linkrow.is-asked', '.linkrow-tick',
-                  '.deload', '.cyclebar.is-deload', '.minsum',
-                  '.chart-ask', '.chart-key.did', '.chart-key.ask', '.spark', '.chips.quick',
-                  '.quoteline', '.archive.catalogue'];
+                  /* the card system the screens are drawn in */
+                  '.label', '.screenhead', '.headpill', '.dayhead-foot',
+                  '.week-strip.rail .wd.on', '.footnote',
+                  '.ledgercard', '.statcard', '.myreward.is-ready', '.btn.gold', '.promptrow',
+                  '.linkrow', '.label.split',
+                  '.misstwice', '.deload', '.cyclebar.is-deload',
+                  '.spark', '.spark-svg', '.spark-name', '.spark-val',
+                  /* the rest between sets */
+                  '.today-strip.is-rest', '.rest-track', '.rest-track > i',
+                  '.today-strip.is-rest.is-ready'];
   const missing = needed.filter((sel) => css.indexOf(sel) < 0);
   if (missing.length) return 'no rule for: ' + missing.join(', ');
   return css.indexOf(':has(:checked)') < 0 ? '' : 'a dead :has(:checked) rule is still in the sheet';
 });
 
-/* The one layout rule this suite can meaningfully guard, because it shipped.
-   `html, body { height: 100% }` plus border-box sizing locks the body to the
-   viewport, so its `padding-bottom` reserves nothing at the end of a scroll and
-   the last control on any long screen sits under the fixed tab bar. The run's
-   Start button lost 34px that way and could not be tapped on a phone.
+/* ---------- the set log ----------
 
-   The stub DOM has no geometry, so nothing here can measure it — this asserts
-   the rule that caused it instead. Real layout still needs a real browser at a
-   real phone height; a tall window does not scroll and hides this entirely. */
+   The subject of the app, and the half neither of the other two suites can
+   see: smoke.js proves the numbers are stored correctly and wire.js proves a
+   tap reaches the store, but only this one can say the row actually draws what
+   was written down. */
+console.log('\nthe set log');
+
+/* A clean weekday with one known lift on it, so every assertion below reads
+   one row rather than whichever exercise the programme happened to put first. */
+S.resetAll();
+UI.setViewDate(S.today());
+const logDay = A.weekday(S.today());
+S.get().plan[logDay] = [];
+delete S.get().logs[S.today()];
+S.commit({ type: 'fixture' });
+const benchEx = S.get().exercises.find((e) => e.unit === 'reps' && e.sets >= 3) || S.get().exercises[0];
+const bwEx = S.addExercise({ name: 'Chin-ups', category: 'Strength', unit: 'reps', sets: 3, reps: 6 });
+/* On every weekday, because a log freezes its day's exercise list the first
+   time the day is opened — so "what did this lift weigh last time" needs the
+   lift on yesterday's plan before yesterday is touched. That is the
+   frozen-history invariant, not a quirk of the fixture. */
+for (let d = 0; d <= 6; d++) {
+  S.get().plan[d] = [];
+  S.commit({ type: 'fixture' });
+  S.addToPlan(d, benchEx.id, { sets: 3, reps: 8 });
+  S.addToPlan(d, bwEx.id);
+}
+const benchItem = S.dayPlan(S.today())[0];
+
+behaves('an exercise with nothing logged still offers the two boxes', () => {
+  const html = renderRoute('today');
+  if (html.indexOf('id="w_' + benchItem.id + '"') < 0) return 'no weight field';
+  if (html.indexOf('id="r_' + benchItem.id + '"') < 0) return 'no reps field';
+  if (html.indexOf('class="setlist"') >= 0) return 'an empty set list was drawn';
+  return html.indexOf('data-act="log-set"') > 0 ? '' : 'nothing commits the set';
+});
+
+behaves('a logged set is drawn with its weight, its reps and its number', () => {
+  S.addSet(S.today(), benchItem.id, 60, 8);
+  const html = renderRoute('today');
+  if (html.indexOf('class="setlist"') < 0) return 'no set list';
+  if (html.indexOf('60 kg') < 0) return 'the weight is not on the row';
+  return /setrow-main[^>]*>60 kg . 8</.test(html.replace(/\u00d7/g, '.')) ? '' : 'the row does not read as weight x reps';
+});
+
+behaves('and the volume it moved is stated, once', () => {
+  const html = renderRoute('today');
+  const hits = (html.match(/480 kg moved/g) || []).length;
+  return hits === 1 ? '' : `${hits} volume lines for one 60 x 8 set`;
+});
+
+behaves('a bodyweight set is drawn as reps, never as 0 kg', () => {
+  const item = S.dayPlan(S.today()).find((i) => i.exerciseId === bwEx.id);
+  if (!item) return 'the bodyweight lift is not on the day';
+  S.addSet(S.today(), item.id, null, 6);
+  const html = renderRoute('today');
+  // Not /0 kg/ — that matches inside "60 kg", which is how the first version of
+  // this passed a bug and then failed a fix.
+  if (/(^|[^\d.])0 kg/.test(html)) return 'a bodyweight set rendered as a zero-kilo one';
+  return html.indexOf('6 reps') > 0 ? '' : 'the bodyweight set did not render at all';
+});
+
+behaves('the row says what the same lift weighed last time', () => {
+  const y = A.addDays(S.today(), -1);
+  S.ensureLog(y);
+  const yItem = S.dayPlan(y).find((i) => i.exerciseId === benchEx.id);
+  if (!yItem) return 'the fixture put the lift on one day only';
+  S.addSet(y, yItem.id, 57.5, 8);
+  UI.setViewDate(S.today());
+  const html = renderRoute('today');
+  return html.indexOf('Last time') > 0 && html.indexOf('57.5 kg') > 0
+    ? '' : 'the previous session is not reported on the row';
+});
+
+behaves('and the boxes are pre-filled from it rather than left empty', () => {
+  const fresh = A.addDays(S.today(), 0);
+  const sug = S.suggestSet(fresh, benchItem.id);
+  if (!sug) return 'no suggestion at all';
+  return sug.weight != null && sug.reps > 0 ? '' : `nothing to prefill: ${JSON.stringify(sug)}`;
+});
+
+behaves('tapping a set puts it in the boxes to be corrected, not deleted', () => {
+  UI.setEditSet(benchItem.id, 0);
+  const html = renderRoute('today');
+  UI.setEditSet(null);
+  if (html.indexOf('setrow is-editing') < 0) return 'the row being corrected is not marked';
+  if (html.indexOf('>Update<') < 0) return 'the button still says Log set';
+  return html.indexOf('data-act="set-cancel"') > 0 ? '' : 'there is no way out of the correction';
+});
+
+behaves('a time exercise is asked for minutes, never for weight and reps', () => {
+  const mob = S.get().exercises.find((e) => e.unit === 'time');
+  if (!mob) return 'no time-based exercise in the library';
+  S.get().plan[logDay] = [];
+  delete S.get().logs[S.today()];
+  S.commit({ type: 'fixture' });
+  S.addToPlan(logDay, mob.id);
+  const item = S.dayPlan(S.today())[0];
+  const html = renderRoute('today');
+  if (html.indexOf('id="min_' + item.id + '"') < 0) return 'no minutes field';
+  if (html.indexOf('id="w_' + item.id + '"') >= 0) return 'a time exercise was asked for a weight';
+  return html.indexOf('data-act="save-amount"') > 0 ? '' : 'nothing commits the amount';
+});
+
+behaves('and a distance exercise is asked for kilometres as well', () => {
+  const run = S.get().exercises.find((e) => e.unit === 'distance');
+  if (!run) return 'no distance exercise in the library';
+  S.get().plan[logDay] = [];
+  delete S.get().logs[S.today()];
+  S.commit({ type: 'fixture' });
+  S.addToPlan(logDay, run.id);
+  const item = S.dayPlan(S.today())[0];
+  const html = renderRoute('today');
+  if (html.indexOf('id="km_' + item.id + '"') < 0) return 'no distance field';
+  return html.indexOf('id="min_' + item.id + '"') > 0 ? '' : 'no time to go with the distance';
+});
+
+behaves('a future day is shown its prescription and offered no boxes', () => {
+  UI.setViewDate(A.addDays(S.today(), 1));
+  const html = renderRoute('today');
+  UI.setViewDate(S.today());
+  if (html.indexOf('class="setentry"') >= 0) return 'a future day can be logged into';
+  return html.indexOf('exercise-dose') > 0 ? '' : 'and it does not even say what is planned';
+});
+
+behaves('switching to pounds re-reads the record rather than re-valuing it', () => {
+  S.resetAll();
+  UI.setViewDate(S.today());
+  const d = A.weekday(S.today());
+  S.get().plan[d] = [];
+  delete S.get().logs[S.today()];
+  S.commit({ type: 'fixture' });
+  const ex = S.get().exercises.find((e) => e.unit === 'reps');
+  S.addToPlan(d, ex.id);
+  const item = S.dayPlan(S.today())[0];
+  S.addSet(S.today(), item.id, 100, 5);
+  S.updateSettings({ weightUnit: 'lb' });
+  const html = renderRoute('today');
+  S.updateSettings({ weightUnit: 'kg' });
+  if (html.indexOf('100 kg') >= 0) return 'the kilo figure is still on screen in pound mode';
+  /* 100 kg is 220.5 lb. The stored number never moved — only the reading did. */
+  return html.indexOf('220.5 lb') > 0 ? '' : 'the set did not convert for display';
+});
+
+behaves('Stats charts the top set per session, one series and no legend box', () => {
+  S.resetAll();
+  UI.setViewDate(S.today());
+  const d = A.weekday(S.today());
+  const ex = S.get().exercises.find((e) => e.unit === 'reps');
+  for (let i = 21; i >= 0; i -= 7) {
+    const k = A.addDays(S.today(), -i);
+    if (A.weekday(k) !== d) continue;
+    S.ensureLog(k);
+    const item = S.dayPlan(k).find((x) => x.exerciseId === ex.id) || S.dayPlan(k)[0];
+    if (!item) continue;
+    S.addSet(k, item.id, 50 + (21 - i), 8);
+    S.addSet(k, item.id, 50 + (21 - i), 8);
+  }
+  const html = renderRoute('progress');
+  if (html.indexOf('class="spark"') < 0) return 'no per-exercise chart at all';
+  if (html.indexOf('var(--chart-did)') < 0) return 'the columns are not drawn in the validated mark colour';
+  /* One series carries its identity in the label above it. A legend box for a
+     single series is ink with no job — see the dataviz rules. */
+  return html.indexOf('chart-key') < 0 ? '' : 'a legend box was drawn for a single series';
+});
+
+/* ---------- the rest between sets ---------- */
+console.log('\nthe rest between sets');
+
+S.resetAll();
+UI.setViewDate(S.today());
+const restDay = A.weekday(S.today());
+S.get().plan[restDay] = [];
+delete S.get().logs[S.today()];
+S.commit({ type: 'fixture' });
+const restEx = S.addExercise({ name: 'Bench press', category: 'Strength', unit: 'reps', sets: 3, reps: 8 });
+const bareEx = S.addExercise({ name: 'Unprescribed lift', category: 'Strength', unit: 'reps', sets: 3, reps: 8 });
+S.addToPlan(restDay, restEx.id, { note: '2 RIR \u00b7 rest 90 s' });
+S.addToPlan(restDay, bareEx.id, { note: 'no interval here' });
+const restItem = S.dayPlan(S.today())[0];
+const bareItem = S.dayPlan(S.today())[1];
+
+behaves('no rest means no rest block — the strip carries the next lift', () => {
+  UI.stopRest();
+  const html = renderRoute('today');
+  if (html.indexOf('is-rest') >= 0) return 'a rest block with no rest running';
+  return html.indexOf('data-act="ex-focus"') > 0 ? '' : 'and the ordinary strip went missing too';
+});
+
+behaves('a running rest takes the strip, in ember, with the interval from the plan', () => {
+  UI.startRest(S.today(), restItem.id);
+  const html = renderRoute('today');
+  if (html.indexOf('today-strip is-rest') < 0) return 'the rest does not own the strip';
+  if (html.indexOf('1:30') < 0) return 'the countdown does not start at the prescribed 90 s';
+  if (html.indexOf('rest 90 s') < 0) return 'it does not say where the interval came from';
+  return html.indexOf('data-act="rest-skip"') > 0 ? '' : 'there is no way out of it';
+});
+
+behaves('and it is a timer, not a live region that reads every second aloud', () => {
+  const html = renderRoute('today');
+  if (html.indexOf('role="timer"') < 0) return 'no timer role';
+  return html.indexOf('aria-live="off"') > 0 ? '' : 'the countdown would be announced every second';
+});
+
+behaves('an exercise the plan gives no rest for counts up rather than inventing one', () => {
+  UI.startRest(S.today(), bareItem.id);
+  const html = renderRoute('today');
+  if (html.indexOf('is-rest') < 0) return 'no rest block at all';
+  if (html.indexOf('rest-track') >= 0) return 'a progress bar with nothing to be a fraction of';
+  if (html.indexOf('0:00') < 0) return 'it is not counting from zero';
+  return html.indexOf('Since your last set') > 0 ? '' : 'it does not say it is counting up';
+});
+
+behaves('a finished rest says so in words, not only in colour', () => {
+  const r = UI.startRest(S.today(), restItem.id);
+  r.startedAt = Date.now() - 95000;              // 95 s into a 90 s rest
+  const html = renderRoute('today');
+  if (html.indexOf('is-ready') < 0) return 'the ready state is not marked';
+  if (html.indexOf('Ready') < 0) return 'nothing says it is over except the colour';
+  /* Past the interval it keeps counting, so "how long have I been standing
+     here" is still answerable rather than frozen at zero. */
+  if (html.indexOf('+0:05') < 0) return 'it stops counting instead of running over';
+  return html.indexOf('>Done<') > 0 ? '' : 'the button still says Skip';
+});
+
+behaves('paintRest reports the crossing exactly once', () => {
+  const r = UI.startRest(S.today(), restItem.id);
+  r.startedAt = Date.now() - 95000;
+  renderRoute('today');
+  const first = UI.paintRest();
+  const second = UI.paintRest();
+  if (!first) return 'the crossing was never reported';
+  return second ? 'it would buzz on every tick after it ran out' : '';
+});
+
+behaves('and it survives being called with nothing on screen', () => {
+  const r = UI.startRest(S.today(), restItem.id);
+  r.startedAt = Date.now() - 5000;
+  renderRoute('plan');                            // the rest keeps running elsewhere
+  UI.paintRest();
+  return '';
+});
+
+behaves('changing the day being viewed ends the rest', () => {
+  UI.startRest(S.today(), restItem.id);
+  UI.setViewDate(A.addDays(S.today(), -1));
+  const gone = !UI.rest();
+  UI.setViewDate(S.today());
+  return gone ? '' : 'a rest kept running against a day nobody is on';
+});
+
+behaves('a rest is never written to the record', () => {
+  const before = S.exportJson();
+  UI.startRest(S.today(), restItem.id);
+  renderRoute('today');
+  UI.paintRest();
+  const same = S.exportJson() === before;
+  UI.stopRest();
+  return same ? '' : 'the timer reached the stored state';
+});
+
 behaves('the page can grow past the viewport, so a fixed bar cannot eat the end of it', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '');
@@ -1641,578 +1308,3 @@ behaves('the page can grow past the viewport, so a fixed bar cannot eat the end 
    could not reach it, and a habit added after the start cannot begin before day
    two. Both halves are asserted: the route is on the start screen, and the
    catalog really is as small as it looks. */
-behaves('the run can be started with a habit the catalog does not have', () => {
-  S.resetAll();
-  UI.resetRunPicks();
-  const html = renderRoute('run');
-  if (html.indexOf('data-act="run-custom-open"') < 0) {
-    return 'no way to write your own on the start screen — the catalog is all you get';
-  }
-  return html.indexOf('Write your own') > 0 ? '' : 'the route is there but unlabelled';
-});
-
-behaves('the practices come before the catalogue, not after it', () => {
-  S.resetAll();
-  UI.resetRunPicks();
-  const html = renderRoute('run');
-  const goals = html.indexOf('From your goals');
-  const own = html.indexOf('data-act="run-custom-open"');
-  const cat = html.indexOf('The built-in catalogue');
-  if (goals < 0) return 'the practices are not offered';
-  if (cat < 0) return 'the catalogue is not there at all — it is the floor for an empty pick';
-  /* It used to open with three headed sections of skincare and flossing above
-     anything of the user's own. The run is for what somebody is trying to
-     become; the catalogue is the fallback. */
-  return goals < own && own < cat ? '' : `order goals=${goals} own=${own} catalogue=${cat}`;
-});
-
-behaves('and the catalogue is folded rather than filling the screen', () => {
-  S.resetAll();
-  UI.resetRunPicks();
-  const html = renderRoute('run');
-  const at = html.indexOf('The built-in catalogue');
-  const head = html.slice(Math.max(0, at - 400), at);
-  return head.indexOf('<details') >= 0 ? '' : 'the catalogue is not behind a disclosure';
-});
-
-behaves('and the catalog it offers is the whole catalog', () => {
-  S.resetAll();
-  UI.resetRunPicks();
-  const html = renderRoute('run');
-  /* By the tap, not by the class — the "start everything on day one" toggle is
-     also a `.pick`, so counting the class returns one too many. */
-  const cards = (html.match(/data-act="run-pick"/g) || []).length;
-  if (cards !== A.Run.HABITS.length) return `${cards} pick cards for ${A.Run.HABITS.length} habits`;
-  /* Every habit must be reachable through one of the picker's three sections; a
-     habit whose domain is not one of them renders nowhere and can never be
-     chosen, with nothing to say so. */
-  const homeless = A.Run.HABITS.filter((h) => html.indexOf('data-id="' + h.id + '"') < 0);
-  return homeless.length ? 'not shown at all: ' + homeless.map((h) => h.id).join(', ') : '';
-});
-
-behaves('a habit written before the run starts is listed, and removable', () => {
-  S.resetAll();
-  UI.resetRunPicks();
-  UI.addDraftCustom({ name: 'Sauna', unit: 'min', domain: 'self_care', start: 5, target: 20, step: 5, min: 1, friction: 2 });
-  const html = renderRoute('run');
-  UI.resetRunPicks();
-  if (html.indexOf('Sauna') < 0) return 'the written habit is not shown before the run starts';
-  return html.indexOf('data-act="run-custom-rm"') > 0 ? '' : 'no way to take it back off';
-});
-
-behaves('the start screen offers the goals the run could actually hold', () => {
-  S.resetAll();
-  /* A mix is the whole point of this test, and the seed is all ascending now —
-     so the ineligible half is created here rather than borrowed. */
-  S.addGoal({ name: 'Up earlier', unit: 'time', direction: 'down', baseline: 450, target: 360, step: 15 });
-  UI.resetRunPicks();
-  const html = renderRoute('run');
-  if (html.indexOf('From your goals') < 0) return 'goals are not offered at all';
-  const cands = S.runCandidateGoals();
-  const eligible = cands.filter((r) => r.eligible);
-  const refused = cands.filter((r) => !r.eligible);
-  if (!eligible.length || !refused.length) return 'the fixture has no mix to check';
-  /* Both halves listed. The refused ones are shown WITH the reason rather than
-     hidden — the two goals a 66-day run looks most made for are the two it
-     cannot take, so saying nothing would read as a bug. */
-  const missing = cands.filter((r) => html.indexOf('>' + r.goal.name + '<') < 0);
-  if (missing.length) return 'not listed at all: ' + missing.map((r) => r.goal.name).join(', ');
-  if (html.indexOf(refused[0].why) < 0) return 'a refused goal does not say why';
-  return html.indexOf('data-act="run-goal-add" data-id="' + eligible[0].goal.id + '"') > 0
-    ? '' : 'an eligible goal has no way in';
-});
-
-behaves('and the sheet it opens is pre-filled from that goal', () => {
-  const cand = S.runCandidateGoals().find((r) => r.eligible);
-  if (!cand) return 'no eligible goal in the fixture';
-  sheetBody.innerHTML = '';
-  UI.openRunCustom(cand.draft);
-  const html = sheetBody.innerHTML;
-  if (html.indexOf('value="' + cand.goal.name + '"') < 0) return 'the name is not carried across';
-  if (html.indexOf('value="' + cand.draft.start + '"') < 0) return 'the baseline is not carried across';
-  if (html.indexOf('value="' + cand.draft.target + '"') < 0) return 'the target is not carried across';
-  /* The one number a goal does not carry, and the one the budget check is built
-     on. It has to be asked for, so the field has to be there. */
-  if (html.indexOf('id="rc_at_target"') < 0) return 'nothing asks what it costs in minutes';
-  return html.indexOf('value="' + cand.goal.id + '"') > 0 ? '' : 'the goal id is not carried into the form';
-});
-
-behaves('a chosen habit is marked in the markup, not only in colour', () => {
-  S.resetAll();
-  UI.resetRunPicks();
-  const html = renderRoute('run');
-  const i = html.indexOf('data-id="' + A.Run.DEFAULT_PICKS[0] + '"');
-  if (i < 0) return 'the default pick is not offered';
-  const card = html.slice(Math.max(0, i - 200), i + 200);
-  if (card.indexOf('pick-mark') < 0) return 'no mark element at all';
-  // An unsupported colour function fails silently; a tick does not.
-  return /pick-mark[^>]*>✓/.test(html) ? '' : 'nothing is ticked even though six are chosen';
-});
-
-behaves('the start screen offers the whole catalog, grouped', () => {
-  S.resetAll();
-  const html = renderRoute('run');
-  // The pick buttons are the only data-id carriers on this screen.
-  const offered = (html.match(/data-id="([a-z_]+)"/g) || [])
-    .map((m) => m.slice(9, -1));
-  const missing = A.Run.HABITS.map((h) => h.id).filter((id) => offered.indexOf(id) < 0);
-  if (missing.length) return 'not offered: ' + missing.join(', ');
-  return ['Fitness', 'Self-care', 'Development'].every((d) => html.indexOf('>' + d + '<') > 0)
-    ? '' : 'the three domains are not headed separately';
-});
-
-/* The gap this screen was built to close. Every one of these was in the catalog
-   and unreachable: not in the default run, and offered by the recommender only
-   after a fortnight at 80% — around day 33 of 66. */
-behaves('the self-care habits added for tooth, face and vitamins are pickable', () => {
-  const html = renderRoute('run');
-  const want = ['vitamins', 'floss', 'brush_teeth', 'skincare'];
-  const absent = want.filter((id) => html.indexOf('data-id="' + id + '"') < 0);
-  if (absent.length) return 'still unreachable: ' + absent.join(', ');
-  return html.indexOf('Take vitamins') > 0 && html.indexOf('Morning skincare') > 0
-    ? '' : 'they are offered by id but not by name';
-});
-
-behaves('the default selection is what pressing Start without thinking gives', () => {
-  const html = renderRoute('run');
-  const on = (html.match(/class="pick on"[\s\S]{0,90}?data-id="[a-z_]+"/g) || [])
-    .map((m) => m.slice(m.lastIndexOf('data-id="') + 9, -1));
-  const want = A.Run.DEFAULT_PICKS.slice().sort().join(',');
-  return on.slice().sort().join(',') === want ? '' : 'on: ' + on.join(',') + ', want ' + want;
-});
-
-behaves('an anchor says it is every day rather than showing a ramp to itself', () => {
-  const html = renderRoute('run');
-  const i = html.indexOf('data-id="vitamins"');
-  const card = html.slice(i, i + 400);
-  if (card.indexOf('every day') < 0) return 'no anchor wording';
-  return card.indexOf('→') < 0 ? '' : 'an anchor drawn as a ramp from 1 to 1';
-});
-
-/* A short selection is a real one once the user is choosing. A run of two fails
-   `validate` for min_habits, and `repair` cannot fix it — its loop only removes. */
-behaves('too few picks is filled to the floor rather than shipping a broken run', () => {
-  const run = A.Run.buildRun(S.today(), 45, ['vitamins', 'floss']);
-  if (A.Run.validate(run).length) return 'invalid: ' + A.Run.validate(run).map((v) => v.kind).join(',');
-  if (run.habits.length < A.Run.MIN_HABITS) return 'still under the floor';
-  return run.habits.some((p) => p.habitId === 'vitamins') ? '' : 'it dropped what the user actually chose';
-});
-
-behaves('picks nobody can honour still produce a run somebody can do', () => {
-  const run = A.Run.buildRun(S.today(), 45, ['moon_bathing', 'astral_projection']);
-  return A.Run.validate(run).length === 0 && run.habits.length >= A.Run.MIN_HABITS
-    ? '' : 'an all-unknown selection did not fall back to something valid';
-});
-
-behaves('and the four self-care habits together are a run that validates', () => {
-  const run = A.Run.buildRun(S.today(), 45, ['vitamins', 'floss', 'brush_teeth', 'skincare']);
-  if (A.Run.validate(run).length) return A.Run.validate(run).map((v) => v.kind).join(',');
-  return run.habits.length === 4 ? '' : 'it did not keep all four';
-});
-
-/* `buildRun` repairs rather than refusing, so a selection that does not fit
-   comes back smaller. A start screen that quietly returned four of seven would
-   be the app deciding for the user without saying so — app.js names what went,
-   and this is the arithmetic it names it from. */
-behaves('a selection too heavy for the budget comes back smaller, knowably', () => {
-  const picks = ['course', 'write', 'language', 'mobility', 'sunlight'];
-  const run = A.Run.buildRun(S.today(), 30, picks);
-  const got = run.habits.map((p) => p.habitId);
-  const dropped = picks.filter((id) => got.indexOf(id) < 0);
-  if (!dropped.length) return 'five heavy habits fitted a 30 minute budget, which cannot be right';
-  return A.Run.validate(run).length === 0 ? '' : 'and what came back is still infeasible';
-});
-
-
-/* The selection used to live in the checkboxes themselves. `render()` replaces
-   the whole of `#view` on every store commit, so anything written to a goal, a
-   habit or the journal while somebody was choosing wiped their picks back to
-   the defaults — silently, and only noticeable once the run started with the
-   wrong habits in it. */
-behaves('a selection survives a re-render, and a store write is a re-render', () => {
-  S.resetAll();
-  UI.resetRunPicks();
-  /* Two habits that are NOT defaults, so toggling turns them ON. `vitamins` and
-     `floss` used to sit here and became defaults when the catalog was trimmed,
-     which quietly inverted what this test was doing. */
-  UI.toggleRunPick('skincare');
-  UI.toggleRunPick('sunlight');
-  UI.toggleRunPick('walk');                       // one of the defaults, off
-  const chosen = UI.runPicks().slice().sort().join(',');
-
-  S.setJournal(S.today(), { text: 'something else entirely' });   // commits
-  renderRoute('run');
-  if (UI.runPicks().slice().sort().join(',') !== chosen) return 'the picks changed under a commit';
-
-  const html = renderRoute('run');
-  if (html.indexOf('data-id="skincare"') < 0) return 'skincare is not offered at all';
-  const on = (html.match(/class="pick on"[\s\S]{0,90}?data-id="[a-z_]+"/g) || [])
-    .map((m) => m.slice(m.lastIndexOf('data-id="') + 9, -1));
-  if (on.indexOf('skincare') < 0 || on.indexOf('sunlight') < 0) return 'chosen habits are not drawn as chosen';
-  return on.indexOf('walk') < 0 ? '' : 'a de-selected habit is still drawn as chosen';
-});
-
-behaves('and starting the run uses exactly that selection', () => {
-  const chosen = UI.runPicks();
-  // Budget high enough that `repair` has no reason to trim: the claim under
-  // test is that the picks reach the run, not what a tight budget does to them.
-  S.startRun(chosen, 150);
-  const got = S.run().habits.map((p) => p.habitId).sort().join(',');
-  return got === chosen.slice().sort().join(',') ? '' : 'started with ' + got;
-});
-
-behaves('the button says how many are chosen, so the count is never a surprise', () => {
-  S.resetAll();
-  UI.resetRunPicks();
-  const html = renderRoute('run');
-  return html.indexOf(A.Run.DEFAULT_PICKS.length + ' chosen') > 0
-    ? '' : 'the start button does not say how many';
-});
-
-behaves('with no run, the screen says what it costs before what it gives', () => {
-  S.resetAll();
-  UI.resetRunPicks();
-  const html = renderRoute('run');
-  if (html.indexOf('run-start') < 0) return 'no way to start one';
-  if (html.indexOf('id="run_budget"') < 0) return 'no way to say how many minutes';
-  // The catalog is the choice: no questions in front of it.
-  if (html.indexOf('run-answer') >= 0) return 'the intake came back';
-  return html.indexOf('separate from your goals') > 0 ? '' : 'it does not say the goals are untouched';
-});
-
-behaves('a running run lists what today asks', () => {
-  S.startRun(['walk', 'stretch', 'language'], 90);
-  const html = renderRoute('run');
-  if (html.indexOf('class="daynum"') < 0) return 'no day counter';
-  if (html.indexOf('DAY <b>1</b>') < 0) return 'not on day 1';
-  return html.indexOf('data-act="run-tick"') > 0 || html.indexOf('on purpose') > 0
-    ? '' : 'neither a habit to tick nor an explanation of why there is none';
-});
-
-/* A render must not change data. Calling the store's check-in from `renderRun`
-   was a write during a render and a hang besides: `commit` re-renders, the
-   render checked in again, and softening does not change the logs — so
-   `needsIntervention` never clears and the loop never ends. It hung on the Run
-   screen for exactly the user it was built to help. */
-behaves('rendering the run changes nothing in the store', () => {
-  const run = S.run();
-  run.startDate = A.addDays(S.today(), -29);
-  for (let d = 1; d < 30; d++) run.log[d] = RunE.recordDay(run, d, []);   // missed everything
-  S.commit({ type: 'fixture' });
-  if (!RunE.diagnose(S.run(), S.runToday()).needsIntervention) return 'the fixture is not struggling';
-
-  const before = JSON.stringify(S.get());
-  renderRoute('run');
-  renderRoute('run');
-  return JSON.stringify(S.get()) === before ? '' : 'the render wrote to the store';
-});
-
-behaves('and the patch it reports is one the check-in already made', () => {
-  const out = S.runCheckIn();
-  if (!out || !out.patched) return 'the check-in did not step in for a struggling run';
-  const html = renderRoute('run');
-  if (html.indexOf('eased off') < 0) return 'the screen does not say it eased off';
-  // Once a day: a second call is a no-op, so a re-render cannot re-patch.
-  return S.runCheckIn() === null ? '' : 'the check-in ran twice in one day';
-});
-
-behaves('a struggling run is offered nothing extra while it is being eased', () => {
-  const html = renderRoute('run');
-  return html.indexOf('What you could take on') < 0 ? '' : 'it offered more work to someone slipping';
-});
-
-behaves('a run that is being kept is offered something, with its reasons', () => {
-  S.resetAll();
-  S.startRun(['walk', 'stretch', 'language'], 90);
-  const run = S.run();
-  run.startDate = A.addDays(S.today(), -29);
-  for (let d = 1; d < 30; d++) {
-    run.log[d] = RunE.recordDay(run, d, run.habits.map((p) => p.habitId));
-  }
-  S.commit({ type: 'fixture' });
-  const html = renderRoute('run');
-  if (html.indexOf('What you could take on') < 0) return 'nothing offered to a 100% user';
-  if (html.indexOf('data-act="run-accept"') < 0) return 'no way to accept it';
-  return html.indexOf('<li>') > 0 ? '' : 'a suggestion with no reasons is one you have to take on faith';
-});
-
-behaves('a finished run stops asking for anything', () => {
-  S.run().startDate = A.addDays(S.today(), -80);
-  S.commit({ type: 'fixture' });
-  const html = renderRoute('run');
-  if (html.indexOf('run is over') < 0) return 'it does not say the run is over';
-  return html.indexOf('data-act="run-tick"') < 0 ? '' : 'it still asks for habits after day 66';
-});
-
-/* The run screen showed today and what was still coming, and nothing about what
-   had happened — sixty-five days of record with no way to look at them. */
-behaves('a running run draws all 66 of its days', () => {
-  S.resetAll();
-  S.startRun(['walk', 'stretch', 'language'], 90, true);
-  const run = S.run();
-  run.startDate = A.addDays(S.today(), -9);          // day 10
-  const ids = run.habits.map((p) => p.habitId);
-  run.log[1] = RunE.recordDay(run, 1, ids);          // kept
-  run.log[2] = RunE.recordDay(run, 2, ids.slice(0, 1));  // part
-  run.log[3] = RunE.recordDay(run, 3, []);           // opened, nothing done
-  // day 4 deliberately left with no record at all
-  S.commit({ type: 'fixture' });
-
-  const html = renderRoute('run');
-  const cells = html.match(/class="lat [a-z]+"/g) || [];
-  if (cells.length !== RunE.RUN_DAYS) return cells.length + ' cells, want ' + RunE.RUN_DAYS;
-  return html.indexOf('The whole run') > 0 ? '' : 'the section is not headed';
-});
-
-/* The invariant, drawn. A day the user never opened the app on is a day we know
-   nothing about, and the run must not retroactively decide they failed it —
-   `computeDayStatus` already refuses to, and a picture that disagreed with the
-   streak would be the more believable of the two. */
-behaves('a day nobody opened is not painted as a missed one', () => {
-  const html = renderRoute('run');
-  const at = (d) => (html.match(new RegExp('class="lat ([a-z]+)" title="Day ' + d + ' ')) || [])[1];
-  if (at(1) !== 'kept') return 'day 1 drawn as ' + at(1);
-  if (at(2) !== 'part') return 'day 2 drawn as ' + at(2);
-  if (at(3) !== 'missed') return 'day 3 drawn as ' + at(3);
-  if (at(4) !== 'unopened') return 'day 4 drawn as ' + at(4) + ', not unopened';
-  if (at(10) !== 'today') return 'day 10 drawn as ' + at(10);
-  return at(11) === 'ahead' ? '' : 'day 11 drawn as ' + at(11);
-});
-
-/* Six shades of one palette is a chart that stops meaning anything on a phone
-   in daylight, and the guidelines forbid meaning carried by colour alone. */
-behaves('and the same counts are stated in words, not only in colour', () => {
-  const html = renderRoute('run');
-  const want = ['1 kept', '1 part of it', '1 missed', 'not opened', 'to come'];
-  const absent = want.filter((s) => html.indexOf(s) < 0);
-  return absent.length ? 'the tally never says: ' + absent.join(', ') : '';
-});
-
-behaves('the phases are named with their days, and the current one marked', () => {
-  const html = renderRoute('run');
-  const missing = RunE.PHASES.filter((p) => html.indexOf('day ' + p.first + '–' + p.last) < 0);
-  if (missing.length) return 'no range for: ' + missing.map((p) => p.name).join(', ');
-  if (html.indexOf('latphase is-now') < 0) return 'no phase is marked as the current one';
-  return (html.match(/latphase is-now/g) || []).length === 1 ? '' : 'more than one phase is "now"';
-});
-
-/* "Read arrived on day 8" is the half of the schedule that explains the lattice
-   above it, and it was the half the old "Still to come" list left out. */
-behaves('the ladder says when each habit joined, past ones included', () => {
-  const html = renderRoute('run');
-  if (html.indexOf('What is in it') < 0) return 'no ladder';
-  if (html.indexOf('started day 1') < 0) return 'it does not say when a habit already running began';
-  return html.indexOf('Still to come') < 0 ? '' : 'the future half is still listed twice';
-});
-
-/* Rule 1 of project.md: a goal runs from where the user actually is. A fresh
-   install seeds five and renders them as instructions, and until this banner
-   nothing said they were defaults. */
-behaves('a fresh install is told the seeded numbers are not its own', () => {
-  S.resetAll();
-  const html = renderRoute('today');
-  if (html.indexOf('starting numbers, not yours') < 0) return 'nothing says the numbers are defaults';
-  if (html.indexOf('data-nav="plan"') < 0) return 'it does not offer the screen that fixes it';
-  return html.indexOf('data-act="starting-ack"') > 0 ? '' : 'it cannot be dismissed';
-});
-
-behaves('and dismissing it is remembered, without a new flag', () => {
-  S.acknowledgeStart();
-  const html = renderRoute('today');
-  if (html.indexOf('starting numbers, not yours') >= 0) return 'it came back after being dismissed';
-  return S.get().meta.onboarded === true ? '' : 'it did not reuse the inert onboarded flag';
-});
-
-/* It must never bury the storage-failure banners, which are the only route back
-   to data the app could not read. */
-behaves('it stays out of the way when something is actually wrong', () => {
-  S.resetAll();
-  S.get().meta.storageError = 'unreadable';
-  S.commit({ type: 'fixture' });
-  const html = renderRoute('today');
-  S.get().meta.storageError = null;
-  S.commit({ type: 'fixture' });
-  if (html.indexOf('data-act="download-unreadable"') < 0) return 'the recovery banner is gone';
-  return html.indexOf('starting numbers, not yours') < 0
-    ? '' : 'it crowds the banner offering the user their data back';
-});
-
-behaves('and "Re-baseline" is not the word the user is given', () => {
-  S.resetAll();
-  sheetBody.innerHTML = '';
-  UI.openGoalDetail(S.activeGoals()[0].id);
-  const html = sheetBody.innerHTML;
-  if (/Re-baseline/.test(html)) return 'the goal detail still says Re-baseline';
-  return html.indexOf('Move the starting point') > 0 ? '' : 'no plain-language control at all';
-});
-
-/* Every XP figure goes through one formatter, which exists because a card
-   showed "12,480" beside "1240 / 2200". It was being called in one place of
-   seven.
-
-   This checks the RENDERED page rather than the source. The first version of it
-   scanned ui.js for `${…} XP` without `fmtXp` and passed happily when a raw
-   figure was put back, because the expression it needed to catch —
-   `${prog.into}` — contains no "xp" for the pattern to find. A guard that
-   cannot fail is worse than none, so this looks at what the user actually sees:
-   any number printed next to "XP" that is four digits or more must carry a
-   thousands separator. */
-behaves('no XP figure is printed unformatted beside a formatted one', () => {
-  /* Build enough XP that four-digit figures actually render — the first version
-     of this passed because the state it happened to run against had under a
-     thousand, which is a guard proving nothing. */
-  S.resetAll();
-  for (let i = 1; i <= 60; i++) {
-    const k = A.addDays(S.today(), -i);
-    S.ensureLog(k);
-    S.completeAll(k);
-  }
-  S.commit({ type: 'fixture' });
-  if (S.progress().xp < 1000) return 'the fixture only reaches ' + S.progress().xp + ' XP, so this proves nothing';
-
-  const seen = [];
-  ['progress', 'rewards', 'today'].forEach((route) => {
-    const html = renderRoute(route);
-    (html.match(/([\d,]+)\s*XP/g) || []).forEach((m) => seen.push([route, m.trim()]));
-  });
-  if (!seen.length) return 'no XP figure rendered at all — the fixture proves nothing';
-  const bare = seen.filter(([, m]) => /^\d{4,}/.test(m));
-  return bare.length ? 'unformatted: ' + bare.map((x) => x.join(' → ')).join(', ') : '';
-});
-
-/* The run's habit lists were bare rows against the viewport while every other
-   list in the app lives in a card. */
-behaves('the run lists its habits in a card, like every other list', () => {
-  S.resetAll();
-  S.startRun(['walk', 'stretch', 'vitamins', 'floss'], 90, true);
-  const html = renderRoute('run');
-  if (html.indexOf('runlist-card') < 0) return 'the ladder is still a bare list';
-  sheetBody.innerHTML = '';
-  UI.openRunAdd();
-  return sheetBody.innerHTML.indexOf('runlist-card') > 0 ? '' : 'the add sheet is still a bare list';
-});
-
-/* Two features used to be called "the run": the fixed-length countdown and the
-   66-day habit run. Both printed a day count out of 66 and both had an "End the
-   run" that meant different, irreversible things — one archives a countdown,
-   the other erases 66 days of habit record. The countdown was renamed. */
-behaves('the countdown and the 66-day run are not both called "the run"', () => {
-  const ui = fs.readFileSync(path.join(__dirname, '..', 'js', 'ui.js'), 'utf8');
-  const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
-  // Strip comments: this file explains the collision it is guarding against.
-  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  const src = strip(ui) + strip(app);
-  const bad = [];
-  // The countdown must not describe itself as a run anywhere the user can read.
-  [/Start a run/, /Start the run<\/button>/, /'End the run'/, /Finished runs/,
-   /No run in progress/, /End this run early/].forEach((re) => {
-    if (re.test(src)) bad.push(String(re));
-  });
-  if (bad.length) return 'the countdown still calls itself a run: ' + bad.join(', ');
-  // And the destructive confirm on the 66-day run must name which run it means.
-  return /End the 66-day run\?/.test(src) ? '' : 'the end confirm does not say which run it means';
-});
-
-behaves('and More offers them as two clearly different things', () => {
-  const html = renderRoute('more');
-  if (html.indexOf('>Countdown<') < 0) return 'no countdown section';
-  if (html.indexOf('The 66-day run') < 0) return 'no 66-day run entry';
-  return html.indexOf('>The run<') < 0 ? '' : 'something is still headed just "The run"';
-});
-
-/* Editing a run in progress. Adding is offered from the section that lists what
-   is in it; removing is refused at the floor rather than offered and denied. */
-behaves('the run says what is in it, and offers to add to it', () => {
-  S.resetAll();
-  S.startRun(['walk', 'stretch', 'vitamins', 'floss'], 90, true);
-  const html = renderRoute('run');
-  if (html.indexOf('data-act="run-add-open"') < 0) return 'no way to add a habit';
-  const removes = (html.match(/data-act="run-remove"/g) || []).length;
-  return removes === 4 ? '' : removes + ' remove controls for 4 habits';
-});
-
-behaves('the add sheet lists only habits not already in the run', () => {
-  sheetBody.innerHTML = '';
-  UI.openRunAdd();
-  const html = sheetBody.innerHTML;
-  const inRun = S.run().habits.map((p) => p.habitId);
-  const offered = (html.match(/data-act="run-add" data-id="([a-z_]+)"/g) || [])
-    .map((m) => m.slice(m.lastIndexOf('"', m.length - 2) + 1, -1));
-  const dupes = offered.filter((id) => inRun.indexOf(id) >= 0);
-  if (dupes.length) return 'offered something already in the run: ' + dupes.join(', ');
-  return offered.length ? '' : 'nothing offered at all';
-});
-
-/* A control that is going to say no is better not drawn. */
-behaves('at the habit floor, no removal is offered and the screen says why', () => {
-  S.resetAll();
-  S.startRun(['walk', 'stretch', 'vitamins'], 90, true);
-  const html = renderRoute('run');
-  if ((html.match(/data-act="run-remove"/g) || []).length) return 'it offers a removal it would refuse';
-  return html.indexOf('at least ' + A.Run.MIN_HABITS + ' habits') > 0
-    ? '' : 'it does not say why removal is unavailable';
-});
-
-behaves('a habit that has not joined yet says how long that is', () => {
-  S.resetAll();
-  S.startRun(['walk', 'stretch', 'language'], 90, false);   // eased in, so some start later
-  const html = renderRoute('run');
-  const later = S.run().habits.filter((p) => p.startDay > 1);
-  if (!later.length) return 'the fixture has nothing starting later';
-  const away = later[0].startDay - S.runToday();
-  if (html.indexOf('starts day ' + later[0].startDay) < 0) return 'no start day for a habit still to come';
-  return html.indexOf('in ' + away + (away === 1 ? ' day' : ' days')) > 0
-    ? '' : 'it does not say how far off that is';
-});
-
-behaves('a finished run can still be looked back on', () => {
-  S.run().startDate = A.addDays(S.today(), -80);
-  S.commit({ type: 'fixture' });
-  const html = renderRoute('run');
-  if (html.indexOf('The whole run') < 0) return 'the lattice is gone the moment it is worth reading';
-  if (html.indexOf('class="lat today"') >= 0) return 'a finished run still has a today';
-  return html.indexOf('class="lat ahead"') < 0 ? '' : 'a finished run still has days ahead of it';
-});
-
-behaves('a run naming a habit this build lost says so, and shows the rest', () => {
-  S.resetAll();
-  S.startRun(['walk', 'stretch', 'language'], 90);
-  S.run().habits.push({ habitId: 'moon_bathing', startDay: 1, scale: 1, frozenDay: null });
-  S.commit({ type: 'fixture' });
-  const html = renderRoute('run');
-  if (html.indexOf('does not have') < 0) return 'it hides the fact that something is missing';
-  return html.indexOf('Nothing has been deleted') > 0 ? '' : 'it does not say the data is safe';
-});
-
-behaves('Today carries the run only while one is running', () => {
-  S.resetAll();
-  const without = renderRoute('today');
-  if (without.indexOf('The run ·') >= 0) return 'a run section with no run';
-  S.startRun(['walk', 'stretch', 'language'], 90);
-  const withRun = renderRoute('today');
-  if (withRun.indexOf('The run ·') < 0) return 'no run section with a run';
-  return withRun.indexOf('data-nav="run"') > 0 ? '' : 'no way through to the whole run';
-});
-
-behaves('More offers the run beside Rewards', () => {
-  const html = renderRoute('more');
-  return html.indexOf('data-nav="run"') > 0 ? '' : 'the run is unreachable from More';
-});
-
-behaves('the value sheet says what today asked, not what the run asks now', () => {
-  S.resetAll();
-  S.startRun(['walk', 'stretch', 'language'], 90);
-  const id = S.run().habits[0].habitId;
-  S.toggleRunHabit(id);                       // freezes today's ask into the record
-  const frozen = S.run().log[1][id].asked;
-  S.run().habits[0].scale = 0.25;             // the run now asks for less
-  S.commit({ type: 'fixture' });
-  sheetBody.innerHTML = '';
-  UI.openRunValue(id);
-  const html = sheetBody.innerHTML;
-  if (html.indexOf('run-save-value') < 0) return 'no way to save a measurement';
-  return html.indexOf(String(frozen)) > 0 ? '' : 'the sheet shows a number today never asked for';
-});
-
-console.log(`\n${pass} passed, ${fail} failed\n`);
-process.exit(fail ? 1 : 0);

@@ -23,8 +23,8 @@
      that works today. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Discipline — Personal Development Tracker</title>
-<meta name="description" content="Set goals that progress from where you actually are to a target you choose, keep the streak, and write before you can call the reading done.">
+<title>Discipline — Training Log</title>
+<meta name="description" content="Log every set: the weight, the reps, and what you lifted last time. A weekly training plan, a streak that survives real life, and nothing that leaves your phone.">
 <meta name="theme-color" content="#071E1D" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F0F7F5" media="(prefers-color-scheme: light)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -56,13 +56,12 @@
      shapes inlined in two files is two copies to keep in step, and the copy in
      the shell is the one nobody would remember to update.
 
-     Five tabs, not six. Rewards is the one screen you visit after the fact
-     rather than to do something, so it moved to the top of More — see
-     `renderMore()` — and the four daily screens each got a wider target. -->
+     Four tabs. Read went with the reading gate and the journal; Rewards is the
+     one screen you visit after the fact rather than to do something, so it sits
+     at the top of More — see `renderMore()`. -->
 <nav class="tabbar" id="tabbar" aria-label="Primary">
   <button type="button" data-nav="today"    data-icon="sun"      class="tab"><i>Today</i></button>
-  <button type="button" data-nav="plan"     data-icon="calendar"  class="tab"><i>Plan</i></button>
-  <button type="button" data-nav="read"     data-icon="book"     class="tab"><i>Read</i></button>
+  <button type="button" data-nav="plan"     data-icon="calendar" class="tab"><i>Plan</i></button>
   <button type="button" data-nav="progress" data-icon="chart"    class="tab"><i>Stats</i></button>
   <button type="button" data-nav="more"     data-icon="grid"     class="tab"><i>More</i></button>
 </nav>
@@ -84,8 +83,6 @@
 
 <script src="./js/data.js"></script>
 <script src="./js/program.js"></script>
-<script src="./js/goals.js"></script>
-<script src="./js/run.js"></script>
 <script src="./js/photos.js"></script>
 <script src="./js/store.js"></script>
 <script src="./js/ui.js"></script>

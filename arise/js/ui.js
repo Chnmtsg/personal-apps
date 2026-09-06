@@ -12,24 +12,26 @@
   let route = 'today';
   let viewDate = null; // resolved on first render, once settings (and the grace window) are loaded
   let picker = { day: 1, q: '', cat: 'All' };
-  // Which bucket of today's goals is on screen: 'todo' | 'done' | 'skipped'.
-  // View state, not user data — it resets to the work still outstanding on load.
-  let todayFilter = 'todo';
-  // Whether a long workout is showing all of itself. Same kind of state, and it
-  // collapses again when the day changes: opening yesterday is a different
-  // question from working through today.
-  let workoutOpen = false;
+  /* Which set row is being corrected. View state, not user data — see
+     `UI.setEditSet`. It is cleared whenever the day on screen changes, because a
+     correction to Monday's third set means nothing while looking at Tuesday. */
+  let editSet = null;
+  /* A rest in progress: `{ itemId, name, startedAt, seconds, upper, rang }`.
+     View state and nothing else, and deliberately NOT persisted — a half-finished
+     rest is not something the user did. Storing it would mean telling somebody
+     who reopened the app on the bus that they have forty seconds left of a rest
+     they took at the gym. It dies with the page, which is the honest lifetime
+     for it. `seconds` is null when the plan prescribes no interval; then it
+     counts up instead of down, because inventing a rest nobody wrote down is
+     exactly the number this app refuses to show. */
+  let rest = null;
   // Same again for the exercise library on More: a reference list you open to
   // change something, not one you read on the way past.
   let libOpen = false;
-  /* Which half of Plan is on screen: 'goals' | 'week'. Artboard 2a splits the
-     two subjects that used to share one scroll, and a tab is view state, not a
-     setting — it opens on the goals every time, because that is the half a
-     person comes to Plan to change. */
-  let planTab = 'goals';
-  /* Written habits waiting for a run to exist. Cleared with the rest of the
-     picker, because they are a selection rather than stored data. */
-  let draftCustoms = [];
+  /* The service worker's cache name, reported on More. Set once from js/app.js
+     when the worker answers; empty until it does, which is the honest reading
+     on a first load or with the worker unregistered. */
+  let buildVersion = '';
   /* Which window the muscle breakdown on Stats is showing. View state, like the
      folds — a look at the last week is not a setting anybody wants remembered
      across devices. */
@@ -225,8 +227,6 @@
 
   /** Every XP figure goes through one formatter, so a card cannot show
       "12,480" beside "1240 / 2200". */
-  const fmtXp = (n) => Number(n || 0).toLocaleString();
-
   function ring(pct, top, bottom, cls) {
     const r = 42;
     const c = 2 * Math.PI * r;
@@ -317,266 +317,6 @@
   const CHART_DAYS = 42;
 
   /** Round to something a person would say out loud. */
-  const axisRound = (v) => {
-    if (v <= 10) return Math.ceil(v);
-    if (v <= 60) return Math.ceil(v / 5) * 5;
-    if (v <= 240) return Math.ceil(v / 15) * 15;
-    return Math.ceil(v / 30) * 30;
-  };
-
-  /**
-   * A goal's last six weeks: columns for what was logged, a step line for what
-   * was asked.
-   *
-   * @param {object} g     the goal
-   * @param {object[]} pts from `S.goalSeries`
-   */
-  function goalChart(g, pts) {
-    const asked = pts.filter((p) => p.asked);
-    if (asked.length < 2) {
-      return `<p class="footnote">Not enough logged yet to draw. Two days on the
-        record and the shape starts showing.</p>`;
-    }
-    const W = 320;
-    const H = 108;
-    const PAD_T = 12;
-    const PAD_B = 16;
-    const plot = H - PAD_T - PAD_B;
-
-    const values = pts.map((p) => p.value || 0).concat(pts.map((p) => p.target || 0));
-    const top = axisRound(Math.max(1, Math.max.apply(null, values)));
-    const y = (v) => PAD_T + plot - (Math.max(0, v) / top) * plot;
-
-    const slot = W / pts.length;
-    /* Cap the column and let the leftover be air. The 2px surface gap is what
-       separates neighbours — never a stroke, which would add ink that is not
-       data. */
-    const bw = Math.max(2, Math.min(24, slot - 2));
-
-    const cols = pts
-      .map((p, i) => {
-        if (!p.asked || p.value == null || p.value <= 0) return '';
-        const x = i * slot + (slot - bw) / 2;
-        const h = Math.max(1.5, PAD_T + plot - y(p.value));
-        /* 4px rounded data-end, square at the baseline: draw the radius only
-           when the column is tall enough to show one. */
-        const r = h > 6 ? Math.min(4, bw / 2) : 0;
-        return `<rect x="${x.toFixed(1)}" y="${y(p.value).toFixed(1)}" width="${bw.toFixed(1)}"
-          height="${h.toFixed(1)}" rx="${r}" ry="${r}" fill="var(--chart-did)"
-          ><title>${esc(A.prettyDate(p.date))} · ${esc(A.formatValue(g.unit, p.value))}${
-          p.target != null ? ' of ' + esc(A.formatValue(g.unit, p.target)) : ''
-        }</title></rect>`;
-      })
-      .join('');
-
-    /* The target, as a step rather than a slope: it changes on the day it
-       changes, and drawing it as a ramp would claim the ask moved gradually. */
-    let d = '';
-    pts.forEach((p, i) => {
-      if (!p.asked || p.target == null) return;
-      const x0 = i * slot;
-      const x1 = x0 + slot;
-      const yy = y(p.target).toFixed(1);
-      d += (d ? ` L${x0.toFixed(1)},${yy}` : `M${x0.toFixed(1)},${yy}`) + ` L${x1.toFixed(1)},${yy}`;
-    });
-
-    const last = asked[asked.length - 1];
-    const best = asked.reduce((a, b) => ((b.value || 0) > (a.value || 0) ? b : a), asked[0]);
-
-    return `
-      <div class="chart">
-        <svg viewBox="0 0 ${W} ${H}" role="img" preserveAspectRatio="none"
-             aria-label="${esc(g.name)} over the last ${asked.length} days it was asked for. ${esc(
-      'Logged between ' + A.formatValue(g.unit, Math.min.apply(null, asked.map((p) => p.value || 0))) +
-      ' and ' + A.formatValue(g.unit, best.value || 0) + '.'
-    )}">
-          <line x1="0" y1="${PAD_T + plot}" x2="${W}" y2="${PAD_T + plot}" class="chart-base"></line>
-          ${cols}
-          ${d ? `<path d="${d}" class="chart-ask" fill="none"></path>` : ''}
-        </svg>
-        <div class="chart-foot">
-          <span>${esc(A.prettyDate(pts[0].date))}</span>
-          <span>${esc(A.prettyDate(pts[pts.length - 1].date))}</span>
-        </div>
-        <!-- Labelled selectively: the most recent and the best. A number on every
-             column is chaos and goes unread. -->
-        <div class="chart-keys">
-          <span class="chart-key did">Logged${
-            last.value != null ? ' · latest ' + esc(A.formatValue(g.unit, last.value)) : ''
-          }</span>
-          <span class="chart-key ask">Asked${
-            last.target != null ? ' · now ' + esc(A.formatValue(g.unit, last.target)) : ''
-          }</span>
-          <span class="chart-key best">Best ${esc(A.formatValue(g.unit, best.value || 0))}</span>
-        </div>
-      </div>`;
-  }
-
-  /**
-   * One small multiple per practice, on Stats.
-   *
-   * Small multiples rather than a multi-line chart on purpose. Six series would
-   * need six validated categorical hues, and this app has three colours with
-   * fixed jobs — generating three more would break that and put two
-   * indistinguishable hues on screen under CVD. Faceting keeps one hue and lets
-   * the LABEL carry identity, which is the honest fix.
-   */
-  function goalSparks() {
-    const live = S.activeGoals();
-    if (!live.length) return '';
-    return live
-      .map((g) => {
-        const pts = S.goalSeries(g.id, 28).filter((p) => p.asked);
-        if (pts.length < 2) return '';
-        const top = Math.max(1, Math.max.apply(null, pts.map((p) => Math.max(p.value || 0, p.target || 0))));
-        const W = 120;
-        const H = 26;
-        const slot = W / pts.length;
-        const bw = Math.max(1.5, Math.min(24, slot - 1));
-        const cols = pts
-          .map((p, i) => {
-            if (p.value == null || p.value <= 0) return '';
-            const h = Math.max(1, (p.value / top) * H);
-            return `<rect x="${(i * slot).toFixed(1)}" y="${(H - h).toFixed(1)}"
-              width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1" fill="var(--chart-did)"></rect>`;
-          })
-          .join('');
-        const kept = pts.filter((p) => p.done).length;
-        return `<button type="button" class="spark" data-act="goal-detail" data-id="${g.id}">
-          <span class="spark-name">${esc(g.name)}</span>
-          <svg class="spark-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${cols}</svg>
-          <span class="spark-val">${kept}/${pts.length}</span>
-        </button>`;
-      })
-      .join('');
-  }
-
-  /* ================= goal fragments ================= */
-
-  /** "by 6:30" / "at least 20 min" — an instruction, not a number.
-      Words rather than ≤ and ≥: this app assumes no training and no maths, and a
-      bare "30 min" beside an empty tick could equally be the target, the time
-      elapsed, or what you logged. */
-  function targetPhrase(goal, value) {
-    const v = A.formatValue(goal.unit, value);
-    if (goal.unit === 'time') return (goal.direction === 'down' ? 'by ' : 'from ') + v;
-    return (goal.direction === 'down' ? 'at most ' : 'at least ') + v;
-  }
-
-  function levelChip(tl) {
-    if (!tl) return '';
-    if (tl.atTarget) return `<span class="lvl at">AT TARGET</span>`;
-    return `<span class="lvl">Lv ${tl.level}<i>/${tl.maxLevel}</i></span>`;
-  }
-
-  /** What has to happen for the next step — the honest version. */
-  function advanceHint(goal, tl) {
-    if (!tl) return '';
-    /* NOT "now just hold it". A target you have reached is a ceiling you set
-       from an older, smaller estimate of yourself, and an app that answers the
-       moment you outgrow it with "hold" has made the standard a normal person's.
-       The standard is your own maximum, revised upward as you find it.
-
-       Revised by YOU, though. The baseline-and-target pair is what stops a
-       progression running away, and moving the ceiling automatically would take
-       that guarantee off — so this says the ceiling is reachable, and Plan
-       carries the control that moves it. */
-    if (tl.atTarget) return 'At the target you set. That was an older estimate of you — raise it.';
-    const nxt = A.formatValue(goal.unit, tl.nextTarget);
-    const n = tl.toAdvance;
-    if (n <= 0) return `Next step ready → ${nxt}`;
-    return `${n} more good day${n === 1 ? '' : 's'} → ${nxt}`;
-  }
-
-  /* An area used to give its card a generated tinted "artwork" through a --hue
-     custom property. Artboard 1c has no artwork: the plate carries the area's
-     drawn icon and every card is the same charcoal, so seven hues would be seven
-     colours competing with the three the system actually assigns a meaning to.
-     `SECTION_ICON` is what tells the areas apart now. */
-
-  /**
-   * A goal as a card on Today: an icon plate, the name, one line of context, and
-   * either the ask or a tick. This is the primary surface of the app — what
-   * today asks, and one tap to record it.
-   */
-  function goalCard(entry, dateKey) {
-    const g = entry.goal;
-    const tl = entry.tl;
-    const locked = S.isFuture(dateKey);
-    const gated = g.gate === 'summary';
-    const logged = entry.entry && entry.entry.value != null ? A.formatValue(g.unit, entry.entry.value) : null;
-    const mode = A.MODES[A.Goals.modeOf(g, S.settings().mode)];
-
-    const meta = [
-      `<span>${icon('repeat')}${esc(scheduleText(g))}</span>`,
-      `<span>${icon('level')}${esc(mode.name)}</span>`,
-      logged ? `<span>${icon('check')}${esc(logged)} logged</span>` : ''
-    ]
-      .filter(Boolean)
-      .join('');
-
-    /* Something was logged, but it did not reach the ask. Its own state, gold:
-       calling it done would be a lie and calling it nothing would erase the
-       work. Derived here from the entry, never guessed from the rendered text. */
-    const part = !!logged && !entry.done && !entry.skipped;
-
-    /* The card from artboard 1c. Same element, same classes, same data-act and
-       the same `data-goal` the swipe and press-and-hold handlers close on — this
-       is a restyle, not a new component, so every gesture keeps working and
-       nothing has to learn a second name for a goal row.
-
-       Its shape: a 38px icon plate, the name, one 12px line of context, and
-       either the ask or a tick on the right. A gated goal — reading — takes the
-       amber border and a Write pill instead of the tick, because amber is
-       "waiting on you" and a tick it cannot honour is a lie: the summary is what
-       closes that goal, not this control.
-
-       The brief's mockup puts a bare number in the value column — "06:15",
-       "75 min". That reads correctly for a wake time and fails for anything
-       counting DOWN: "Screen time 4 h" does not say which side of four hours you
-       want. `targetPhrase` keeps the direction in words, which is the app's own
-       rule and a test by name. The number still does the visual work; it is just
-       not alone. */
-    const ask = entry.target != null ? targetPhrase(g, entry.target) : '';
-    /* What the gated card says instead of the ask, so the summary Today used to
-       carry in its own card is not lost with it. */
-    const gateLine = !gated
-      ? ''
-      : entry.done
-      ? previewOf(S.readingEntry(dateKey))
-      : 'Write the summary to close it';
-    return `<article class="gcard ${entry.done ? 'is-done' : ''} ${entry.skipped ? 'is-skipped' : ''} ${
-      part ? 'is-part' : ''
-    } ${gated && !entry.done ? 'is-gated' : ''} ${locked ? 'locked' : ''}" data-goal="${g.id}">
-      <span class="gcard-plate" aria-hidden="true">${icon(SECTION_ICON[g.section] || 'star')}</span>
-      <button type="button" class="gcard-open" data-act="goal-detail" data-id="${g.id}">
-        <span class="gcard-title">${esc(g.name)}</span>
-        <span class="gcard-meta">${gateLine ? `<span class="gcard-gate">${esc(gateLine)}</span>` : meta}</span>
-      </button>
-      ${
-        entry.streak > 0 || entry.skipped
-          ? `<span class="gcard-badges">
-              ${entry.streak > 0 ? `<span class="gcard-streak">${icon('flame')}${entry.streak}d</span>` : ''}
-              ${entry.skipped ? '<span class="gcard-streak skip">Skipped</span>' : ''}
-            </span>`
-          : ''
-      }
-      ${ask && !gated ? `<span class="gcard-value">${esc(ask)}</span>` : ''}
-      <button type="button" class="gcard-tick${gated ? ' is-write' : ''}" data-act="${gated ? 'open-read' : 'goal-hit'}"
-              data-id="${g.id}" data-date="${dateKey}"
-              aria-label="${gated ? 'Write the summary for' : entry.done ? 'Undo' : 'Complete'} ${esc(g.name)}"
-              ${locked ? 'disabled' : ''}>${gated ? (entry.done ? 'Edit' : 'Write') : '✓'}</button>
-    </article>`;
-  }
-
-  /** The first line of a summary, for a card that has to show it was written. */
-  const previewOf = (r) => {
-    const t = ((r && r.summary) || '').trim();
-    return t ? (t.length > 64 ? t.slice(0, 64) + '…' : t) : 'Summary written';
-  };
-
-  /* ================= TODAY ================= */
-
   function banners() {
     const st = S.get();
     let out = '';
@@ -601,29 +341,6 @@
         </div>
       </section>`;
     }
-    /* Rule 1 of knowledge/project.md is that a goal runs from where the user
-       actually is. A fresh install seeds five and puts them on Today as
-       instructions — wake at 07:30, lights out at 23:30 — and until this
-       existed nothing anywhere said they were defaults. Someone who really
-       wakes at 09:00 was asked for 07:30 on their first morning, missed, and
-       the app's opening move was a verdict.
-
-       This is NOT the starting-point sheet coming back. That asked four
-       questions in a modal before the user had seen the app, which is why it
-       went. One line, dismissible, pointing at the screen where the numbers
-       actually live. It reuses `meta.onboarded`, which the sheet's removal left
-       inert in the state shape — so there is no new flag and no migration. */
-    if (!st.meta.onboarded && !st.meta.storageError && S.activeGoals().length) {
-      out += `<section class="banner accent stack">
-        <div><b>These are starting numbers, not yours</b><p>Discipline shipped with five goals so the app is not
-          empty. A goal only works when it starts from where you actually are today — open Plan and move any
-          that are not true for you.</p></div>
-        <div class="btn-row">
-          <button class="btn primary" data-nav="plan">Set my starting points</button>
-          <button class="btn ghost" data-act="starting-ack">They are fine</button>
-        </div>
-      </section>`;
-    }
     if (st.meta.clockWarning) {
       out += `<section class="banner warn">
         <div><b>Device clock moved backwards</b><p>Streaks are dated on this device, so winding the clock back can distort them. Nothing was changed.</p></div>
@@ -633,183 +350,293 @@
     return out;
   }
 
+  /* ---------- the set log on a row ----------
+
+     The whole app narrows to this block. Everything above it decides WHICH
+     exercises today asks for; this is where a number gets written down.
+
+     Three shapes, one card. Which one a row draws is decided by the exercise
+     (`A.logShape`) and never by what happens to be stored, so a row is the same
+     row before and after anything is logged into it. */
+
+  /** A number for an input's `value`: never `NaN`, never `undefined`. */
+  const numVal = (n) => (n == null || !isFinite(n) ? '' : String(A.round1(n)));
+
+  /** The rows already written down, newest at the bottom. */
+  function setRows(itemId, perf, unit, locked) {
+    const sets = (perf && perf.sets) || [];
+    if (!sets.length) return '';
+    return `<ol class="setlist">${sets
+      .map((set, i) => {
+        const editing = editSet && editSet.itemId === itemId && editSet.index === i;
+        return `<li class="setrow ${editing ? 'is-editing' : ''}">
+          <span class="setrow-n" aria-hidden="true">${i + 1}</span>
+          <button type="button" class="setrow-main" data-act="set-edit" data-id="${itemId}" data-index="${i}"
+            ${locked ? 'disabled' : ''}>${esc(A.fmtLoad(set, unit))}</button>
+          <button type="button" class="icon-btn" data-act="set-rm" data-id="${itemId}" data-index="${i}"
+            aria-label="Remove set ${i + 1}" ${locked ? 'disabled' : ''}>✕</button>
+        </li>`;
+      })
+      .join('')}</ol>`;
+  }
+
+  /**
+   * The one line that makes this a training log rather than a checklist:
+   * what this exercise weighed the last time it was done.
+   *
+   * It names the DATE as well as the numbers. "60 kg x 8, 8, 7" is only useful
+   * if you know whether that was Thursday or in March.
+   */
+  function lastLine(last, ex, unit) {
+    if (!last) return '';
+    const said = A.describeEntry(last.perf, ex, unit);
+    if (!said) return '';
+    return `<p class="setmeta">Last time · ${esc(A.prettyDate(last.date))} · ${esc(said)}</p>`;
+  }
+
+  /** The input strip. `sug` comes from `S.suggestSet` and is only ever a hint. */
+  function setEntry(itemId, sug, locked) {
+    if (locked) return '';
+    const editing = editSet && editSet.itemId === itemId;
+    if (sug.shape === 'time' || sug.shape === 'distance') {
+      const perf = sug.perf || {};
+      return `<div class="setentry">
+        ${
+          sug.shape === 'distance'
+            ? `<label class="setfield"><span>km</span>
+                <input type="number" inputmode="decimal" step="0.1" min="0" id="km_${itemId}"
+                  value="${numVal(perf.km)}" placeholder="${numVal(sug.asked.km)}"></label>`
+            : ''
+        }
+        <label class="setfield"><span>min</span>
+          <input type="number" inputmode="decimal" step="0.5" min="0" id="min_${itemId}"
+            value="${numVal(perf.min)}" placeholder="${numVal(sug.asked.min)}"></label>
+        <button type="button" class="btn primary setentry-go" data-act="save-amount" data-id="${itemId}">Save</button>
+      </div>`;
+    }
+    return `<div class="setentry">
+      <label class="setfield"><span>${esc(sug.unit)}</span>
+        <input type="number" inputmode="decimal" step="0.5" min="0" id="w_${itemId}"
+          value="${numVal(sug.weight)}" placeholder="body"></label>
+      <span class="setentry-x" aria-hidden="true">×</span>
+      <label class="setfield"><span>reps</span>
+        <input type="number" inputmode="numeric" step="1" min="0" id="r_${itemId}" value="${numVal(sug.reps)}"></label>
+      <button type="button" class="btn primary setentry-go" data-act="log-set" data-id="${itemId}">${
+      editing ? 'Update' : 'Log set'
+    }</button>
+      ${
+        editing
+          ? `<button type="button" class="btn ghost setentry-cancel" data-act="set-cancel">Cancel</button>`
+          : ''
+      }
+    </div>`;
+  }
+
+  /**
+   * One exercise, with everything recorded against it on this day.
+   *
+   * The tick and the sets are deliberately two controls. Logging the last
+   * prescribed set ticks the row for you (see `maybeComplete` in js/store.js);
+   * nothing ever un-ticks it, so a corrected typo cannot retract a session.
+   */
+  function exerciseCard(item, k, locked) {
+    const ex = S.exerciseById(item.exerciseId);
+    const l = S.log(k);
+    const done = !!(l && l.ex && l.ex[item.id]);
+    const perf = (l && l.perf && l.perf[item.id]) || null;
+    const unit = S.settings().weightUnit === 'lb' ? 'lb' : 'kg';
+    const name = ex ? ex.name : 'Removed exercise';
+    const muscles = A.cleanMuscles(ex && ex.muscles).map((m) => A.MUSCLE_NAME[m]).join(' · ');
+    const sub = [muscles, item.note].filter(Boolean).join(' — ');
+    const sug = S.suggestSet(k, item.id) || { shape: 'reps', unit: unit, weight: null, reps: 0 };
+    if (editSet && editSet.itemId === item.id && perf && perf.sets && perf.sets[editSet.index]) {
+      const set = perf.sets[editSet.index];
+      sug.weight = set.w == null ? null : A.round1(A.convertWeight(set.w, set.u || 'kg', unit));
+      sug.reps = set.r;
+    }
+    sug.perf = perf || {};
+    const vol = A.entryVolume(perf, unit);
+
+    return `<article class="exercise ${done ? 'is-done' : ''} ${locked ? 'locked' : ''}">
+      <div class="exercise-head">
+        <button type="button" class="exercise-tick" data-act="toggle-ex" data-id="${item.id}"
+          aria-pressed="${done}" aria-label="${done ? 'Undo' : 'Mark'} ${esc(name)} done"
+          ${locked ? 'disabled' : ''}><span aria-hidden="true">✓</span></button>
+        <span class="exercise-plate" aria-hidden="true">${exGlyph(ex)}</span>
+        <span class="exercise-body">
+          <span class="exercise-name">${esc(name)}</span>
+          ${sub ? `<span class="exsub">${esc(sub)}</span>` : ''}
+        </span>
+        <span class="exercise-dose">${esc(A.targetPhrase(item, ex))}</span>
+        <button type="button" class="icon-btn" data-act="ex-how" data-id="${item.exerciseId}" data-item="${item.id}"
+          aria-label="How to do ${esc(name)}">${icon('info')}</button>
+      </div>
+      ${setRows(item.id, perf, unit, locked)}
+      ${setEntry(item.id, sug, locked)}
+      ${
+        vol > 0
+          ? `<p class="setmeta setmeta-vol">${esc(A.round1(vol) + ' ' + unit + ' moved')}</p>`
+          : ''
+      }
+      ${lastLine(sug.last, ex, unit)}
+      ${perf && perf.note ? `<p class="setnote">${esc(perf.note)}</p>` : ''}
+      ${
+        locked
+          ? ''
+          : `<button type="button" class="link setnote-add" data-act="perf-note" data-id="${item.id}">${
+              perf && perf.note ? 'Edit note' : 'Add a note'
+            }</button>`
+      }
+    </article>`;
+  }
+
+  /* ---------- the rest between sets ----------
+
+     The one block on any screen whose subject is progress through a fixed
+     length of time, which is the rule the design brief gives for ember and the
+     only thing ember is for. Today's strip was already painted in it; while a
+     rest runs it is literally what the rule describes rather than the nearest
+     thing to it.
+
+     It is drawn ONCE per render and then written into in place, a field at a
+     time, by `paintRest`. A full re-render every second would rebuild the
+     weight and reps inputs and take whatever the user was part-way through
+     typing with them — the same reason the picker's search box is repainted by
+     hand rather than through `render()`. */
+
+  /** How far through the rest we are right now. Pure; safe to call in a render. */
+  function restNow() {
+    if (!rest) return null;
+    const elapsed = Math.max(0, Math.floor((Date.now() - rest.startedAt) / 1000));
+    const left = rest.seconds == null ? null : rest.seconds - elapsed;
+    return {
+      elapsed: elapsed,
+      left: left,
+      ready: left != null && left <= 0,
+      pct: rest.seconds ? Math.min(100, (elapsed / rest.seconds) * 100) : 0,
+      clock: left == null ? A.fmtClock(elapsed) : left > 0 ? A.fmtClock(left) : '+' + A.fmtClock(-left)
+    };
+  }
+
+  /** What the strip says under the clock, in words. */
+  function restLabel(now) {
+    if (!rest) return '';
+    if (rest.seconds == null) return 'Since your last set · ' + rest.name;
+    if (now.ready) return 'Ready · ' + rest.name;
+    return rest.name + ' · ' + rest.text;
+  }
+
+  function restStrip() {
+    const now = restNow();
+    return `<aside class="today-strip is-rest ${now.ready ? 'is-ready' : ''}" id="restBox"
+        role="timer" aria-live="off">
+      ${
+        rest.seconds
+          ? `<div class="rest-track" aria-hidden="true"><i id="restBar" style="width:${now.pct.toFixed(1)}%"></i></div>`
+          : ''
+      }
+      <div class="today-strip-body">
+        <b id="restClock">${esc(now.clock)}</b>
+        <span id="restLabel">${esc(restLabel(now))}</span>
+      </div>
+      <button class="btn" data-act="rest-skip">${now.ready ? 'Done' : 'Skip'}</button>
+    </aside>`;
+  }
+
+  /**
+   * Write the running numbers into the block that is already on screen.
+   *
+   * @returns {boolean} true exactly once, on the tick the rest runs out, so the
+   *   caller can buzz. Every later tick returns false — a device that buzzed
+   *   every second until you looked at it would be uninstalled by Tuesday.
+   */
+  function paintRest() {
+    if (!rest) return false;
+    const now = restNow();
+    let crossed = false;
+    if (now.ready && !rest.rang) {
+      rest.rang = true;
+      crossed = true;
+    }
+    /* Every one of these may be absent: the user can be on Plan, or on
+       yesterday, while the rest keeps running. A timer that throws because
+       nobody is looking at it is worse than one nobody is looking at. */
+    const clock = $('#restClock');
+    if (clock) clock.textContent = now.clock;
+    const label = $('#restLabel');
+    if (label) label.textContent = restLabel(now);
+    const bar = $('#restBar');
+    if (bar && bar.style) bar.style.width = now.pct.toFixed(1) + '%';
+    const box = $('#restBox');
+    if (box && box.classList) box.classList.toggle('is-ready', now.ready);
+    return crossed;
+  }
+
+  /**
+   * Today, which is now the session screen.
+   *
+   * What used to be here — goal cards, a run section, a reading gate, a habit
+   * list and a journal row — is gone with the subjects they belonged to. The
+   * screen has one job: show what today asks you to lift, and take the numbers.
+   */
   function renderToday() {
     const k = viewDate;
     const today = S.today();
     const st = S.dayStatus(k);
     const plan = S.dayPlan(k);
-    const habits = S.dayHabits(k);
     const l = S.log(k);
     const streak = S.currentStreak();
     const hist = S.history();
     const future = S.isFuture(k);
     const offset = A.daysBetween(today, k);
     const relative = offset === 0 ? 'Today' : offset === -1 ? 'Yesterday' : offset === 1 ? 'Tomorrow' : A.prettyDate(k);
-    const wk = S.weekStats(k);
+    const unit = S.settings().weightUnit === 'lb' ? 'lb' : 'kg';
+    const vol = S.dayVolume(k, unit);
+    const dayNum = A.daysBetween(S.historyStart(), k) + 1;
 
     const headline = future
       ? 'Coming up'
-      : st.status === 'rest'
+      : !plan.length
       ? 'Rest day — recover well'
       : st.status === 'complete'
-      ? 'Day complete. Well done.'
+      ? 'Session complete. Well done.'
       : st.done === 0
       ? 'Nothing logged yet'
-      : `${st.total - st.done} left to go`;
-
-    /* The workout is one folded section, opened by tapping its heading.
-       A leg day of eight exercises pushed the habits, the streak and the journal
-       two screens down on the tab the user opens to do the day's work — and
-       capping the list at four only made it shorter, not short. Folded, it costs
-       one row until it is wanted.
-
-       The heading still carries the count, so folding hides the list and never
-       the fact that there is one. */
-    const exDone = plan.filter((i) => l && l.ex && l.ex[i.id]).length;
+      : `${st.total - st.done} exercise${st.total - st.done === 1 ? '' : 's'} left`;
 
     /* A programme day is written as warm-up, then the main lifts, then a
-       stretch — and this list flattened all of it into one grey column. The
-       structure is already in the data: every exercise carries a category, and
-       the plan is stored in the order it is meant to be done.
-
-       So a heading goes in wherever the category CHANGES, rather than grouping
-       by category. Grouping would reorder the workout, and the order of a
-       workout is not decoration — you do not stretch before you press. A day
-       that genuinely alternates gets two headings with the same name, which is
-       the honest picture of a day that alternates. */
+       stretch, and the structure is already in the data: every exercise carries
+       a category and the plan is stored in the order it is meant to be done. So
+       a heading goes in wherever the category CHANGES rather than grouping by
+       it — grouping would reorder the workout, and you do not stretch before
+       you press. */
+    let lastCat = null;
     const exHtml = plan.length
-      ? (function () {
-          let lastCat = null;
-          return plan
-            .map((i) => {
-              const p = planLine(i);
-              const done = !!(l && l.ex && l.ex[i.id]);
-              const ex = S.exerciseById(i.exerciseId);
-              const muscles = A.cleanMuscles(ex && ex.muscles)
-                .map((m) => A.MUSCLE_NAME[m])
-                .join(' · ');
-              /* Muscles first, the plan's own note second: "chest · triceps"
-                 says what the exercise is for, "per side" says how to do it. */
-              const sub = [muscles, i.note].filter(Boolean).join(' — ');
-              const head = p.cat !== lastCat
-                ? `<div class="block-head">${esc(p.cat)}</div>`
-                : '';
-              lastCat = p.cat;
-              // The row is a container, not a button, so the "how to" control can
-              // sit beside the toggle — same shape as a .goal row.
-              return `${head}<div class="item tight ${done ? 'done' : ''} ${future ? 'locked' : ''}">
-                <button type="button" class="item-main" data-act="toggle-ex" data-id="${i.id}"
-                  aria-pressed="${done}" ${future ? 'disabled' : ''}>
-                  <span class="tick" aria-hidden="true">✓</span>
-                  <span class="emoji" aria-hidden="true">${p.icon}</span>
-                  <span class="body"><span class="name">${esc(p.name)}</span></span>
-                  <span class="dose">${esc(p.dose)}</span>${
-                /* Its own full-width line below the name, not inside `.body`.
-                   Sharing that column left roughly 150px for both, so
-                   "Dumbbell Floor Press" clipped to "Dumbbell Flo…" while the
-                   muscles wrapped underneath it anyway. */
-                sub ? `<span class="exsub">${esc(sub)}</span>` : ''
-              }
-                </button>
-                <button type="button" class="icon-btn" data-act="ex-how" data-id="${i.exerciseId}" data-item="${i.id}"
-                  aria-label="How to do ${esc(p.name)}">${icon('info')}</button>
-              </div>`;
-            })
-            .join('');
-        })()
+      ? plan
+          .map((i) => {
+            const ex = S.exerciseById(i.exerciseId);
+            const cat = (ex && ex.category) || 'Other';
+            const head = cat !== lastCat ? `<div class="block-head">${esc(cat)}</div>` : '';
+            lastCat = cat;
+            return head + exerciseCard(i, k, future);
+          })
+          .join('')
       : `<div class="empty">No exercises scheduled for ${esc(A.DAY_NAMES[A.weekday(k)])}.<br>
          <button class="link" data-act="go-plan" data-day="${A.weekday(k)}">Plan this day →</button></div>`;
-
-    /* What the folded heading says, and it has to be true at a glance: how much
-       of the day's training is left without opening it. */
-    const exSummary = !plan.length
-      ? 'Rest day'
-      : future
-      ? plan.length + (plan.length === 1 ? ' exercise' : ' exercises')
-      : exDone === plan.length
-      ? 'All ' + plan.length + ' done'
-      : exDone + ' of ' + plan.length + ' done';
 
     const extras = (l && l.extra) || [];
     const extraHtml = extras
       .map(
         (x) => `<div class="item done"><span class="tick" aria-hidden="true">✓</span>
           <span class="emoji" aria-hidden="true">${icon('star')}</span>
-          <span class="body"><span class="name">${esc(x.name)}</span><span class="sub">Bonus effort</span></span>
+          <span class="body"><span class="name">${esc(x.name)}</span><span class="sub">Extra work</span></span>
           <button class="icon-btn" data-act="rm-extra" data-id="${x.id}" aria-label="Remove">✕</button></div>`
       )
       .join('');
 
-    const habitHtml = habits.length
-      ? habits
-          .map((h) => {
-            const done = !!(l && l.hb && l.hb[h.id]);
-            const hs = S.habitStreak(h.id);
-            /* A habit is a thing you tick today, exactly like a goal, so it is
-               the same card rather than a third visual language on one screen.
-               Same data-act — only the shape changes. */
-            return `<button type="button" class="item habit-row ${done ? 'done' : ''} ${future ? 'locked' : ''}" data-act="toggle-hb" data-id="${h.id}" aria-pressed="${done}" ${
-              future ? 'disabled' : ''
-            }>
-              <span class="tick" aria-hidden="true">✓</span>
-              <span class="body"><span class="name">${esc(h.name)}</span><span class="sub">${
-                S.settings().requireHabits ? 'Counts toward the day' : 'Optional'
-              }</span></span>
-              ${hs > 1 ? `<span class="pill fire">${icon('flame')} ${hs}</span>` : ''}
-            </button>`;
-          })
-          .join('')
-      : `<div class="empty">No habits yet.<br><button class="link" data-nav="more">Add one →</button></div>`;
-
-    const journal = S.journalEntry(k);
     const mLeft = A.minutesLeftToday(S.settings().dayBoundaryHour);
     const frozen = !!S.get().freezes[k];
     const fz = S.freezeStats();
-
-    /* The reading card that used to sit under the goal list is gone: in 1c the
-       gated goal IS that card — amber border, the prompt on its meta line, and a
-       Write pill where every other row has a tick. Two cards for one commitment
-       was the duplication the brief opened by naming. */
-
-    /* The day counter is the headline. "DAY 12" says where you are in a way a
-       date never does. With a challenge running it counts against its length —
-       DAY 5 / 66 — and without one it simply counts days since you started,
-       because a finish line nobody chose is a deadline. */
-    const chal = S.activeChallenge();
-    const chalDay = chal ? S.challengeDay(chal, k) : null;
-    const inChallenge = chalDay != null && chalDay <= chal.days;
-    const dayNum = inChallenge ? chalDay : A.daysBetween(S.historyStart(), k) + 1;
-    const run = chal ? S.challengeProgress(chal) : null;
-    const entries = S.goalsForDay(k);
-    const buckets = {
-      todo: entries.filter((e) => !e.done && !e.skipped),
-      done: entries.filter((e) => e.done),
-      skipped: entries.filter((e) => e.skipped)
-    };
-    const shown = buckets[todayFilter] || buckets.todo;
-    /* The label carries its own count now — "3 left to go", "2 kept" — so the
-       separate <b> that used to hold the number is gone rather than doubled. */
-    const seg = (id, label) =>
-      `<button type="button" class="seg ${todayFilter === id ? 'on' : ''}" data-act="today-filter" data-filter="${id}"
-         aria-pressed="${todayFilter === id}">${label}</button>`;
-
-    const cards = entries.length
-      ? shown.length
-        ? shown.map((e) => goalCard(e, k)).join('')
-        : `<div class="empty">Nothing ${esc(todayFilter === 'todo' ? 'left to do' : todayFilter)} here.</div>`
-      : `<div class="empty">No goals scheduled for this day.<br>
-         <button class="link" data-nav="plan">Set some up →</button></div>`;
-
-    /* One line, the same one all day. It sits under the header and above the
-       day's work because it is meant to be read on the way in, not offered as a
-       reward on the way out. */
-    const todayLine = offset === 0 ? S.lineForDay(k) : null;
-    const lineRow = todayLine
-      ? `<button type="button" class="quoteline" data-act="lines-open">
-          <span class="quoteline-text">${esc(todayLine.text)}</span>
-          ${todayLine.source ? `<span class="quoteline-src">${esc(todayLine.source)}</span>` : ''}
-        </button>`
-      : '';
 
     /* The recovery half. Every push this app makes is only safe underneath it,
        which is why it is the first thing on the screen when the week comes
@@ -827,14 +654,10 @@
         : '';
 
     /* "Never miss twice." The single highest-leverage day of a year is the one
-       straight after a broken one, and this app had nothing to say about it — a
-       streak counter tells you what you have, not that the chain is one day from
-       becoming a pattern.
-
-       Stated as a fact and a next action, never as a reprimand. Harsh
-       self-criticism measurably reduces follow-through: somebody who savages
-       themselves after a miss abandons the whole domain, which is the opposite
-       of what this line is for. */
+       straight after a broken one. Stated as a fact and a next action, never as
+       a reprimand: harsh self-criticism measurably reduces follow-through, and
+       somebody who savages themselves after a missed session abandons the gym,
+       which is the opposite of what this line is for. */
     const missed = offset === 0 ? S.missedYesterday(k) : null;
     const missTwice = missed
       ? `<section class="misstwice">
@@ -845,82 +668,51 @@
               : 'Yesterday came in at ' + missed.pct + '%.'
           )} One miss is noise. Two is a new pattern, and today is the day that decides which
           this was. ${esc(
-            missed.left === 1 ? 'One thing left.' : missed.left + ' things left.'
-          )} If today is falling apart, do the smallest version rather than none.</p>
+            missed.left === 1 ? 'One exercise left.' : missed.left + ' exercises left.'
+          )} If today is falling apart, do the lightest version rather than none.</p>
         </section>`
       : '';
 
-    /* The jar goes where the book says to read it — before the hard thing, on the
-       screen where the hard thing is, and only while the day is still open. After
-       the day is kept it would be a trophy cabinet, which is a different and much
-       weaker object. */
-    const jarCount = S.cookies().length;
-    const jarRow =
-      offset === 0 && !future && st.total && st.status !== 'complete'
-        ? `<button type="button" class="linkrow jarrow" data-act="cookie-jar">
-            <span class="linkrow-plate" aria-hidden="true">${icon('trophy')}</span>
-            <span class="body"><b>${jarCount ? 'Reach into the jar' : 'Fill the cookie jar'}</b>
-              <span>${
-                jarCount
-                  ? jarCount + ' hard ' + (jarCount === 1 ? 'thing' : 'things') + ' you have already done'
-                  : 'Write down what you have already survived, while you are calm'
-              }</span></span>
-            ${icon('chev')}
-          </button>`
-        : '';
-
-    // A gesture nobody is told about is a gesture nobody has. The wiring is in
-    // js/app.js; this is the one line that makes it discoverable.
-    const gestureHint =
-      !future && shown.length
-        ? `<p class="gesture-hint">Swipe a card right to keep it, left to skip. Press and hold to log part of it.</p>`
-        : '';
-
-    /* The day's next ask, pinned just above the tab bar.
-       The primary action of the app used to live under the clock at the top of
-       the screen, which on a phone is the one place a thumb cannot reach. The
-       strip is fixed, so where it sits in this template is a matter of reading
-       order only; it renders for today alone, never for a day being reviewed. */
-    const nextUp = buckets.todo[0];
-    const stripBody = !nextUp
-      ? buckets.skipped.length
-        ? `<b>Nothing left to log.</b><span>${buckets.skipped.length} skipped today.</span>`
-        : `<b>Day kept.</b><span>Nothing else is asked of you today.</span>`
-      : `<b>${buckets.todo.length} left today</b><span>Next: ${esc(nextUp.goal.name)}</span>`;
-    const nextGated = nextUp && nextUp.goal.gate === 'summary';
+    /* The day's next lift, pinned above the tab bar. The primary action of the
+       app used to live at the top of the screen, which on a phone is the one
+       place a thumb cannot reach. */
+    const nextUp = plan.find((i) => !(l && l.ex && l.ex[i.id]));
+    const nextEx = nextUp ? S.exerciseById(nextUp.exerciseId) : null;
+    /* The rest owns the strip while it runs. It is the more urgent of the two
+       answers to "what now" — the next exercise is still there underneath, and
+       is what comes back the moment the rest is skipped or done. */
     const strip =
-      offset !== 0 || future || !entries.length
+      offset !== 0 || future || !plan.length
         ? ''
+        : rest
+        ? restStrip()
         : `<aside class="today-strip">
-            <div class="today-strip-body">${stripBody}</div>
+            <div class="today-strip-body">${
+              nextUp
+                ? `<b>${st.total - st.done} left today</b><span>Next: ${esc(
+                    (nextEx && nextEx.name) || 'Exercise'
+                  )}</span>`
+                : `<b>Session done.</b><span>${esc(
+                    vol.volume > 0 ? A.round1(vol.volume) + ' ' + unit + ' moved' : 'Nothing else is asked of you today.'
+                  )}</span>`
+            }</div>
             ${
               nextUp
-                ? `<button class="btn primary" data-act="${nextGated ? 'open-read' : 'goal-hit'}"
-                     data-id="${nextUp.goal.id}" data-date="${k}">${nextGated ? 'Write it' : 'Keep it'}</button>`
+                ? `<button class="btn primary" data-act="ex-focus" data-id="${nextUp.id}">Log it</button>`
                 : ''
             }
           </aside>`;
 
     return `
-      <!-- Artboard 1c's header. It is the one block on any screen painted in
-           ember, and the rule the brief gives for that is "only where the
-           screen's own subject is progress through time" — so it goes ember
-           while a challenge is running, and charcoal when there is no length to
-           count against. The two-layer bar is elapsed under kept: the day
-           number says how long it has been, which is not the same thing as how
-           much of it you kept and must not be dressed up as if it were.
-
-           The whole ‹ › stepper, the day counter and the challenge bar used to
-           be three separate blocks stacked down the screen. -->
-      <section class="dayhead ${inChallenge ? 'ember' : ''} ${
-        run && run.complete ? 'is-complete' : ''
-      }">
+      <!-- Artboard 1c's header, minus the countdown it used to run. The ember
+           paint went with the challenge: the brief allows it only where the
+           screen's own subject is progress through a fixed length of time, and
+           nothing on this screen is that any more. -->
+      <section class="dayhead">
         <div class="dayhead-top">
           <div class="dayhead-id">
-            <div class="dayhead-label">${esc(inChallenge ? chal.name : relative)}</div>
-            <h1 class="daynum">DAY <b>${dayNum}</b>${
-              inChallenge ? `<i>/ ${chal.days}</i>` : ''
-            }</h1>
+            <div class="dayhead-label">${esc(relative)}</div>
+            <h1 class="daynum">DAY <b>${dayNum}</b></h1>
           </div>
           <div class="dayhead-side">
             ${
@@ -936,151 +728,67 @@
             </div>
           </div>
         </div>
-        ${
-          inChallenge
-            ? `<button type="button" class="dayhead-track" data-act="challenge-open"
-                 aria-label="${esc(chal.name)} — day ${run.day} of ${run.days}, ${run.kept} days kept">
-                <i class="elapsed" style="width:${run.pct}%"></i>
-                <i class="kept" style="width:${run.keptPct}%"></i>
-              </button>`
-            : ''
-        }
         <div class="dayhead-foot">
           <span>${esc(A.prettyDate(k))}${st.total ? ` · ${st.done}/${st.total} done` : ''}</span>
-          <span>${
-            inChallenge
-              ? `${run.elapsed} elapsed · ${run.kept} days kept`
-              : `${hist.completeDays} days kept`
-          }</span>
+          <span>${hist.completeDays} ${hist.completeDays === 1 ? 'session' : 'sessions'} kept</span>
         </div>
-        <!-- The headline was computed on every render and never inserted, so
-             the day's state was said only by the fraction above and by the
-             fixed strip. This is where it was plainly meant to go. -->
         <div class="dayline-headline">${esc(headline)}</div>
       </section>
 
       ${deloadNote}
-      ${lineRow}
       ${missTwice}
-      ${jarRow}
 
-      <!-- Banners sit UNDER the header, not above it. Every screen now begins
-           with a header that supplies the status-bar inset, so a banner rendered
-           first would be the one block on any screen with nothing between it and
-           the clock. -->
+      <!-- Banners sit UNDER the header, not above it. Every screen begins with a
+           header that supplies the status-bar inset, so a banner rendered first
+           would be the one block with nothing between it and the clock. -->
       ${offset === 0 ? banners() : ''}
 
-      <!-- The rail: seven days you can scrub, directly under the header, which
-           is the brief's answer to a date stepper hidden in the corner. -->
       ${weekStrip(k)}
 
       ${offset !== 0 ? `<button class="btn ghost block" data-act="date-today" style="margin-bottom:12px">Back to today</button>` : ''}
 
-      <!-- The filter, drawn as 1c's count line rather than as three tabs. The
-           counts ARE the control: what is left reads as the heading it already
-           looked like, and the two quiet figures beside it still switch the list.
-           Nothing was made unreachable to get there. -->
-      <div class="segbar countline">
-        ${seg('todo', buckets.todo.length ? `${buckets.todo.length} left to go` : 'Nothing left')}
-        <span class="countline-rest">${seg('done', `${buckets.done.length} kept`)}<i>·</i>${seg(
-          'skipped',
-          `${buckets.skipped.length} skipped`
+      <div class="label split">
+        <span>${esc(A.DAY_NAMES[A.weekday(k)])} session</span>
+        <span>${esc(
+          (function () {
+            if (!plan.length) return 'Rest';
+            if (!vol.sets) return plan.length + (plan.length === 1 ? ' exercise' : ' exercises');
+            const sets = vol.sets + (vol.sets === 1 ? ' set' : ' sets');
+            /* A bodyweight session moves no load, and "0 kg" would say it moved
+               none — a different claim from "none of it was loaded". Reps are
+               the honest total for a day of chin-ups. */
+            return vol.volume > 0
+              ? sets + ' · ' + A.round1(vol.volume) + ' ' + unit
+              : sets + ' · ' + vol.reps + ' reps';
+          })()
         )}</span>
-        <button class="icon-btn seg-add" data-act="goal-new" aria-label="New goal">＋</button>
       </div>
 
-      ${cards}
-      ${gestureHint}
-
-      ${offset === 0 ? runSection() : ''}
-
-      <!-- Folding the section used to take the only way of finishing a workout
-           with it, so the tick rides the heading where it is always reachable. -->
-      ${foldHead({
-        id: 'workoutBody',
-        act: 'workout-more',
-        title: A.DAY_NAMES[A.weekday(k)] + ' workout',
-        summary: exSummary,
-        open: workoutOpen,
-        done: plan.length && exDone === plan.length,
-        tail:
-          plan.length && !future
-            ? `<button type="button" class="fold-tick" data-act="workout-done"
-                aria-pressed="${exDone === plan.length}"
-                aria-label="${exDone === plan.length ? 'Undo the whole' : 'Mark the whole'} ${esc(
-                A.DAY_NAMES[A.weekday(k)]
-              )} workout done">✓</button>`
-            : ''
-      })}
-      <!-- The wrapper is always here so aria-controls always resolves; what is
-           inside it is built only when open. Hiding a rendered list with the
-           hidden attribute instead would leave the whole section one CSS
-           display rule away from being invisible but still reachable, which is
-           a failure this app has shipped before. -->
       ${
         plan.length && !future
-          ? `<div class="fold-bar" aria-hidden="true"><i style="width:${
-              Math.round((exDone / plan.length) * 100)
-            }%"></i></div>`
+          ? `<button type="button" class="btn ghost block" data-act="workout-done"
+              aria-pressed="${st.exDone === plan.length}" style="margin-bottom:10px">${
+              st.exDone === plan.length ? 'Undo the whole session' : 'Mark the whole session done'
+            }</button>`
           : ''
       }
-      <div id="workoutBody">${
-        !workoutOpen
-          ? ''
-          : `<div class="list">${exHtml}${extraHtml}</div>
-        ${
-          future
-            ? ''
-            : `<div class="inline-add">
-                <input type="text" id="extraInput" aria-label="Log something extra you did"
-                       placeholder="Log something extra you did…" maxlength="60">
-                <button class="btn" data-act="add-extra">Add</button>
-              </div>`
-        }`
-      }</div>
 
-      <div class="label">Daily habits</div>
-      <div class="list">${habitHtml}</div>
+      ${exHtml}
+      ${extraHtml ? `<div class="list">${extraHtml}</div>` : ''}
 
-      <!-- What used to sit here: a three-figure scoreboard hero, the week strip
-           a second time inside its own card, and a journal textarea. 1c has none
-           of them, and each was a duplicate — the streak and days kept are in
-           the header, the strip is the rail, the real totals are the first thing
-           on Stats, and the journal box was the same box Read already carries
-           for the same day. The brief's opening complaint was that Today is one
-           long scroll of near-identical cards, and this was three quarters of
-           the scroll.
-
-           Neither of the two things that were reachable ONLY from here goes with
-           them: the weekly reward, which is a payout and takes the amber, and
-           the journal, which keeps a row that says whether it is written. -->
       ${
-        wk.hit && !wk.claimed
-          ? `<button type="button" class="paycard" data-act="claim-weekly">
-              <span class="body"><b>This week is kept · ${wk.complete}/${wk.goal} days</b>
-                <span>The weekly reward is waiting on you</span></span>
-              <span class="paycard-go">Open · +${fmtXp(A.XP.weeklyGoal)} XP</span>
-            </button>`
-          : ''
+        future
+          ? ''
+          : `<div class="inline-add">
+              <input type="text" id="extraInput" aria-label="Log something extra you trained"
+                     placeholder="Log something extra you trained…" maxlength="60">
+              <button class="btn" data-act="add-extra">Add</button>
+            </div>`
       }
-
-      <!-- Once the journal counts toward the day it is a thing the day ASKS
-           for, so the row has to say whether it is done — a row that scores you
-           silently is the same bug as a tick that does nothing. -->
-      <button type="button" class="linkrow ${st.jrTotal ? (st.jrDone ? 'is-done' : 'is-asked') : ''}" data-nav="read">
-        <span class="body"><b>Journal</b><span>${
-          journal && (journal.text || '').trim()
-            ? esc(previewOf({ summary: journal.text }))
-            : st.jrTotal
-            ? 'Not written yet — the day is asking for it'
-            : 'Nothing written for this day yet'
-        }</span></span>
-        ${st.jrTotal && st.jrDone ? `<span class="linkrow-tick" aria-hidden="true">✓</span>` : icon('chev')}
-      </button>
 
       ${
         offset === 0 && mLeft < 240
-          ? `<p class="faint" style="text-align:center;font-size:var(--fs-sm);margin:4px 0 0">${mLeft} min left to log ${esc(
+          ? `<p class="faint" style="text-align:center;margin-top:10px">${mLeft} min left to log ${esc(
               relative.toLowerCase()
             )} — the day rolls over at ${esc(A.prettyTime(S.settings().dayBoundaryHour * 60))}.</p>`
           : ''
@@ -1093,135 +801,12 @@
           : ''
       }
       ${frozen ? `<button class="btn ghost block" data-act="unfreeze" data-date="${k}" style="margin-top:10px">${icon('snow')} Frozen — tap to undo</button>` : ''}
-      ${st.done > 0 ? `<button class="btn ghost block" data-act="clear-day" style="margin-top:4px">Reset this day's log</button>` : ''}
+      ${st.done > 0 || vol.sets ? `<button class="btn ghost block" data-act="clear-day" style="margin-top:4px">Reset this day's log</button>` : ''}
       ${strip}
     `;
   }
 
   /* ================= PLAN ================= */
-
-  function scheduleText(goal) {
-    const s = goal.schedule || { type: 'daily' };
-    if (s.type === 'weekdays') return (s.days || []).map((d) => A.DAY_SHORT[d]).join(' ');
-    return 'Every day';
-  }
-
-  /**
-   * A goal, as artboard 2a draws it: the 38px icon plate, the name with its
-   * level beside it in amber, and then the one line the brief asks for —
-   * "every goal states its ladder in one line: baseline, today's ask, target"
-   * — with what earns the next step underneath.
-   *
-   * The middle figure is emphasised because it is the only one of the three that
-   * is a question being asked of you today; the other two are where you started
-   * and where you are going. That is also why the row keeps `advanceHint`
-   * verbatim: "2 more good days steps you to 06:00" is the app's core promise
-   * that a level is earned by performing and never by the calendar, and the
-   * mockup prints it in full.
-   */
-  function goalManageRow(g) {
-    const tl = S.goalTimeline(g.id);
-    const from = A.formatValue(g.unit, g.baseline);
-    const to = A.formatValue(g.unit, g.target);
-    const askOn = S.goalTargetOn(g.id, S.today());
-    const ask = askOn != null ? A.formatValue(g.unit, askOn) : from;
-    const pct = tl.maxLevel ? (tl.level / tl.maxLevel) * 100 : 100;
-    return `<article class="goalcard ${g.archived ? 'is-archived' : ''}">
-      <div class="goalcard-top">
-        <span class="gcard-plate" aria-hidden="true">${icon(SECTION_ICON[g.section] || 'star')}</span>
-        <div class="goalcard-body">
-          <div class="goalcard-name">
-            <b>${esc(g.name)}</b>${levelChip(tl)}
-          </div>
-          <div class="goalcard-ladder">${esc(from)} → <b>${esc(ask)}</b> → ${esc(to)} · ${esc(
-      scheduleText(g)
-    )}${g.gate === 'summary' ? ' · summary required' : ''}</div>
-        </div>
-        <button class="icon-btn" data-act="goal-edit" data-id="${g.id}" aria-label="Edit ${esc(g.name)}">${icon('pen')}</button>
-      </div>
-      <div class="goalcard-bar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div>
-      <div class="goalcard-hint">${esc(advanceHint(g, tl))}${
-      tl.atTarget && !g.archived
-        ? ` <button class="link" data-act="goal-raise" data-id="${g.id}">Raise it →</button>`
-        : ''
-    }</div>
-    </article>`;
-  }
-
-  /**
-   * What the goals are asking for, in hours, today and at their targets.
-   *
-   * The run refuses to build a day somebody cannot physically do — it checks
-   * every one of its 66 days against a minutes budget. Goals have never had that
-   * check, so six practices can quietly ramp to six hours a day and nothing
-   * anywhere says so until the days start being missed.
-   *
-   * This is not a limit and it does not refuse anything. It is the accountability
-   * mirror pointed at time: here is the number, and it is the one number nobody
-   * works out for themselves.
-   */
-  function minuteBudget() {
-    const live = S.activeGoals().filter((g) => g.unit === 'minutes');
-    if (!live.length) return '';
-    const k = S.today();
-    const now = live.reduce((n, g) => {
-      const t = S.goalTargetOn(g.id, k);
-      return n + (t == null ? 0 : t);
-    }, 0);
-    const full = live.reduce((n, g) => n + (Number(g.target) || 0), 0);
-    if (!now && !full) return '';
-    const hrs = (m) => (m >= 90 ? Math.round((m / 60) * 10) / 10 + ' h' : Math.round(m) + ' min');
-    return `<div class="minsum">
-      <span>Today these ask <b>${esc(hrs(now))}</b></span>
-      <span>At their targets, <b>${esc(hrs(full))}</b> a day</span>
-    </div>`;
-  }
-
-  /** The goals half of Plan: a section label per area, then the cards. */
-  function goalManageBlock() {
-    const all = S.goals();
-    const active = all.filter((g) => !g.archived);
-    const archived = all.filter((g) => g.archived);
-    const groups = {};
-    active.forEach((g) => (groups[g.section || 'custom'] = (groups[g.section || 'custom'] || []).concat(g)));
-
-    const body = A.SECTIONS.filter((s) => groups[s.id])
-      .map(
-        (s) => `<div class="label">${esc(s.name)}</div>
-          ${groups[s.id].map(goalManageRow).join('')}`
-      )
-      .join('');
-
-    return `
-      ${minuteBudget()}
-      ${body || `<div class="empty">No goals yet.<br><button class="link" data-act="goal-new">Add the first one →</button></div>`}
-      ${
-        archived.length
-          ? `<div class="label">Paused</div>${archived.map(goalManageRow).join('')}`
-          : ''
-      }
-      <button type="button" class="linkrow" data-act="practices-install">
-        <span class="linkrow-plate" aria-hidden="true">${icon('target')}</span>
-        <span class="body"><b>Only my practices</b>
-          <span>Pause everything else and put the six back on the list</span></span>
-        ${icon('chev')}
-      </button>
-
-      <button type="button" class="linkrow" data-act="goal-templates">
-        <span class="linkrow-plate" aria-hidden="true">${icon('level')}</span>
-        <span class="body"><b>Set up a practice</b>
-          <span>English, AI, a sport, gratitude — the shape filled in, the numbers left to you</span></span>
-        ${icon('chev')}
-      </button>
-
-      <!-- The invariant, printed where the screen that can break it lives. It is
-           the verbatim line from the artboard. -->
-      <p class="footnote">Editing a goal never reaches back: every day you have
-        logged keeps the target it was judged against. A goal moves from where
-        you are now to a target you set, and stops there — and you step up by
-        performing, never because a week passed.</p>
-    `;
-  }
 
   function planWeekBlock() {
     const todayWd = A.weekday(S.today());
@@ -1315,297 +900,116 @@
    * which one you had come for. The segment is a view switch and stores nothing
    * — a tab is not user data.
    */
+  /**
+   * Plan, from artboard 2a.
+   *
+   * The segmented header is gone with the half it switched to. Plan had two
+   * subjects sharing one scroll — goals and the training week — and a tab that
+   * only ever has one destination is a control that says nothing.
+   */
   function renderPlan() {
-    const goals = S.goals().filter((g) => !g.archived).length;
     const total = dayOrder.reduce((n, d) => n + (S.get().plan[d] || []).length, 0);
     const trainingDays = dayOrder.filter((d) => (S.get().plan[d] || []).length).length;
-    const onGoals = planTab === 'goals';
 
     return `
       <header class="screenhead">
         <div class="screenhead-top">
           <h1>Plan</h1>
-          ${
-            onGoals
-              ? `<button class="headpill" data-act="goal-new">${icon('plus')}New goal</button>`
-              : `<button class="headpill" data-act="plan-add" data-day="${A.weekday(S.today())}">${icon(
-                  'plus'
-                )}Add today</button>`
-          }
+          <button class="headpill" data-act="plan-add" data-day="${A.weekday(S.today())}">${icon('plus')}Add today</button>
         </div>
-        <div class="segbar tabs">
-          <button type="button" class="seg ${onGoals ? 'on' : ''}" data-act="plan-tab" data-tab="goals"
-            aria-pressed="${onGoals}">Goals · ${goals}</button>
-          <button type="button" class="seg ${onGoals ? '' : 'on'}" data-act="plan-tab" data-tab="week"
-            aria-pressed="${!onGoals}">Training week</button>
-        </div>
-        <div class="screenhead-sub">${
-          onGoals
-            ? 'A ladder each, from where you are to where you chose to be.'
-            : `${trainingDays} training day${trainingDays === 1 ? '' : 's'} · ${total} exercise${
-                total === 1 ? '' : 's'
-              }`
-        }</div>
+        <div class="screenhead-sub">${trainingDays} training day${trainingDays === 1 ? '' : 's'} · ${total} exercise${
+      total === 1 ? '' : 's'
+    } a week</div>
       </header>
 
-      ${onGoals ? goalManageBlock() : planWeekBlock()}
+      ${planWeekBlock()}
     `;
   }
 
-  /* ================= READ ================= */
-
-  /* Mood is stored as an index into this list, so it is append-only: reordering
-     or removing an entry would silently re-label every journal entry already
-     written. The name is what a screen reader announces — an emoji is not a name. */
-  /* The archives render the most recent slice rather than everything. The count
-     beside the heading has to say so: "Past summaries · 96" above a list that
-     stops at 40 reads as the app having lost the rest, and honest is a stated
-     project principle. */
-  const ARCHIVE_MAX = 40;
-  const archiveCount = (n) => (n > ARCHIVE_MAX ? `showing ${ARCHIVE_MAX} of ${n}` : String(n));
-
-  /* Names, not faces. The `icon` field these used to carry is gone: nothing
-     reads it any more, and it was the thing making the value unreadable — the
-     same stored index drew a different picture on every platform. The list stays
-     APPEND-ONLY regardless, because the stored value is an index into it and
-     reordering would silently re-label every entry ever written. */
-  const MOODS = [
-    { name: 'Rough' },
-    { name: 'Low' },
-    { name: 'Okay' },
-    { name: 'Good' },
-    { name: 'Great' }
-  ];
-
-  /* The archive used to print the face alone, so the one carrier of the value
-     was a picture the reader could not reliably tell apart. The name is the
-     honest label, and it was already stored on the entry. */
-  const moodName = (i) => (MOODS[i] ? MOODS[i].name : '');
-
-  /** How many words are in it. The one number on this screen that has to be
-      live, because it is next to the button that closes the day. */
-  const wordCount = (text) => String(text || '').trim().split(/\s+/).filter(Boolean).length;
+  /* ================= STATS ================= */
 
   /**
-   * One form, used inline on the Read tab and inside the sheet from Today.
+   * One exercise's last 90 days: a column per session, height = the top set.
    *
-   * Artboard 2b's order: the two facts of the entry as small cards, then the
-   * prompt, then the box, then the word count beside the one button that closes
-   * the day. The prompt used to be a field label three rows down — it is the
-   * question being asked, so it sits above the box it is asked into.
+   * The form was picked before the colour, which is the order that matters. The
+   * question is "is the bar going up", which is change over time on an uneven
+   * calendar — so it is columns for the sessions that happened and nothing at
+   * all for the days between. A line would invent a continuous climb across
+   * days nothing was recorded, which is the one thing this app must never draw.
+   *
+   * ONE series, so there is no legend box: the label above the chart names it.
+   * The colour is `--chart-did`, which is a validated step for a mark on this
+   * surface — see the chart invariant in CLAUDE.md. Do not swap it for
+   * `--accent`; that failed the chroma floor at chart scale.
    */
-  function readingForm(dateKey) {
-    const g = S.activeGoals().find((x) => x.gate === 'summary');
-    const r = S.readingEntry(dateKey) || {};
-    const done = g ? S.goalDone(dateKey, g.id) : !!(r.summary || '').trim();
-    const target = g ? S.goalTargetOn(g.id, dateKey) : null;
-    const mins = r.minutes != null ? r.minutes : target != null && g && g.unit === 'minutes' ? target : '';
-
-    return `
-      <div class="minifields">
-        <label class="minifield wide"><span>Book</span>
-          <input type="text" id="r_book" maxlength="60" value="${esc(r.book || '')}" placeholder="Deep Work, ch. 3"></label>
-        <label class="minifield"><span>Minutes</span>
-          <input type="number" id="r_min" min="0" max="600" value="${esc(mins)}"></label>
-      </div>
-      <p class="readprompt">${esc(A.promptForDay(dateKey))}</p>
-      <textarea id="r_summary" rows="5" aria-label="Today's summary"
-        placeholder="A few honest sentences in your own words…">${esc(r.summary || '')}</textarea>
-      <div class="readfoot">
-        <span class="readwords" id="r_words">${wordCount(r.summary)} words · any length counts</span>
-        <button class="btn primary" data-act="read-save" data-date="${dateKey}">${
-      done ? 'Update summary' : 'Save & complete'
-    }</button>
-      </div>
-      <p class="footnote">Writing it is what marks the day done — there is no
-        separate tick, and a real sentence beats a long one you didn't mean.${
-          g && target != null
-            ? ` Today asks ${esc(targetPhrase(g, target))}; logging fewer minutes saves the summary but leaves the goal unmet.`
-            : ''
-        }</p>
-      ${
-        done
-          ? `<button class="btn ghost danger block" data-act="read-clear" data-date="${dateKey}">Clear this summary</button>`
-          : ''
-      }`;
-  }
-
-  /**
-   * Read, from artboard 2b.
-   *
-   * "The gate is the screen's subject, so the prompt comes first and the day's
-   * word count sits next to the one button that closes it."
-   *
-   * That is the whole change. The form used to be a stack of labelled fields
-   * inside a plain card, with the prompt as a field label three rows down; the
-   * prompt is the thing being asked, so it goes above the box it is asked into,
-   * and the two facts of the entry — book and minutes — shrink to two small
-   * cards beside each other above it. The card takes the amber border every
-   * screen gives to something waiting on you, and drops it once the summary is
-   * written.
-   *
-   * The archives collapse to counted rows. They were two full lists of forty
-   * entries each on the screen you open to write today's, which is most of a
-   * scroll spent on last month.
-   */
-  function renderRead() {
-    const k = S.today();
-    const g = S.activeGoals().find((x) => x.gate === 'summary');
-    const tl = g ? S.goalTimeline(g.id) : null;
-    const past = S.readingDays().filter((d) => d !== k);
-    const jDays = S.journalDays().filter((d) => d !== k);
-    const j = S.journalEntry(k) || {};
-    const r = S.readingEntry(k) || {};
-    const done = g ? S.goalDone(k, g.id) : !!(r.summary || '').trim();
-    const target = g ? S.goalTargetOn(g.id, k) : null;
-
-    const summaryList = past.length
-      ? past
-          .slice(0, ARCHIVE_MAX)
-          .map((d) => {
-            const e = S.readingEntry(d);
-            return `<details class="entry"><summary>
-                <b>${esc(A.prettyDate(d))}</b>
-                <span>${esc(e.book || 'Reading')}${e.minutes ? ' · ' + e.minutes + ' min' : ''}</span>
-              </summary>
-              <p>${esc(e.summary)}</p>
-              <button class="link" data-act="open-read" data-date="${d}">Edit</button>
-            </details>`;
+  function exerciseSparks() {
+    const life = S.lifeTotals();
+    const unit = life.unit;
+    const rows = life.exercises.filter((r) => r.days >= 2).slice(0, 8);
+    if (!rows.length) return '';
+    return rows
+      .map((row) => {
+        const pts = S.exerciseSeries(row.id, 90, unit).filter((x) => x.top != null);
+        if (pts.length < 2) return '';
+        const top = Math.max.apply(null, pts.map((x) => x.top));
+        const floor = Math.min.apply(null, pts.map((x) => x.top));
+        /* Zero-based would flatten every real strength gain into a rounding
+           error — 60 to 65 kg on a 0-65 axis is four pixels. The baseline is
+           the lightest session drawn, and the label says both ends so the
+           reader is never guessing what the floor is. */
+        const span = Math.max(1, top - floor * 0.94);
+        const W = 120;
+        const H = 26;
+        const slot = W / pts.length;
+        const bw = Math.max(1.5, Math.min(20, slot - 2)); // 2px surface gap between columns
+        const cols = pts
+          .map((x, i) => {
+            const h = Math.max(1.5, ((x.top - floor * 0.94) / span) * H);
+            const r = h > 6 ? Math.min(4, bw / 2) : 0;
+            return `<rect x="${(i * slot).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${bw.toFixed(1)}"
+              height="${h.toFixed(1)}" rx="${r}" ry="${r}" fill="var(--chart-did)"
+              ><title>${esc(A.prettyDate(x.date) + ' · ' + A.fmtWeight(x.top, unit))}</title></rect>`;
           })
-          .join('')
-      : `<div class="empty">Your summaries will collect here — it becomes the most useful thing in the app.</div>`;
-
-    const journalList = jDays.length
-      ? jDays
-          .slice(0, ARCHIVE_MAX)
-          .map((d) => {
-            const e = S.journalEntry(d);
-            return `<details class="entry"><summary>
-                <b>${esc(A.prettyDate(d))}</b><span>${e.mood != null ? esc(moodName(e.mood)) : ''}</span>
-              </summary><p>${esc(e.text || '')}</p></details>`;
-          })
-          .join('')
-      : `<div class="empty">No journal entries yet.</div>`;
-
-    return `
-      <header class="screenhead">
-        <div class="screenhead-top">
-          <h1>Read</h1>
-          ${
-            tl
-              ? `<span class="headpill quiet">${icon('flame')}${tl.streak}</span>`
-              : ''
-          }
-        </div>
-        <div class="screenhead-sub">${
-          g
-            ? `Reading is locked until you write. ${past.length + (done ? 1 : 0)} ${
-                past.length + (done ? 1 : 0) === 1 ? 'summary' : 'summaries'
-              } so far.`
-            : 'A reading goal is closed by writing about it, not by ticking it.'
-        }</div>
-      </header>
-
-      ${
-        g
-          ? `<section class="gatecard ${done ? 'is-done' : ''}">
-              <div class="gatecard-label">${
-                done
-                  ? 'Today’s summary · written'
-                  : `Today’s summary${target != null ? ' · ' + esc(targetPhrase(g, target)) : ''}`
-              }</div>
-              ${readingForm(k)}
-            </section>`
-          : `<div class="empty">No reading goal yet.<br>
-             <button class="link" data-act="goal-new">Create one →</button></div>`
-      }
-
-      <div class="label">Daily journal</div>
-      <section class="card">
-        <!-- The NAME, not a face. Two of the five differ by a few pixels of
-             mouth curvature at this size, and which picture appears is the
-             platform's decision rather than the app's — the same stored index
-             showed a different face on iOS, Android and Windows. The name was
-             already on every entry and already in the aria-label; this puts it
-             where the eye is. The stored value is unchanged: an index. -->
-        <div class="mood-row">${MOODS.map(
-          (m, i) =>
-            `<button type="button" class="mood ${j.mood === i ? 'on' : ''}" data-act="mood" data-i="${i}" data-date="${k}"
-              aria-pressed="${j.mood === i}">${esc(m.name)}</button>`
-        ).join('')}</div>
-        <textarea id="dayNote" data-date="${k}" rows="4" aria-label="Journal for this day"
-          placeholder="How did the day actually go?">${esc(j.text || '')}</textarea>
-      </section>
-
-      <!-- Counted rows, not two lists of forty. The count still says
-           "showing 40 of 96" rather than "96" over a list that stops at 40:
-           a count that overstates what is on screen reads as lost data. -->
-      <details class="archive">
-        <summary>
-          <span class="body"><b>Past summaries</b><span>${
-            past.length ? esc(archiveCount(past.length)) + ' · newest ' + esc(A.prettyDate(past[0])) : 'None yet'
-          }</span></span>
-          ${icon('chev')}
-        </summary>
-        <div class="card">${summaryList}</div>
-      </details>
-
-      <details class="archive">
-        <summary>
-          <span class="body"><b>Past journal</b><span>${
-            jDays.length ? esc(archiveCount(jDays.length)) : 'None yet'
-          }</span></span>
-          ${icon('chev')}
-        </summary>
-        <div class="card">${journalList}</div>
-      </details>
-    `;
+          .join('');
+        const latest = pts[pts.length - 1];
+        return `<div class="spark">
+          <span class="spark-name">${esc(row.name)}</span>
+          <svg class="spark-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
+            role="img" aria-label="${esc(
+              row.name + ': top set over ' + pts.length + ' sessions, ' +
+              A.fmtWeight(floor, unit) + ' to ' + A.fmtWeight(top, unit) +
+              ', latest ' + A.fmtWeight(latest.top, unit)
+            )}">${cols}</svg>
+          <span class="spark-val">${esc(A.fmtWeight(latest.top, unit))}</span>
+        </div>`;
+      })
+      .join('');
   }
 
-  /* ================= PROGRESS ================= */
-
-  /** "46 hours" beats "2760 min", and a count beats both when it is a count. */
-  function lifeAmount(row) {
-    if (row.total == null) return `${row.kept} day${row.kept === 1 ? '' : 's'}`;
-    if (row.goal.unit === 'minutes') {
-      const hours = row.total / 60;
-      if (hours >= 1.5) return `${Math.round(hours)} hours`;
-      return `${Math.round(row.total)} min`;
-    }
-    if (row.goal.unit === 'seconds' && row.total >= 300) return `${Math.round(row.total / 60)} min`;
-    return A.formatValue(row.goal.unit, row.total);
-  }
-
-  /** One plain sentence about a real life, with no invented currency in it. */
+  /** One plain sentence about a real record, with no invented currency in it. */
   function lifeSentence(life) {
     const bits = [];
-    bits.push(`<b>${life.kept}</b> of <b>${life.days}</b> days kept`);
-    if (life.sessions) bits.push(`<b>${life.sessions}</b> training ${life.sessions === 1 ? 'session' : 'sessions'}`);
-    if (life.summaries) bits.push(`<b>${life.summaries}</b> ${life.summaries === 1 ? 'summary' : 'summaries'} written`);
-    if (life.journal) bits.push(`<b>${life.journal}</b> journal ${life.journal === 1 ? 'entry' : 'entries'}`);
+    bits.push(`<b>${life.kept}</b> of <b>${life.days}</b> ${life.days === 1 ? 'day' : 'days'} kept`);
+    if (life.sessions) bits.push(`<b>${life.sessions}</b> ${life.sessions === 1 ? 'exercise' : 'exercises'} done`);
+    if (life.sets) bits.push(`<b>${life.sets}</b> ${life.sets === 1 ? 'set' : 'sets'} logged`);
+    if (life.reps) bits.push(`<b>${life.reps}</b> reps`);
     return bits.join(' · ');
   }
 
   /**
    * Stats, from artboard 2c.
    *
-   * "Real totals on the light surface at the top, in a sentence about a life.
-   * The rank and XP ladder keep their place but drop below the ledger and lose
-   * the accent colour — they are instruments, not the argument."
-   *
-   * That is this app's oldest rule given a visual form: see "This Is Not A Game"
-   * in knowledge/project.md. Days you kept, sessions you trained and summaries
-   * you wrote are facts about a life; XP and a rank are a number the app made up
-   * about itself. So the facts get the one light surface on the screen and a
-   * whole sentence, and the level gets a grey row at the bottom with no accent
-   * anywhere in it. It is not deleted — it is put in proportion.
+   * The rank and XP ladder that used to close this screen are gone rather than
+   * demoted. They were the app's own invention about itself, and with the goal
+   * engine removed there is nothing left they were even counting — every figure
+   * here is now a fact: sessions kept, sets performed, weight moved.
    */
   function renderProgress() {
     const hist = S.history();
     const life = S.lifeTotals();
-    const prog = S.progress();
     const streak = S.currentStreak();
     const today = S.today();
+    const unit = life.unit;
 
     // 18-week heat map, Monday-first columns
     const start = A.addDays(A.weekStart(today), -17 * 7);
@@ -1667,17 +1071,17 @@
               )}<span class="val">${r.count}</span></div>`
           )
           .join('') +
-        `<p class="faint" style="margin:10px 2px 0;font-size:var(--fs-xs);line-height:1.5">${esc(
+        `<p class="faint" style="margin:10px 2px 0;line-height:1.5">${esc(
           tally.sessions + (tally.sessions === 1 ? ' training day' : ' training days') +
           (tally.missing.length ? ' · nothing for ' + tally.missing.join(', ').toLowerCase() : '') +
           (tally.untagged ? ' · ' + tally.untagged + ' untagged' : '')
         )}${
           tally.untagged
-            ? ' — <button class="link" data-nav="more" style="min-height:0;padding:0;font-size:var(--fs-xs)">tag them in the library</button>'
+            ? ' — <button class="link" data-nav="more" style="min-height:0">tag them in the library</button>'
             : ''
         }</p>`
       : `<div class="empty">Nothing logged in this window.<br>
-         <span class="faint" style="font-size:var(--fs-sm)">Tick exercises on Today, and what they work shows up here.</span></div>`;
+         <span class="faint">Tick exercises on Today, and what they work shows up here.</span></div>`;
 
     const mixRows = Object.keys(mix).length
       ? Object.entries(mix)
@@ -1689,10 +1093,12 @@
           .join('')
       : `<div class="empty">Complete some exercises to see your training mix.</div>`;
 
-    const totalEx = Object.values(S.get().logs).reduce(
-      (n, l) => n + Object.values(l.ex || {}).filter(Boolean).length + (l.extra || []).length,
-      0
-    );
+    const sparks = exerciseSparks();
+
+    /* Heaviest set ever, per exercise. A table rather than a chart: eight
+       single numbers have no shape to show, and a bar chart of unrelated lifts
+       invites comparing a curl to a deadlift, which means nothing. */
+    const bestRows = life.exercises.filter((r) => r.best).slice(0, 12);
 
     return `
       <header class="screenhead">
@@ -1704,21 +1110,17 @@
 
       <!-- The light surface, used once on this screen and for this alone. -->
       <section class="ledgercard">
-        <div class="ledgercard-label">What you've actually done</div>
+        <div class="ledgercard-label">What you've actually lifted</div>
         <p class="lifeline">${lifeSentence(life)}</p>
-        ${
-          life.goals.length
-            ? `<div class="ledgercard-grid">${life.goals
-                .slice(0, 3)
-                .map(
-                  (row) => `<div class="ledgercard-item">
-                    <b>${esc(lifeAmount(row))}</b>
-                    <span>${esc(row.goal.name)}</span>
-                  </div>`
-                )
-                .join('')}</div>`
-            : ''
-        }
+        <div class="ledgercard-grid">
+          <div class="ledgercard-item"><b>${esc(A.round1(life.volume) + ' ' + unit)}</b><span>total moved</span></div>
+          <div class="ledgercard-item"><b>${life.workoutDays}</b><span>${
+            life.workoutDays === 1 ? 'day trained' : 'days trained'
+          }</span></div>
+          <div class="ledgercard-item"><b>${life.exercises.length}</b><span>${
+            life.exercises.length === 1 ? 'lift logged' : 'lifts logged'
+          }</span></div>
+        </div>
       </section>
 
       <div class="statrow">
@@ -1726,15 +1128,37 @@
           <b>${streak}</b><small>best ${hist.best}</small></div>
         <div class="statcard"><span class="statcard-label">Days kept</span>
           <b class="good">${hist.completeDays}</b><small>${life.days} lived</small></div>
-        <div class="statcard"><span class="statcard-label">Exercises</span>
-          <b>${totalEx}</b><small>${life.sessions} session${life.sessions === 1 ? '' : 's'}</small></div>
+        <div class="statcard"><span class="statcard-label">Sets</span>
+          <b>${life.sets}</b><small>${life.reps} reps</small></div>
       </div>
 
-      <div class="label">Every practice · 4 weeks</div>
-      <div class="card">${
-        goalSparks() ||
-        '<div class="empty">Log a few days and the shape of each one shows up here.</div>'
-      }</div>
+      ${
+        sparks
+          ? `<div class="label split"><span>Top set · 90 days</span><span>heaviest set each session</span></div>
+             <div class="card">${sparks}</div>
+             <p class="footnote">Each column is one session, not one day — nothing is drawn for a
+               day the lift was not trained, because a gap in the record is not a zero. The
+               baseline is the lightest session shown, so a real 5 ${esc(unit)} is visible
+               rather than rounded flat.</p>`
+          : ''
+      }
+
+      ${
+        bestRows.length
+          ? `<div class="label">Heaviest set</div>
+             <div class="card flush">${bestRows
+               .map(
+                 (r) => `<div class="row">
+                   <div class="body"><div class="name">${esc(r.name)}</div>
+                     <div class="sub">${esc(
+                       r.days + (r.days === 1 ? ' session · ' : ' sessions · ') + r.sets + ' sets · last ' + A.prettyDate(r.last)
+                     )}</div></div>
+                   <span class="pill">${esc(A.fmtWeight(r.best.w, unit) + ' × ' + r.best.r)}</span>
+                 </div>`
+               )
+               .join('')}</div>`
+          : ''
+      }
 
       <div class="label">Last 18 weeks</div>
       <div class="card">
@@ -1748,41 +1172,6 @@
         </div>
       </div>
 
-      <button type="button" class="linkrow" data-act="cookie-jar">
-        <span class="linkrow-plate" aria-hidden="true">${icon('trophy')}</span>
-        <span class="body"><b>The cookie jar</b>
-          <span>${
-            S.cookies().length
-              ? S.cookies().length + ' hard things, in your own words'
-              : 'Empty — evidence you write while calm, to read when you are not'
-          }</span></span>
-        ${icon('chev')}
-      </button>
-
-      <div class="label">Goal ladders</div>
-      <div class="card">${
-        S.activeGoals().length
-          ? S.activeGoals()
-              .map((g) => {
-                const tl = S.goalTimeline(g.id);
-                const pct = tl.maxLevel ? (tl.level / tl.maxLevel) * 100 : 100;
-                return `<div class="ladder">
-                  <div class="ladder-top">
-                    <span><b>${esc(g.name)}</b></span>
-                    <span class="faint">${esc(A.formatValue(g.unit, g.baseline))} → <b>${esc(
-                  A.formatValue(g.unit, tl.target)
-                )}</b> → ${esc(A.formatValue(g.unit, g.target))}</span>
-                  </div>
-                  ${bar(pct, tl.atTarget ? 'gold' : '')}
-                  <div class="faint" style="font-size:var(--fs-xs);margin-top:5px">${esc(advanceHint(g, tl))} · ${
-                  tl.doneDays
-                }/${tl.scheduledDays} days kept</div>
-                </div>`;
-              })
-              .join('')
-          : `<div class="empty">No goals yet.</div>`
-      }</div>
-
       <div class="label">Muscles trained</div>
       <div class="segbar tight">${MUSCLE_WINDOWS.map(
         (w) => `<button class="seg ${muscleWindow === w.days ? 'on' : ''}" data-act="muscle-window"
@@ -1793,52 +1182,29 @@
       <div class="label">Training mix · 30 days</div>
       <div class="card">${mixRows}</div>
 
-      <div class="label">Weekly goal history · target ${S.settings().goalPerWeek} a week</div>
+      <div class="label">Sessions a week · target ${S.settings().goalPerWeek}</div>
       <div class="card"><div class="bars">${bars}</div></div>
-
-      <!-- The level, last and grey. It keeps its place and loses the accent:
-           an instrument, not the argument. -->
-      <div class="lvlrow">
-        <span class="lvlrow-plate" aria-hidden="true">${icon('chart')}</span>
-        <div class="lvlrow-body">
-          <div class="lvlrow-line">Level ${prog.level} · ${esc(prog.rank.name)} · ${fmtXp(prog.xp)} XP</div>
-          <div class="lvlrow-bar"><i style="width:${Math.max(0, Math.min(100, prog.pct))}%"></i></div>
-        </div>
-      </div>
-      <p class="footnote">${fmtXp(prog.into)} of ${fmtXp(prog.need)} XP into this level. Points are
-        the app talking about itself; everything above this line is your record.</p>
     `;
   }
 
   /* ================= REWARDS ================= */
-
-  /** What a reward is waiting on, in words. */
-  function rewardTrigger(r) {
-    if (r.source === 'goal') {
-      const g = S.goalById(r.goalId);
-      return g ? `${r.days}-day streak on ${g.name}` : `${r.days}-day streak on a deleted goal`;
-    }
-    return `${r.days}-day streak`;
-  }
 
   /**
    * Rewards the user promised themselves. These pay out in the real world, so
    * "claim" means "I actually bought it" — and it toggles, because a mistap is
    * not a purchase.
    *
-   * Artboard 2d: an earned promise takes the amber border, the amber bar and the
-   * button; one still running takes the plain border and a teal bar, because
-   * teal is progress and amber is a debt the app owes you. And under the button,
-   * verbatim from the mockup: collecting grants no XP. That is the whole point
-   * of this half of the screen — the app cannot pay you, so it does not pretend
-   * that noticing you paid yourself is worth points.
+   * This is the whole of Rewards now. The eleven-milestone ladder, the XP on
+   * each medal and the weekly chest went with the points system: a badge for
+   * fourteen days is the app paying itself, and knowledge/project.md says a
+   * reward that costs something real beats one that costs the app nothing.
    */
   function myRewards() {
     const list = S.customRewards();
     if (!list.length) {
       return `<div class="promptrow">
         <span class="promptrow-plate" aria-hidden="true">${icon('gift')}</span>
-        <div class="promptrow-body">Promise yourself something real. Fourteen days, then the thing.
+        <div class="promptrow-body">Promise yourself something real. Fourteen sessions, then the thing.
           <button class="link" data-act="reward-new">Set one up →</button></div>
       </div>`;
     }
@@ -1850,7 +1216,7 @@
             <span class="myreward-icon" aria-hidden="true">${r.icon ? esc(r.icon) : icon('gift')}</span>
             <span class="myreward-body">
               <span class="myreward-name">${esc(r.name)}</span>
-              <span class="myreward-trig">${esc(rewardTrigger(r))}${
+              <span class="myreward-trig">${r.days}-day streak${
           p.unlocked ? ' · earned on your best run of ' + S.history().best : ''
         }</span>
             </span>
@@ -1865,7 +1231,7 @@
             p.unlocked
               ? `<button class="btn ${p.claimed ? 'ghost' : 'gold'} block" data-act="reward-claim" data-id="${r.id}"
                    style="margin-top:13px">${p.claimed ? 'Collected — undo' : 'I bought it'}</button>
-                 <p class="myreward-note">Collecting records the purchase. No XP — you bought this, the app didn't.</p>`
+                 <p class="myreward-note">Collecting records the purchase. The app did not buy this — you did.</p>`
               : ''
           }
         </article>`;
@@ -1873,116 +1239,41 @@
       .join('');
   }
 
-  /**
-   * Rewards, from artboard 2d.
-   *
-   * "Your own promises sit above the app's milestones and get the amber. 'I
-   * bought it' is the only claim here that means anything, and it grants no XP —
-   * the earned milestone below states its points in muted type instead."
-   *
-   * So the order inverted: what the user promised themselves is the subject of
-   * the screen, and the app's own ladder of medals is what follows. The XP on a
-   * milestone is still stated, in the quietest type on the card, because hiding
-   * it would be pretending the app does not keep score at all.
-   */
   function renderRewards() {
-    const list = S.rewards();
-    const next = S.nextMilestone();
     const streak = S.currentStreak();
     const best = S.history().best;
-    const wk = S.weekStats();
-    const claimable = list.filter((r) => r.unlocked && !r.claimed).length;
-
-    const nextCard = next
-      ? `<section class="card next-reward">
-          <div class="top">
-            <span class="medal">${icon('trophy')}</span>
-            <div><h3>Next: ${esc(next.name)}</h3><p>${esc(next.blurb)}</p></div>
-          </div>
-          <div class="xpbar-top"><span>${best} / ${next.days} days</span><span>${next.days - best} to go · +${fmtXp(next.xp)} XP</span></div>
-          ${bar((best / next.days) * 100, 'gold')}
-        </section>`
-      : `<section class="card next-reward"><div class="top"><span class="medal">${icon('trophy')}</span>
-          <div><h3>Every milestone unlocked</h3><p>You've cleared the whole ladder. Legend.</p></div></div></section>`;
-
-    const grid = list
-      .map(
-        (r) => `<div class="reward ${r.unlocked ? 'unlocked' : ''} ${r.claimed ? 'claimed' : ''}">
-          <span class="medal">${icon('trophy')}</span>
-          <h4>${r.days} days</h4>
-          ${
-            r.unlocked
-              ? r.claimed
-                ? `<div class="days claimed-mark">Claimed</div>`
-                : `<button class="btn primary claim" data-act="claim" data-id="${r.id}">Claim</button>`
-              : `<div class="mini-bar">${bar(r.progress, 'gold')}</div>`
-          }
-          <div class="days">${r.claimed ? '+' + fmtXp(r.xp) + ' XP' : esc(r.name)}</div>
-        </div>`
-      )
-      .join('');
-
     return `
       <header class="screenhead">
         <div class="screenhead-top">
           <span class="screenhead-plate" aria-hidden="true">${icon('trophy')}</span>
           <div style="flex:1;min-width:0">
-            <h1 style="font-size:var(--fs-2xl)">Rewards</h1>
-            <div class="screenhead-sub" style="margin-top:2px">Earned on your best run, never revoked</div>
+            <h1>Rewards</h1>
+            <div class="screenhead-sub">Earned on your best run, never revoked</div>
           </div>
           <button class="headpill" data-act="reward-new">${icon('plus')}New</button>
         </div>
       </header>
 
-      <div class="label">Your own rewards</div>
+      <div class="label split"><span>Your own rewards</span><span>${streak} now · best ${best}</span></div>
       ${myRewards()}
-
-      <div class="label split">
-        <span>Streak milestones</span><span>${streak} now · best ${best}${
-      claimable ? ' · ' + claimable + ' ready' : ''
-    }</span>
-      </div>
-      ${nextCard}
-      <div class="reward-grid">${grid}</div>
-
-      <!-- The weekly chest is the app's own payout, so it sits with the app's own
-           ladder rather than with the promises above. -->
-      <div class="card">
-        <div class="xpbar-top"><span>Weekly chest · ${wk.complete}/${wk.goal} days</span><span>${
-      wk.claimed ? 'Claimed' : wk.hit ? 'Ready' : `${wk.goal - wk.complete} to go`
-    }</span></div>
-        ${bar(wk.pct, 'gold')}
-        ${
-          wk.hit && !wk.claimed
-            ? `<button class="btn gold block" data-act="claim-weekly" style="margin-top:12px">Open chest · +${fmtXp(
-                A.XP.weeklyGoal
-              )} XP</button>`
-            : ''
-        }
-      </div>
+      <p class="footnote">A reward is a promise you make to yourself and pay yourself:
+        "fourteen sessions kept, then the shoes". It is earned on the best run your streak
+        ever reached, so a slip afterwards cannot take back something you already did.</p>
     `;
   }
 
   function openRewardEditor(id, draft) {
     const r = id ? S.customRewards().find((x) => x.id === id) : null;
-    const v = Object.assign({ name: '', icon: '', source: 'overall', goalId: null, days: 14 }, r || {}, draft || {});
-    const goals = S.activeGoals();
+    const v = Object.assign({ name: '', icon: '', days: 14 }, r || {}, draft || {});
     openSheet(r ? 'Edit reward' : 'New reward', `
-      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Name something you actually want, and what it costs in
-        days. Discipline will not buy it for you — it just refuses to say you earned it before you did.</p>
+      <p class="muted" style="margin-top:0">Name something you actually want, and what it costs in
+        sessions. Discipline will not buy it for you — it just refuses to say you earned it before you did.</p>
       <div class="grid-2">
         <label class="field"><span>Reward</span>
-          <input type="text" id="rw_name" maxlength="40" value="${esc(v.name)}" placeholder="New sneakers"></label>
+          <input type="text" id="rw_name" maxlength="40" value="${esc(v.name)}" placeholder="New shoes"></label>
         <label class="field"><span>Icon</span>
           <input type="text" id="rw_icon" maxlength="4" value="${esc(v.icon || '')}" placeholder="optional"></label>
       </div>
-      <label class="field"><span>Earned by</span><select id="rw_source">
-        <option value="overall" ${v.source !== 'goal' ? 'selected' : ''}>A streak of complete days</option>
-        <option value="goal" ${v.source === 'goal' ? 'selected' : ''}>A streak on one goal</option>
-      </select></label>
-      <label class="field" ${v.source === 'goal' ? '' : 'hidden'}><span>Which goal</span><select id="rw_goal">
-        ${goals.map((g) => `<option value="${g.id}" ${v.goalId === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
-      </select>${goals.length ? '' : '<small class="field-note">No goals yet — create one first.</small>'}</label>
       <label class="field"><span>Days needed</span>
         <input type="number" id="rw_days" min="1" max="999" value="${esc(v.days)}"></label>
       <div class="btn-row"><button class="btn primary block" data-act="reward-save" data-id="${r ? r.id : ''}">${
@@ -2013,106 +1304,50 @@
       )
       .join('');
 
-    const habitRows = S.get().habits.length
-      ? S.get()
-          .habits.map(
-            (h) => `<div class="row">
-              <div class="body"><div class="name">${esc(h.name)}</div><div class="sub">${icon('flame')} ${S.habitStreak(h.id)} day streak</div></div>
-              <button class="icon-btn" data-act="habit-to-goal" data-id="${h.id}"
-                aria-label="Make ${esc(h.name)} a goal that progresses">${icon('level')}</button>
-              <button class="icon-btn" data-act="habit-rm" data-id="${h.id}" aria-label="Delete">✕</button>
-            </div>`
-          )
-          .join('')
-      : `<div class="empty">No habits yet.</div>`;
-
     const fz = S.freezeStats();
-    /* The two destinations across the top of 2e each carry one line of state,
-       so the row says what is waiting rather than only where it goes. */
     const readyRewards = S.customRewards().filter((r) => {
-      const p = S.customRewardProgress(r);
-      return p.unlocked && !p.claimed;
-    }).length + S.rewards().filter((r) => r.unlocked && !r.claimed).length;
-    const runSt = S.runStatus();
-    const runLine = !runSt
-      ? "Not started"
-      : runSt.running
-      ? "Day " + runSt.day + " of " + A.Run.RUN_DAYS
-      : runSt.state === "finished"
-      ? "Finished"
-      : "Not started";
-    const modeCards = A.MODE_IDS.map((id) => {
-      const m = A.MODES[id];
-      const example = S.activeGoals()[0];
-      let preview = '';
-      if (example) {
-        const step = A.Goals.stepFor(Object.assign({}, example, { mode: 'inherit' }), id);
-        preview = `step ${A.formatValue(example.unit === 'time' ? 'minutes' : example.unit, step)}`;
-      }
-      return `<button type="button" class="mode-card ${s.mode === id ? 'on' : ''}" data-act="set-mode" data-mode="${id}">
-        <b>${esc(m.name)}</b>
-        <small>${esc(m.blurb)}</small>
-        ${preview ? `<i>${esc(example.name)}: ${esc(preview)}</i>` : ''}
-      </button>`;
-    }).join('');
+      const pr = S.customRewardProgress(r);
+      return pr.unlocked && !pr.claimed;
+    }).length;
 
     return `
       <header class="screenhead">
         <div class="screenhead-top"><h1>More</h1></div>
-        <!-- The artboard says "last export 3 days ago" here. There is no such
-             timestamp in the state and inventing one would mean a new field and
-             a migration, so this says the part that is true today. -->
         <div class="screenhead-sub">Everything lives on this device · nothing is ever uploaded</div>
       </header>
 
       <!-- Rewards left the tab bar for this row: it is the one screen you open
-           after the fact rather than to do something, and the four daily screens
-           are worth more thumb than it is. Artboard 2e pairs it with the run as
-           two destinations across the top. -->
-      <div class="destrow">
-        <button type="button" class="dest" data-nav="rewards">
-          <span class="dest-plate" aria-hidden="true">${icon('trophy')}</span>
-          <b>Rewards</b>
-          <span class="${readyRewards ? 'is-ready' : ''}">${
+           after the fact rather than to do something, and the three daily
+           screens are worth more thumb than it is. -->
+      <button type="button" class="linkrow" data-nav="rewards">
+        <span class="linkrow-plate" aria-hidden="true">${icon('trophy')}</span>
+        <span class="body"><b>Rewards</b><span class="${readyRewards ? 'is-ready' : ''}">${
       readyRewards
-        ? readyRewards + (readyRewards === 1 ? ' earned, uncollected' : ' earned, uncollected')
-        : 'Promises and milestones'
-    }</span>
-        </button>
-        <button type="button" class="dest" data-nav="run">
-          <span class="dest-plate" aria-hidden="true">${icon('sun')}</span>
-          <b>The 66-day run</b>
-          <span>${esc(runLine)}</span>
-        </button>
-      </div>
+        ? readyRewards + ' earned, uncollected'
+        : 'Promises you make to yourself, paid in the real world'
+    }</span></span>
+        ${icon('chev')}
+      </button>
 
-      <div class="label">Difficulty</div>
-      <div class="mode-grid">${modeCards}</div>
-      <p class="footnote">
-        Difficulty changes how <b>big</b> each step is, never how you earn one — you always advance by
-        performing. Switching re-scores your record at the new step size: nothing is wiped, days you
-        already completed stay completed, but the next ask can jump. Individual goals can override this.
-      </p>
-
-      <div class="label">Streak rules</div>
+      <div class="label">Training</div>
       <div class="card flush">
         <div class="row">
-          <div class="body"><div class="name">Day rolls over at</div><div class="sub">Late-night logging still counts for the day you meant</div></div>
-          <select data-set="dayBoundaryHour">
-            ${[0, 1, 2, 3, 4, 5, 6].map((h) => `<option value="${h}" ${s.dayBoundaryHour === h ? 'selected' : ''}>${A.prettyTime(h * 60)}</option>`).join('')}
+          <div class="body"><div class="name">Weight unit</div><div class="sub">Every set keeps the unit it was typed in, so switching only changes how they read</div></div>
+          <select data-set="weightUnit">
+            ${Object.keys(A.WEIGHT_UNITS)
+              .map(
+                (u) => `<option value="${u}" ${s.weightUnit === u ? 'selected' : ''}>${esc(A.WEIGHT_UNITS[u].label)}</option>`
+              )
+              .join('')}
           </select>
         </div>
         <div class="row">
-          <div class="body"><div class="name">Goals count toward the day</div><div class="sub">Turn off to score days on workouts alone</div></div>
-          <label class="switch"><input type="checkbox" data-set="goalsCountTowardDay" ${s.goalsCountTowardDay ? 'checked' : ''}><i></i></label>
+          <div class="body"><div class="name">Rest timer</div><div class="sub">Starts when you log a set, counting the rest the plan prescribes — and counting up when it prescribes none</div></div>
+          <label class="switch"><input type="checkbox" data-set="restTimer" ${s.restTimer ? 'checked' : ''}><i></i></label>
         </div>
         <div class="row">
-          <div class="body"><div class="name">The run counts toward the day</div><div class="sub">Only days the run actually recorded — it never reaches back</div></div>
-          <label class="switch"><input type="checkbox" data-set="runCountsTowardDay" ${s.runCountsTowardDay ? 'checked' : ''}><i></i></label>
-        </div>
-        <div class="row">
-          <div class="body"><div class="name">The journal counts toward the day</div><div class="sub">Writing an entry becomes one of the things the day asks for</div></div>
-          <label class="switch"><input type="checkbox" data-set="journalCountsTowardDay" ${s.journalCountsTowardDay ? 'checked' : ''}><i></i></label>
+          <div class="body"><div class="name">Sessions a week</div><div class="sub">The target the weekly bars on Stats are drawn against</div></div>
+          <input type="number" data-set="goalPerWeek" min="1" max="7" value="${esc(s.goalPerWeek)}">
         </div>
         <div class="row">
           <div class="body"><div class="name">Deload week</div><div class="sub">Every Nth week, cut training volume by ~40% — the recovery half of the equation</div></div>
@@ -2120,6 +1355,22 @@
             ${[0, 3, 4, 5, 6].map((n) => `<option value="${n}" ${Number(s.deloadEveryWeeks) === n ? 'selected' : ''}>${
               n === 0 ? 'Off' : 'Every ' + n + ' weeks'
             }</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <div class="label">Streak rules</div>
+      <div class="card flush">
+        <div class="row">
+          <div class="body"><div class="name">Day rolls over at</div><div class="sub">A late session still counts for the day you meant</div></div>
+          <select data-set="dayBoundaryHour">
+            ${[0, 1, 2, 3, 4, 5, 6].map((h) => `<option value="${h}" ${s.dayBoundaryHour === h ? 'selected' : ''}>${A.prettyTime(h * 60)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="row">
+          <div class="body"><div class="name">Session counts as complete at</div><div class="sub">How much of the day's plan you must finish</div></div>
+          <select data-set="completionPct">
+            ${[60, 80, 100].map((pc) => `<option value="${pc}" ${s.completionPct === pc ? 'selected' : ''}>${pc}%</option>`).join('')}
           </select>
         </div>
         <div class="row">
@@ -2138,34 +1389,11 @@
           <div class="body"><div class="name">Display name</div><div class="sub">What the app calls you</div></div>
           <input type="text" data-set="name" value="${esc(s.name)}" maxlength="24" style="max-width:150px">
         </div>
-        <div class="row">
-          <div class="body"><div class="name">Weekly goal</div><div class="sub">Completed days needed for the weekly chest</div></div>
-          <input type="number" data-set="goalPerWeek" min="1" max="7" value="${esc(s.goalPerWeek)}">
-        </div>
-        <div class="row">
-          <div class="body"><div class="name">Day counts as complete at</div><div class="sub">How much of the plan you must finish</div></div>
-          <select data-set="completionPct">
-            ${[60, 80, 100].map((p) => `<option value="${p}" ${s.completionPct === p ? 'selected' : ''}>${p}%</option>`).join('')}
-          </select>
-        </div>
-        <div class="row">
-          <div class="body"><div class="name">Habits count toward the day</div><div class="sub">Require habits, not just exercises</div></div>
-          <label class="switch"><input type="checkbox" data-set="requireHabits" ${s.requireHabits ? 'checked' : ''}><i></i></label>
-        </div>
       </div>
 
-      <div class="label split">
-        <span>Daily habits</span><button class="link" data-act="habit-add">＋ Add</button>
-      </div>
-      <div class="card flush">${habitRows}</div>
-      <p class="footnote">A habit is a tick that asks the same thing every day.
-        Tap ${icon('level')} on one to turn it into a goal instead — it keeps the
-        name, and starts asking a little more as you earn it. It stops being a
-        habit at that point, so it is still one tick in one place.</p>
-
-      <!-- Fifty-nine exercises pushed Reminders, Profile and the export route
-           off the bottom of More. It is a reference list, opened to change
-           something rather than read on the way past, so it folds. -->
+      <!-- Eighty-odd exercises would push Reminders, Profile and the export
+           route off the bottom of More. It is a reference list, opened to
+           change something rather than read on the way past, so it folds. -->
       ${foldHead({
         id: 'libBody',
         act: 'lib-open',
@@ -2183,7 +1411,7 @@
       <div class="label">Reminders</div>
       <div class="card">
         <div class="row">
-          <div class="body"><div class="name">Nudge me while the app is open</div><div class="sub">A browser notification when a goal is still unlogged</div></div>
+          <div class="body"><div class="name">Nudge me while the app is open</div><div class="sub">A browser notification when the session is still unlogged</div></div>
           <label class="switch"><input type="checkbox" data-set="reminders" ${s.reminders ? 'checked' : ''}><i></i></label>
         </div>
       </div>
@@ -2194,21 +1422,8 @@
       <p class="footnote">
         Being straight with you: a web app <b>cannot</b> be an alarm clock. Browsers don't run timers in
         the background, and iOS only delivers web notifications to a home-screen install, unreliably.
-        Discipline <b>tracks</b> your wake-up; it can't wake you. Keep using your phone's alarm for that.
+        Discipline <b>tracks</b> your training; it can't get you to the gym. Keep using your phone's alarm for that.
       </p>
-
-      <div class="label">Countdown</div>
-      <div class="card">
-        <div class="row">
-          <div class="body"><div class="name">${S.activeChallenge() ? esc(S.activeChallenge().name) : 'No countdown running'}</div>
-            <div class="sub">${
-              S.activeChallenge()
-                ? `Day ${S.challengeProgress().day} of ${S.challengeProgress().days} · ${S.challengeProgress().kept} kept`
-                : 'Count the days you keep against a fixed length — 66, or whatever you choose'
-            }</div></div>
-          <button class="btn" data-act="challenge-open">${S.activeChallenge() ? 'Open' : 'Start'}</button>
-        </div>
-      </div>
 
       <div class="label">App</div>
       <div class="card">
@@ -2225,7 +1440,7 @@
           <button class="btn" data-act="import">Import</button>
         </div>
         <div class="row">
-          <div class="body"><div class="name">Reset everything</div><div class="sub">Wipes plan, logs, streaks and rewards</div></div>
+          <div class="body"><div class="name">Reset everything</div><div class="sub">Wipes the plan, every logged set, streaks and rewards</div></div>
           <button class="btn danger" data-act="reset">Reset</button>
         </div>
       </div>
@@ -2467,36 +1682,14 @@
     `);
   }
 
-  /* ================= goal sheets ================= */
-
-  /** A value field that matches the unit — a clock for times, a number otherwise. */
-  function valueInput(id, unit, value, label) {
-    if (unit === 'time') {
-      return `<label class="field"><span>${esc(label)}</span>
-        <input type="time" id="${id}" value="${A.minToHhmm(value == null ? 420 : value)}"></label>`;
-    }
-    const step = unit === 'litres' || unit === 'km' ? '0.25' : '1';
-    return `<label class="field"><span>${esc(label)}</span>
-      <input type="number" id="${id}" step="${step}" min="0" value="${esc(value == null ? '' : value)}"></label>`;
-  }
-
-  function openReading(dateKey) {
-    openSheet('Reading — ' + A.prettyDate(dateKey), readingForm(dateKey));
-    setTimeout(() => {
-      // scoped to the sheet: the Read tab may already have an inline #r_summary
-      const t = $('#r_summary', $('#sheetBody'));
-      if (t) t.focus();
-    }, 60);
-  }
-
   /**
-   * How to perform an exercise: the coaching cues stored on it, one per line.
+   * The how-to sheet: the written cues for one exercise, plus its pictures.
    *
-   * This briefly led with a generated stick-figure animation. It was removed: an
-   * abstract figure could not distinguish the movements it claimed to show —
-   * every upright pose read as the same vertical stroke — and a demonstration
-   * you cannot trust is worse than none. The written cues carry what actually
-   * matters anyway: tempo, setup, and what to avoid.
+   * There is deliberately no drawn demonstration. An abstract figure could not
+   * distinguish the movements it claimed to show — every upright pose read as
+   * the same vertical stroke — and a demonstration you cannot trust is worse
+   * than none. The cues carry what actually matters: tempo, setup, what to
+   * avoid.
    */
   /* What the how-to sheet was last opened with, so adding a picture can rebuild
      it without losing the prescription it was showing. */
@@ -2620,7 +1813,11 @@
     const opts = pendingPrompt;
     const el = $('#tp_value');
     const value = el ? String(el.value || '').trim() : '';
-    if (!value) return false; // keep the sheet open rather than silently discarding
+    /* Empty keeps the sheet open rather than silently discarding — unless the
+       caller says an empty answer is a real one. Clearing a note the user wrote
+       has to be reachable, and "delete every character then save" is the only
+       gesture anybody tries. */
+    if (!value && !(opts && opts.allowEmpty)) return false;
     closeSheet(); // clears both pending slots
     if (opts && opts.onSave) opts.onSave(value);
     return true;
@@ -2629,1255 +1826,6 @@
   /** Re-baselining asks for a value in the goal's own unit, so it gets the same
       validated clock/number field as every other value in the app rather than a
       free-text browser prompt. */
-  function openGoalRestart(goalId) {
-    const g = S.goalById(goalId);
-    if (!g) return;
-    openSheet(`Move the starting point — ${g.name}`, `
-      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Move the starting point to where you actually
-      are today. The target stays at <b>${esc(A.formatValue(g.unit, g.target))}</b>; the ladder is rebuilt
-      from the new start and today becomes day one.</p>
-      <p class="faint" style="font-size:var(--fs-sm);margin:0 0 12px">Current start: <b>${esc(
-        A.formatValue(g.unit, g.baseline)
-      )}</b> · asking for <b>${esc(A.formatValue(g.unit, S.goalTarget(goalId)))}</b> right now.</p>
-      ${valueInput('g_base', g.unit, S.goalTarget(goalId), 'New starting point')}
-      <div class="btn-row">
-        <button class="btn primary" data-act="goal-restart-save" data-id="${goalId}" style="flex:1">Move it</button>
-        <button class="btn ghost" data-act="sheet-close">Cancel</button>
-      </div>
-    `);
-  }
-
-  /** A handful of round numbers around the ask — halves and doubles of it, plus
-      the ask itself, deduplicated and in order. */
-  function quickValues(target) {
-    const t = Number(target);
-    const raw = [Math.round(t * 0.25), Math.round(t / 2), Math.round(t * 0.75), Math.round(t), Math.round(t * 1.5)];
-    return raw
-      .map((v) => (v > 20 ? Math.round(v / 5) * 5 : v))
-      .filter((v) => v > 0)
-      .filter((v, i, all) => all.indexOf(v) === i)
-      .sort((a, b) => a - b)
-      .slice(0, 5);
-  }
-
-  function openGoalLog(goalId, dateKey) {
-    const g = S.goalById(goalId);
-    if (!g) return;
-    const e = S.goalEntry(dateKey, goalId) || {};
-    const target = S.goalTargetOn(goalId, dateKey);
-    openSheet(g.name, `
-      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Asked for <b>${esc(targetPhrase(g, target))}</b> on ${esc(
-      A.prettyDate(dateKey)
-    )}. Log what actually happened — the honest number is what makes the graph worth having.</p>
-      ${valueInput('g_val', g.unit, e.value != null ? e.value : target, 'What you actually did')}
-      ${
-        /* Some days it is ten minutes, some days fifteen. Typing that is four
-           taps and a keyboard; these are one. Built around the ask rather than
-           from a fixed list, so a goal asking 45 offers useful numbers and one
-           asking 5 does not offer 60. Nothing is logged by tapping one — it
-           fills the box, and Save is still Save. */
-        g.unit !== 'time' && target != null && target > 0
-          ? `<div class="chips quick">${quickValues(target).map(
-              (v) => `<button type="button" class="chip-pick" data-act="goal-quick" data-v="${v}">${esc(
-                A.formatValue(g.unit, v)
-              )}</button>`
-            ).join('')}</div>`
-          : ''
-      }
-      <div class="btn-row">
-        <button class="btn primary" data-act="goal-save-val" data-id="${goalId}" data-date="${dateKey}" style="flex:1">Save</button>
-        <button class="btn ghost" data-act="goal-skip" data-id="${goalId}" data-date="${dateKey}">${
-      e.skipped ? 'Un-skip' : 'Skip today'
-    }</button>
-      </div>
-      ${
-        e.value != null || e.checked
-          ? `<button class="btn ghost danger block" data-act="goal-clear" data-id="${goalId}" data-date="${dateKey}" style="margin-top:8px">Clear this entry</button>`
-          : ''
-      }
-    `);
-  }
-
-  /**
-   * The goal's own sheet, and the whole action set for a goal in one place.
-   *
-   * Two kinds of action, kept in two rows because they answer different
-   * questions. The top row acts on *this day* — log what actually happened, or
-   * write the summary a gated goal is waiting on. The bottom row acts on the
-   * *goal*. Before this, the day-level row did not exist at all: `openGoalLog`
-   * had no producer anywhere in the app, so the only thing a goal card could
-   * record was "I hit the target exactly", and skipping a day was unreachable.
-   */
-  function openGoalDetail(goalId, dateKey) {
-    const g = S.goalById(goalId);
-    if (!g) return;
-    const key = dateKey || S.today();
-    const tl = S.goalTimeline(goalId);
-    const mode = A.MODES[tl.mode];
-    const ups = tl.events.filter((e) => e.type === 'up').length;
-    const downs = tl.events.filter((e) => e.type === 'down').length;
-    /* The ladder length is (target − baseline) / step, and a step can be 0.25
-       against any target — so a mistyped target asks for tens of thousands of
-       rungs and freezes the tab building them. Only the *rendered* list is
-       bounded: clamping maxLevel itself would change valueAt for the goal and
-       re-judge every day already lived. */
-    const RUNG_LIMIT = 60;
-    const shownRungs = Math.min(tl.maxLevel, RUNG_LIMIT);
-    const rungs = [];
-    for (let i = 0; i <= shownRungs; i++) {
-      rungs.push(`<div class="rung ${i === tl.level ? 'on' : ''} ${i < tl.level ? 'past' : ''}">
-        <b>${i}</b><span>${esc(A.formatValue(g.unit, A.Goals.valueAt(g, i, tl.mode)))}</span></div>`);
-    }
-    if (tl.maxLevel > RUNG_LIMIT) {
-      rungs.push(`<div class="rung more"><b>…</b><span>${tl.maxLevel - RUNG_LIMIT} more</span></div>`);
-    }
-
-    openSheet(g.name, `
-      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">${esc(g.blurb || '')}</p>
-      <div class="stat-grid" style="margin-bottom:12px">
-        <div class="stat fire"><b>${icon('flame')} ${tl.streak}</b><span>Streak</span></div>
-        <div class="stat"><b>${tl.level}/${tl.maxLevel}</b><span>Level</span></div>
-        <div class="stat good"><b>${tl.doneDays}</b><span>Days kept</span></div>
-        <div class="stat gold"><b>${ups}</b><span>Steps earned</span></div>
-      </div>
-      <div class="card">
-        <div class="xpbar-top"><span>Now: ${esc(targetPhrase(g, tl.target))}</span><span>${esc(mode.name)}</span></div>
-        ${bar(tl.atTarget ? 100 : (tl.windowHits / Math.max(1, tl.windowNeeded)) * 100, tl.atRisk ? 'warn' : '')}
-        <div class="faint" style="font-size:var(--fs-sm);margin-top:8px">${esc(advanceHint(g, tl))}</div>
-        ${
-          tl.missesAllowed
-            ? `<div class="faint" style="font-size:var(--fs-sm);margin-top:4px">${
-                tl.atRisk
-                  ? 'One more missed day steps you back a level.'
-                  : `Miss ${tl.missesAllowed} scheduled days in a row and you step back one level${
-                      downs ? ` (that has happened ${downs}×)` : ''
-                    }.`
-              }</div>`
-            : ''
-        }
-      </div>
-      <div class="section-head" style="margin-top:6px"><h2>The last six weeks</h2></div>
-      ${goalChart(g, S.goalSeries(goalId, CHART_DAYS))}
-
-      <div class="section-head" style="margin-top:6px"><h2>The ladder</h2></div>
-      <div class="rungs">${rungs.join('')}</div>
-      ${
-        S.isFuture(key)
-          ? '' // a future day is read-only, exactly as its card is
-          : `<div class="btn-row" style="margin-top:14px">
-        <button class="btn primary" data-act="${g.gate === 'summary' ? 'open-read' : 'goal-log'}" data-id="${goalId}"
-                data-date="${key}" style="flex:1">${
-              g.gate === 'summary' ? 'Write the summary' : 'Log this day'
-            }</button>
-      </div>
-      ${
-        /* The bad-day protocol, offered only on a day that is not already done.
-           It logs the real number and nothing more — the day stays honestly
-           short. What it is for is the other failure, the one that actually
-           breaks people: doing nothing at all. */
-        g.floor != null && g.gate !== 'summary' && !S.goalDone(key, goalId)
-          ? `<div class="btn-row" style="margin-top:8px">
-              <button class="btn ghost block" data-act="goal-floor" data-id="${goalId}" data-date="${key}">
-                Bad day — log the minimum, ${esc(A.formatValue(g.unit, g.floor))}
-              </button>
-            </div>
-            <p class="footnote">It will not mark the day kept. It is here so that the worst
-              version of today is still something.</p>`
-          : ''
-      }`
-      }
-      <div class="btn-row" style="margin-top:${S.isFuture(key) ? 14 : 8}px">
-        <button class="btn" data-act="goal-edit" data-id="${goalId}" style="flex:1">Edit goal</button>
-        <button class="btn ghost" data-act="goal-restart" data-id="${goalId}">Move the starting point</button>
-      </div>
-    `);
-  }
-
-  /**
-   * Common practices, offered as a shape to fill in.
-   *
-   * It fills in what is true of the ACTIVITY — the unit, the direction, the step
-   * size, the area, which days — and leaves the two numbers that are true of the
-   * person. Those are shown as suggestions and labelled as such: a goal that
-   * starts where the app guessed rather than where you are is the mistake the
-   * onboarding banner exists to apologise for.
-   */
-  /**
-   * The cookie jar: what you have already survived, in your own words.
-   *
-   * Read before a hard thing, not after. The empty state carries the rule that
-   * makes it work — an entry has to be a specific event with a detail that
-   * proves it happened, because "I'm tough" is not evidence and cannot be
-   * reached for. The app writes none of them.
-   */
-  /**
-   * Lines worth keeping.
-   *
-   * One a day on Today, the whole list here. The app's rule is that a feature has
-   * to tell the user something true about their life — a generic slogan fails
-   * that, but a line somebody CHOSE to keep passes, because the choosing is the
-   * fact. So this is theirs to fill, and the seeded few are short, real,
-   * attributed, and every one of them can be deleted.
-   */
-  function openLines() {
-    const list = S.lines();
-    openSheet('Lines worth keeping', `
-      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">One shows on Today, the same one
-        all day, changing with the date rather than at random — a line that changes every time the
-        screen repaints is noise. Keep the ones you would argue with, not the ones that flatter you.</p>
-      <label class="field"><span>The line</span>
-        <textarea id="ln_text" rows="3" maxlength="240"
-          placeholder="Consistency compounds; intensity does not."></textarea></label>
-      <label class="field"><span>Where it came from (optional)</span>
-        <input type="text" id="ln_src" maxlength="60" placeholder="A book, a person, or nothing"></label>
-      <div class="btn-row"><button class="btn primary block" data-act="line-add">Keep it</button></div>
-      ${
-        list.length
-          ? `<div class="label">${list.length} kept</div>
-             <div class="card flush">${list
-               .map(
-                 (l) => `<div class="row"><div class="body">
-                   <div class="sub" style="color:var(--text);font-size:var(--fs-base);line-height:1.5">${esc(l.text)}</div>
-                   ${l.source ? `<div class="sub">${esc(l.source)}</div>` : ''}
-                 </div>
-                 <button class="icon-btn" data-act="line-rm" data-id="${esc(l.id)}" aria-label="Remove">&#10005;</button></div>`
-               )
-               .join('')}</div>
-             <p class="footnote">The ones that came with the app can go too. Nothing here is fixed.</p>`
-          : `<p class="footnote">Empty. Nothing will show on Today until you keep something.</p>`
-      }
-    `);
-  }
-
-  function openCookieJar() {
-    const list = S.cookies();
-    openSheet('The cookie jar', `
-      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Hard things you have already
-        done. Read it when you are about to quit something — under real strain your memory narrows
-        and hands you the worst of itself, so the evidence has to be written down while you are
-        calm and read while you are not.</p>
-      <label class="field"><span>Add one — a specific day, with a detail that proves it happened</span>
-        <textarea id="ck_text" rows="3" maxlength="240"
-          placeholder="Finished the third day of the rotation on four hours of sleep and still hit my numbers."></textarea></label>
-      <div class="btn-row"><button class="btn primary block" data-act="cookie-add">Put it in the jar</button></div>
-      ${
-        list.length
-          ? `<div class="label">${list.length} in the jar</div>
-             <div class="card flush">${list
-               .map(
-                 (c) => `<div class="row"><div class="body">
-                   <div class="sub" style="color:var(--text);font-size:var(--fs-base);line-height:1.5">${esc(c.text)}</div>
-                   <div class="sub">${esc(A.prettyDate(c.at))}</div>
-                 </div>
-                 <button class="icon-btn" data-act="cookie-rm" data-id="${esc(c.id)}" aria-label="Remove">✕</button></div>`
-               )
-               .join('')}</div>`
-          : `<p class="footnote">Nothing in it yet. "I am tough" is not a cookie — it cannot be
-             reached for and it proves nothing. "I finished the shift after the truck broke down and
-             still trained that night" is one. Write fifteen tonight while you are calm.</p>`
-      }
-    `);
-  }
-
-  function openGoalTemplates() {
-    const have = S.goals().map((g) => g.name.toLowerCase());
-    openSheet('Set up a practice', `
-      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Each one opens the goal form with
-        its shape already filled in — what it is measured in, which way it goes, how big a step is,
-        and which days it runs. <b>The two numbers are yours.</b> Set the first to what you can
-        honestly do today, not what you wish you could; the ladder is built from there.</p>
-      <div class="card flush">${A.GOAL_TEMPLATES.map(
-        (t) => `<div class="row">
-          <span class="linkrow-plate" aria-hidden="true">${icon(SECTION_ICON[t.section] || 'star')}</span>
-          <div class="body">
-            <div class="name">${esc(t.name)}</div>
-            <div class="sub">${esc(t.blurb)}</div>
-          </div>
-          ${
-            have.indexOf(t.name.toLowerCase()) >= 0
-              ? `<span class="faint" style="font-size:var(--fs-xs)">have it</span>`
-              : `<button class="btn" data-act="goal-template" data-key="${esc(t.key)}">Set up</button>`
-          }
-        </div>`
-      ).join('')}</div>
-      <p class="footnote">Nothing here is created until you save the form it opens.</p>
-    `);
-  }
-
-  function openGoalEditor(id, draft) {
-    const g = id ? S.goalById(id) : null;
-    const v = Object.assign(
-      {
-          name: '', icon: '', section: 'custom', unit: 'minutes', direction: 'up',
-        baseline: 5, target: 30, step: 5, mode: 'inherit', track: 'value',
-        schedule: { type: 'daily' }, advance: A.Goals.DEFAULT_ADVANCE, regress: A.Goals.DEFAULT_REGRESS, gate: null
-      },
-      g || {},
-      draft || {}
-    );
-    const sch = v.schedule || { type: 'daily' };
-    const adv = Object.assign({}, A.Goals.DEFAULT_ADVANCE, v.advance || {});
-    const reg = v.regress === false ? null : Object.assign({}, A.Goals.DEFAULT_REGRESS, v.regress || {});
-
-    openSheet(g ? 'Edit goal' : 'New goal', `
-      <!-- No Icon field. A goal's mark is drawn from its area, so anything typed
-           here rendered nowhere on Today or Plan — a control that appears to do
-           something and does nothing. The stored field stays: it costs nothing,
-           and deleting a stored field is the one thing this project's migration
-           rules forbid. -->
-      <label class="field"><span>Name</span><input type="text" id="gg_name" maxlength="32" value="${esc(v.name)}" placeholder="Wake up"></label>
-      <div class="grid-2">
-        <label class="field"><span>Area</span><select id="gg_section">${A.SECTIONS.map(
-          (s) => `<option value="${s.id}" ${v.section === s.id ? 'selected' : ''}>${esc(s.name)}</option>`
-        ).join('')}</select></label>
-        <label class="field"><span>Measured in</span><select id="gg_unit">${Object.keys(A.UNITS)
-          .map((u) => `<option value="${u}" ${v.unit === u ? 'selected' : ''}>${esc(A.UNITS[u].label)}</option>`)
-          .join('')}</select></label>
-      </div>
-      <!-- Direction is a fact about the two numbers below, not a separate choice:
-           goal-save always recomputes it from start and target. It used to be an
-           editable select whose value was discarded, which is a control that
-           does not do what it says. -->
-      <label class="field"><span>Direction</span>
-        <input type="text" id="gg_dir" readonly tabindex="-1" value="${esc(
-          v.direction === 'down' ? 'Less / earlier is better' : 'More / later is better'
-        )}">
-        <small class="field-note">Set by your start and target — swap them to reverse it.</small>
-      </label>
-
-      <div class="section-head" style="margin-top:4px"><h2>The ladder</h2></div>
-      <div class="grid-2">
-        ${valueInput('gg_base', v.unit, v.baseline, 'Start (where you are now)')}
-        ${valueInput('gg_target', v.unit, v.target, 'Target (progression stops here)')}
-      </div>
-      <label class="field"><span>Step size per level, at Normal</span>
-        <input type="number" id="gg_step" min="0.25" step="0.25" value="${esc(v.step)}"></label>
-      <!-- The bad-day protocol, defined in advance while things are fine —
-           which is the only time anybody can define one.
-
-           Not offered on a clock goal: the time input has no way to render
-           "unset", so a blank one would come back as 07:00 and store a floor
-           nobody chose. -->
-      ${
-        v.unit === 'time'
-          ? ''
-          : valueInput('gg_floor', v.unit, v.floor == null ? '' : v.floor, 'Bad-day minimum (optional)')
-      }
-      <p class="footnote" style="margin-top:-4px" ${v.unit === 'time' ? 'hidden' : ''}>The reduced version you do when the day has
-        fallen apart. It will not score the day as kept — it is not a discount, and the record
-        stays honest. It exists because the real failure is doing nothing, and twenty minutes
-        beats zero permanently.</p>
-      <label class="field"><span>Difficulty for this goal</span><select id="gg_mode">
-        <option value="inherit" ${v.mode === 'inherit' ? 'selected' : ''}>Follow app setting (${esc(A.MODES[S.settings().mode].name)})</option>
-        ${A.MODE_IDS.map((m) => `<option value="${m}" ${v.mode === m ? 'selected' : ''}>${esc(A.MODES[m].name)}</option>`).join('')}
-      </select></label>
-
-      <div class="section-head" style="margin-top:4px"><h2>When it counts</h2></div>
-      <label class="field"><span>Schedule</span><select id="gg_sched">
-        <option value="daily" ${sch.type === 'daily' ? 'selected' : ''}>Every day</option>
-        <option value="weekdays" ${sch.type === 'weekdays' ? 'selected' : ''}>Chosen weekdays</option>
-      </select></label>
-      <div class="wd-picker" id="gg_days" ${sch.type === 'weekdays' ? '' : 'hidden'}>${dayOrder
-        .map(
-          (d) => `<label class="wd-chip"><input type="checkbox" data-wd="${d}" ${
-            (sch.days || [1, 2, 3, 4, 5]).indexOf(d) >= 0 ? 'checked' : ''
-          }><span>${A.DAY_SHORT[d]}</span></label>`
-        )
-        .join('')}</div>
-
-      <div class="section-head" style="margin-top:4px"><h2>How you level up</h2></div>
-      <div class="grid-2">
-        <label class="field"><span>Good days needed</span><input type="number" id="gg_succ" min="1" max="30" value="${esc(adv.successes)}"></label>
-        <label class="field"><span>…out of the last</span><input type="number" id="gg_win" min="1" max="30" value="${esc(adv.window)}"></label>
-      </div>
-      <div class="row tight">
-        <div class="body"><div class="name">Step back after misses</div><div class="sub">Stops the app outrunning you</div></div>
-        <label class="switch"><input type="checkbox" id="gg_reg" ${reg ? 'checked' : ''}><i></i></label>
-      </div>
-      <label class="field" ${reg ? '' : 'hidden'}><span>Consecutive misses before stepping back</span>
-        <input type="number" id="gg_miss" min="2" max="14" value="${esc(reg ? reg.misses : 3)}"></label>
-      <div class="row tight">
-        <div class="body"><div class="name">Require a written summary</div><div class="sub">Can't be completed until you write one</div></div>
-        <label class="switch"><input type="checkbox" id="gg_gate" ${v.gate === 'summary' ? 'checked' : ''}><i></i></label>
-      </div>
-
-      ${
-        v.fromHabit
-          ? `<p class="footnote" style="margin-bottom:10px">Saving turns the daily habit
-              <b>${esc(v.name)}</b> into this goal and takes it off the habit list, so it is asked
-              for once rather than twice. Days you have already logged keep the habits they froze
-              and their score does not move.</p>`
-          : ''
-      }
-      <div class="btn-row"><button class="btn primary block" data-act="goal-save" data-id="${g ? g.id : ''}"
-        data-habit="${esc(v.fromHabit || '')}">${
-      g ? 'Save changes' : v.fromHabit ? 'Make it a goal' : 'Create goal'
-    }</button></div>
-      ${
-        g
-          ? `<div class="btn-row" style="margin-top:8px">
-               <button class="btn ghost" data-act="goal-archive" data-id="${g.id}" style="flex:1">${g.archived ? 'Resume' : 'Pause'}</button>
-               <button class="btn ghost danger" data-act="goal-delete" data-id="${g.id}">Delete</button>
-             </div>`
-          : ''
-      }
-    `);
-  }
-
-  const CHALLENGE_LENGTHS = [21, 30, 66, 75, 100];
-
-  /**
-   * Start, review or end a fixed-length run.
-   *
-   * 66 is the default because it is the figure the "how long to form a habit"
-   * research actually landed on, not the 21 everyone repeats — but every length
-   * here is a preset, not a rule.
-   */
-  function openChallenge() {
-    const c = S.activeChallenge();
-    const p = c ? S.challengeProgress(c) : null;
-    const past = S.challenges().filter((x) => x.endedOn);
-
-    const body = c
-      ? `<div class="stat-grid" style="margin-bottom:12px">
-           <div class="stat"><b>${p.day}/${p.days}</b><span>Day</span></div>
-           <div class="stat good"><b>${p.kept}</b><span>Days kept</span></div>
-           <div class="stat gold"><b>${p.days - p.day}</b><span>${p.complete ? 'Overrun' : 'To go'}</span></div>
-         </div>
-         <div class="card">
-           <div class="xpbar-top"><span>${esc(c.name)}</span><span>started ${esc(A.prettyDate(c.startDate))}</span></div>
-           ${bar(p.keptPct, 'gold')}
-           <p class="faint" style="font-size:var(--fs-sm);margin:10px 0 0">
-             The bar is days you actually kept, not days that have passed — ${p.kept} of ${p.days}.
-           </p>
-         </div>
-         <button class="btn ghost danger block" data-act="challenge-end" data-id="${c.id}">
-           ${p.complete ? 'Finish and archive' : 'End this countdown early'}
-         </button>`
-      : `<p class="muted" style="margin-top:0;font-size:var(--fs-md)">Give yourself a fixed stretch to count against.
-           The counter on Today becomes <b>DAY 5 / 66</b>, and it counts the days you keep — not just the
-           days that pass.</p>
-         <label class="field"><span>Call it</span>
-           <input type="text" id="ch_name" maxlength="32" value="Reset" placeholder="Reset"></label>
-         <label class="field"><span>How long</span><select id="ch_days">
-           ${CHALLENGE_LENGTHS.map((d) => `<option value="${d}" ${d === 66 ? 'selected' : ''}>${d} days</option>`).join('')}
-         </select></label>
-         <div class="btn-row"><button class="btn primary block" data-act="challenge-start">Start the countdown</button></div>`;
-
-    openSheet(c ? c.name : 'Start a countdown', `
-      ${body}
-      ${
-        past.length
-          ? `<div class="section-head" style="margin-top:18px"><h2>Finished countdowns</h2></div>
-             <div class="card flush">${past
-               .slice()
-               .reverse()
-               .map((x) => {
-                 const done = S.challengeProgress(x);
-                 return `<div class="row"><div class="body">
-                     <div class="name">${esc(x.name)}</div>
-                     <div class="sub">${esc(A.prettyDate(x.startDate))} → ${esc(A.prettyDate(x.endedOn))} · ${done.kept}/${x.days} days kept</div>
-                   </div></div>`;
-               })
-               .join('')}</div>`
-          : ''
-      }
-    `);
-  }
-
-  /* ================= THE 66-DAY RUN ================= */
-
-  /* A run is a different thing from a goal, and these screens say so rather
-     than blurring it: a goal ramps a target the user chose from a baseline they
-     set and earns each step by performing; a run picks from a closed catalog,
-     ramps on the calendar, and is feasible-by-construction on all 66 days. A
-     user may have both, and neither screen reads the other's data. */
-
-  const RUN = () => A.Run;
-
-  /** How much of a run habit's day is left, drawn the way the app draws goals. */
-  function runAsk(row, entry) {
-    const ask = entry && entry.asked != null ? entry.asked : row.dose;
-    return A.formatValue(row.unit === 'min' ? 'minutes' : 'count', ask) + ' ' + row.unit;
-  }
-
-  /** One habit of today's run: what it asks, what happened, one tap to say so. */
-  function runRow(row, entry) {
-    const done = !!(entry && entry.done);
-    const frac = RUN().fractionOf(entry);
-    const measured = !!(entry && entry.did != null);
-    const marks = [];
-    if (row.dayOfHabit === 1) marks.push('new today');
-    if (row.frozen) marks.push('steady this week');
-    if (row.softened) marks.push('eased back');
-
-    /* A checklist habit shows its checklist. Four supplements is four things
-       you can miss one of, so a single tick would be the app deciding that
-       three of four is the same as none — and the record already knows better. */
-    const items = entry && entry.items
-      ? Object.keys(entry.items).map((k) => ({ name: k, done: !!entry.items[k] }))
-      : null;
-
-    return `<div class="runrow ${done ? 'is-done' : ''} ${measured && !done ? 'is-part' : ''}">
-      <div class="runrow-head">
-        <button type="button" class="runrow-tick" data-act="run-tick" data-id="${esc(row.id)}"
-          aria-label="${done ? 'Undo' : 'Complete'} ${esc(row.name)}">✓</button>
-        <button type="button" class="runrow-main" data-act="run-value" data-id="${esc(row.id)}">
-          <span class="name">${esc(row.name)}</span>
-          <span class="sub">${esc(runAsk(row, entry))}${
-            measured ? ' · ' + esc(String(entry.did)) + ' done' : ''
-          }${marks.length ? ' · ' + esc(marks.join(', ')) : ''}</span>
-          ${frac != null ? `<span class="runrow-bar"><i style="width:${Math.round(frac * 100)}%"></i></span>` : ''}
-        </button>
-      </div>
-      ${
-        items
-          ? `<ul class="runitems">${items
-              .map(
-                (it) => `<li><button type="button" class="runitem ${it.done ? 'on' : ''}"
-                  data-act="run-item" data-id="${esc(row.id)}" data-item="${esc(it.name)}"
-                  aria-pressed="${it.done}"><i aria-hidden="true">${it.done ? '✓' : ''}</i>${esc(it.name)}</button></li>`
-              )
-              .join('')}</ul>`
-          : ''
-      }
-    </div>`;
-  }
-
-  /** The run's section on Today. Absent entirely when there is no run. */
-  function runSection() {
-    const run = S.run();
-    const st = S.runStatus();
-    if (!run || !st || !st.running) return '';
-    const day = st.day;
-    const rows = RUN().runDay(run, day);
-    const log = (run.log || {})[day] || {};
-    const left = rows.filter((r) => !(log[r.id] && log[r.id].done)).length;
-    const starts = (run.habits || []).map((h) => h.startDay).filter((d) => d > day);
-
-    return `
-      <div class="label split">
-        <span>The run · day ${day} of ${RUN().RUN_DAYS}</span>
-        <button class="link" data-nav="run">The whole run</button>
-      </div>
-      ${
-        rows.length
-          ? `<div class="runlist">${rows.map((r) => runRow(r, log[r.id])).join('')}</div>
-             <p class="faint runnote">${
-               left
-                 ? esc(left + (left === 1 ? ' thing left in the run today' : ' things left in the run today'))
-                 : 'Everything the run asked for today is done.'
-             }</p>`
-          : `<div class="empty">Nothing has started yet — that is on purpose.${
-              starts.length ? '<br>The first habit arrives on day ' + Math.min.apply(null, starts) + '.' : ''
-            }</div>`
-      }`;
-  }
-
-  /* ---------------- the run, looked back on ---------------- */
-
-  /* Until this existed the run screen showed today and what was still coming,
-     and nothing at all about what had happened. Sixty-five days of record sat
-     in storage with no way to see them: the one screen in the app you cannot
-     open to ask "how has this actually gone" was the sixty-six-day commitment.
-
-     Everything drawn here comes from `A.Run.journey`, which reads each day's
-     frozen record. Nothing is re-derived from the programme as it stands, so
-     easing a habit today cannot redraw a week the user already lived. */
-
-  const MARK_LABEL = {
-    kept: 'kept', part: 'part of it', missed: 'missed',
-    unopened: 'not opened', today: 'today', ahead: 'to come'
-  };
-
-  /**
-   * The lattice: one cell per day, seven to a row.
-   *
-   * A row is a week of the run, which is the unit the run's own rules are
-   * written in — at most two new habits in any seven days. The day number is
-   * printed in the cell rather than left to colour, because six shades of one
-   * palette is exactly the kind of chart that stops meaning anything on a
-   * phone in daylight, and because the content genuinely is a sequence.
-   *
-   * The grid is `aria-hidden` and the same counts are stated as text beneath
-   * it. A screen reader walking sixty-six cells learns less than one sentence
-   * does, and the sentence is not a summary of the picture — it is the picture,
-   * written down.
-   */
-  function runLattice(marks) {
-    return `<div class="lattice" aria-hidden="true">${marks
-      .map((m) => {
-        const label = m.state === 'unopened' || m.state === 'ahead'
-          ? MARK_LABEL[m.state]
-          : m.done + ' of ' + m.asked;
-        return `<i class="lat ${m.state}" title="Day ${m.day} — ${esc(label)}">${m.day}</i>`;
-      })
-      .join('')}</div>`;
-  }
-
-  /** The same run, said in words — and the only version colour is not carrying. */
-  function runTally(marks) {
-    const n = (state) => marks.filter((m) => m.state === state).length;
-    return ['kept', 'part', 'missed', 'unopened', 'ahead']
-      .map((s) => ({ s: s, n: n(s) }))
-      .filter((x) => x.n)
-      .map((x) => x.n + ' ' + MARK_LABEL[x.s])
-      .join(' · ');
-  }
-
-  /**
-   * The whole run: what happened, the three phases, and when each habit joined.
-   *
-   * The ladder is every habit rather than only the ones still to come, because
-   * "Read arrived on day 8" is the half of the schedule that explains the
-   * lattice above it. It replaces the old "Still to come" section, which showed
-   * the future half of this same list.
-   */
-  function runJourney(run, day) {
-    const marks = RUN().journey(run, day);
-    const ladder = (run.habits || [])
-      /* `isKnownEntry`, not `isKnown`: the latter is catalogue-only and returns
-         false for every `c_…` id, so a habit the user wrote showed on Today,
-         ramped correctly and counted toward the day — while being invisible in
-         the one screen that carries a remove control. */
-      .filter((p) => RUN().isKnownEntry(p))
-      .sort((a, b) => a.startDay - b.startDay || a.habitId.localeCompare(b.habitId));
-
-    return `
-      <div class="label">The whole run</div>
-      ${runLattice(marks)}
-      <p class="faint runnote">${esc(runTally(marks))}</p>
-
-      <div class="latphases">${RUN()
-        .PHASES.map((p) => {
-          const now = day >= p.first && day <= p.last;
-          const when = day > p.last ? 'done' : now ? 'now' : '';
-          return `<div class="latphase ${now ? 'is-now' : ''}">
-            <b>${esc(p.name)}</b>
-            <span>day ${p.first}–${p.last}${when ? ' · ' + when : ''}</span>
-          </div>`;
-        })
-        .join('')}</div>
-
-      <div class="section-head"><h2>What is in it</h2>
-        <button class="link" data-act="run-add-open">＋ Add a habit</button></div>
-      ${
-        ladder.length
-          ? `<div class="card flush runlist-card">${ladder
-              .map((p) => {
-                const h = RUN().defOf(p);
-                const away = p.startDay - day;
-                const when = away <= 0
-                  ? 'started day ' + p.startDay
-                  : 'starts day ' + p.startDay + ' · in ' + away + (away === 1 ? ' day' : ' days');
-                /* Removing is refused at the floor rather than offered and then
-                   denied — a control that is going to say no is better not
-                   drawn. */
-                /* Counted from the run itself, which is what `runRemoveHabit`
-                   checks. Counting the FILTERED ladder made the two disagree
-                   the moment a custom habit existed, so the ✕ was withheld from
-                   removals the store would have allowed. */
-                const canDrop = (run.habits || []).length > RUN().MIN_HABITS;
-                return `<div class="row ${away > 0 ? 'ahead' : ''}"><div class="body">
-                  <div class="name">${esc(h.name)}</div>
-                  <div class="sub">${esc(when)} · ${esc(
-                  A.formatValue('count', h.start)
-                )} → ${esc(A.formatValue('count', h.target))} ${esc(h.unit)}</div></div>${
-                  canDrop
-                    ? `<button type="button" class="icon-btn" data-act="run-remove" data-id="${esc(
-                        p.habitId
-                      )}" aria-label="Remove ${esc(h.name)} from the run">✕</button>`
-                    : ''
-                }</div>`;
-              })
-              .join('')}</div>
-             ${
-               (run.habits || []).length <= RUN().MIN_HABITS
-                 ? `<p class="faint runnote">A run needs at least ${RUN().MIN_HABITS} habits, so
-                    these cannot be removed. Add another first.</p>`
-                 : ''
-             }`
-          : `<div class="empty">This run has no habits left in it.</div>`
-      }`;
-  }
-
-  /**
-   * Write a habit the catalog does not have.
-   *
-   * The numbers are asked for plainly because they are what the ramp is made
-   * of: it starts at one, ends at the other, and moves by the step once a week.
-   * Nothing here is guessed on the user's behalf — a habit whose numbers do not
-   * work is refused when it is written, which is far kinder than an impossible
-   * day 41.
-   */
-  function openRunCustom(pre) {
-    const live = !!S.run();
-    const v = Object.assign(
-      { name: '', unit: 'min', domain: 'self_care', start: 10, target: 25, step: 5,
-        friction: 2, minutesAtTarget: null, fromGoal: '' },
-      pre || {}
-    );
-    openSheet(v.fromGoal ? 'Bring ' + v.name + ' into the run' : 'Write your own habit', `
-      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">It belongs to this run and
-        nothing else — the catalog is unchanged, and your goals and plan are untouched. It ramps
-        the same way every other habit does: from the first number to the second, one step a week.</p>
-      <label class="field"><span>Name</span>
-        <input type="text" id="rc_name" maxlength="40" value="${esc(v.name)}" placeholder="e.g. Sauna"></label>
-      <div class="grid-2">
-        <label class="field"><span>Measured in</span>
-          <input type="text" id="rc_unit" maxlength="12" value="${esc(v.unit)}" placeholder="min"></label>
-        <label class="field"><span>Area</span><select id="rc_domain">
-          ${[['self_care', 'Self-care'], ['fitness', 'Fitness'], ['development', 'Development']]
-            .map(([id, label]) => `<option value="${id}"${v.domain === id ? ' selected' : ''}>${label}</option>`)
-            .join('')}
-        </select></label>
-      </div>
-      <div class="grid-2">
-        <label class="field"><span>Start at</span>
-          <input type="number" id="rc_start" min="0" step="any" value="${esc(v.start)}"></label>
-        <label class="field"><span>Build up to</span>
-          <input type="number" id="rc_target" min="0" step="any" value="${esc(v.target)}"></label>
-      </div>
-      <div class="grid-2">
-        <label class="field"><span>Step each week</span>
-          <input type="number" id="rc_step" min="0.1" step="any" value="${esc(v.step)}"></label>
-        <label class="field"><span>Effort</span><select id="rc_friction">
-          ${[1, 2, 3, 4, 5].map((n) => `<option value="${n}"${n === v.friction ? ' selected' : ''}>${'•'.repeat(n)}</option>`).join('')}
-        </select></label>
-      </div>
-      <!-- The minutes budget is the rule that decides whether a day is
-           physically doable, and it is built on how long one unit costs. Asking
-           that directly — "how many minutes is one push-up" — is a question
-           nobody can answer, so this asks the whole thing at its target and
-           divides. It was hardcoded to one minute per unit before, which is
-           right for a habit measured in minutes and wrong for every other. -->
-      <label class="field"><span>Minutes a day once you reach the target</span>
-        <input type="number" id="rc_at_target" min="0" step="any" value="${esc(
-          v.minutesAtTarget == null ? v.target : v.minutesAtTarget
-        )}"></label>
-      <input type="hidden" id="rc_from_goal" value="${esc(v.fromGoal || '')}">
-      <div class="btn-row"><button class="btn primary block" data-act="run-custom-save">${
-        live ? 'Add it to the run' : 'Add it to the list'
-      }</button></div>
-      <p class="faint" style="font-size:var(--fs-xs);margin:10px 2px 0">${
-        live
-          ? `It joins on the first day the run can take it. If the numbers make a day you could not
-             actually do, it is refused rather than squeezed in — that is the promise the run is
-             built on.`
-          : `It goes on the list with the ones you have ticked, and starts on day one if the budget
-             has room for it. If the numbers make a day you could not actually do, it is dropped
-             when the run is built and you are told — that is the promise the run is built on.`
-      }</p>
-    `);
-  }
-
-  /**
-   * The habits that could still be added to a run in progress.
-   *
-   * Everything not already in it, each with the first day the spacing and phase
-   * rules would actually allow — and anything with no legal day left is shown as
-   * refused rather than hidden, because "why is cold finish not on this list"
-   * has a real answer and it is better said than left to be guessed at.
-   */
-  function openRunAdd() {
-    const run = S.run();
-    const day = S.runToday();
-    if (!run || day == null) return;
-    const have = {};
-    (run.habits || []).forEach((p) => { have[p.habitId] = true; });
-    /* `firstLegalStart` rather than a scan over every legal day: this runs once
-       per candidate habit, so a linear search here multiplied 56 validations by
-       fourteen and the sheet opened on a visible pause. See run.js. */
-    const rows = RUN().HABITS.filter((h) => !have[h.id]).map((h) => ({
-      h: h,
-      start: RUN().firstLegalStart(run, { habitId: h.id, startDay: 1, scale: 1, frozenDay: null }, day)
-    }));
-
-    openSheet('Add a habit', `
-      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">It joins on the first day the
-        run can take it — at most two new habits in any week, and never past day
-        ${RUN().LAST_INTRO_DAY}. Days you have already recorded do not change.</p>
-      <button type="button" class="how-photo-add" data-act="run-custom-open" style="min-height:64px">
-        <b>＋ Write your own</b>
-        <small>A habit that is not on this list. It lives in this run only — the
-          catalog stays as it is.</small>
-      </button>
-      ${
-        rows.length
-          ? `<div class="card flush runlist-card">${rows
-              .map(
-                (r) => `<div class="row"><div class="body">
-                  <div class="name">${esc(r.h.name)}</div>
-                  <div class="sub">${esc(
-                    A.formatValue('count', r.h.start) + ' → ' + A.formatValue('count', r.h.target) + ' ' + r.h.unit
-                  )}${r.start ? ' · from day ' + r.start : ''}</div></div>
-                  ${
-                    r.start
-                      ? `<button class="btn" data-act="run-add" data-id="${esc(r.h.id)}">Add</button>`
-                      : `<span class="faint" style="font-size:var(--fs-xs);max-width:96px;text-align:right">no room left in this run</span>`
-                  }</div>`
-              )
-              .join('')}</div>`
-          : `<div class="empty">Every habit in the catalog is already in this run.</div>`
-      }
-    `);
-  }
-
-  /* A suggestion, carried in data attributes rather than by an index into a
-     list that is recomputed on every render — the list the user tapped and the
-     list the handler rebuilds are two different objects. */
-  function runRec(rec) {
-    return `<article class="runrec">
-      <div class="runrec-top"><b>${esc(rec.headline)}</b><span>${esc(rec.detail)}</span></div>
-      <ul>${rec.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
-      <div class="btn-row">
-        <button class="btn primary" data-act="run-accept" data-kind="${esc(rec.kind)}"
-          data-id="${esc(rec.habitId)}" data-day="${rec.startDay == null ? '' : rec.startDay}">${
-      rec.kind === 'add' ? 'Add it' : 'Give it back'
-    }</button>
-      </div>
-    </article>`;
-  }
-
-  /* The catalog, offered as a choice.
-
-     Until this existed the start screen asked for a minutes budget and nothing
-     else, so the run was always the same six-habit fallback — the list that
-     stands in for the Architect this app cannot call. Every self-care habit in
-     the catalog was unreachable: not in the default run, and offered by the
-     recommender only after a fortnight at 80%, around day 33 of 66.
-
-     Selection is a checkbox and its visual state is `:has(:checked)` in CSS, so
-     picking does not re-render and there is no draft to keep in step with the
-     DOM. What is checked when Start is pressed is the whole of the state. */
-  const PICK_DOMAINS = [
-    { id: 'fitness', name: 'Fitness' },
-    { id: 'self_care', name: 'Self-care' },
-    { id: 'development', name: 'Development' }
-  ];
-
-  /* The selection lives here rather than in the checkboxes it used to be.
-     `render()` replaces the whole of `#view` on every store commit, so anything
-     held in the DOM is lost the moment something else writes — silently, and
-     with the defaults back. View state survives a re-render, which is the same
-     reason `todayFilter` and `picker` live up here. It also means the picks can
-     be driven from tools/render.js instead of only from a browser. */
-  let runPicks = null;
-  let runTogether = true;   // chosen habits start today unless asked otherwise
-  /* Checklists edited before the run exists have nowhere to be stored yet, so
-     they wait here and are handed to `startRun`. */
-  const draftItems = {};
-
-  /* The service worker version actually serving this page. See UI.setBuild. */
-  let buildVersion = '';
-
-  function currentRunPicks() {
-    if (!runPicks) runPicks = A.Run.DEFAULT_PICKS.slice();
-    return runPicks.slice();
-  }
-
-  function toggleRunPick(id) {
-    if (!A.Run.isCatalogId(id)) return;
-    const list = currentRunPicks();
-    const at = list.indexOf(id);
-    if (at >= 0) list.splice(at, 1);
-    else list.push(id);
-    runPicks = list;
-  }
-
-  /** Forget the selection once it has become a run, so the next one starts fresh. */
-  function resetRunPicks() {
-    runPicks = null;
-    runTogether = true;
-    draftCustoms = [];
-  }
-
-  /**
-   * Repaint the picker alone after a tap.
-   *
-   * Toggling one habit used to call `render()`, which rebuilds the whole view:
-   * twenty-four buttons and the page around them, then a scroll restore and a
-   * focus restore, for a single class change. On a phone that reads as a flash
-   * and a jump — a button that does not feel like it worked.
-   *
-   * `runPicker()` stays the only thing that builds this markup, so there is no
-   * second rendering path to drift from the first. The stub DOM in
-   * tools/render.js has no `getElementById` beyond a stand-in, which is why
-   * both writes are guarded rather than assumed.
-   */
-  function refreshRunPicker() {
-    const host = document.getElementById('runPicker');
-    if (host) host.innerHTML = runPicker();
-    const btn = document.querySelector('[data-act="run-start"]');
-    if (btn) btn.textContent = 'Start the run · ' + currentRunPicks().length + ' chosen';
-  }
-
-  function pickCard(h, chosen) {
-    const ask = A.formatValue('count', h.start) + ' → ' + A.formatValue('count', h.target) + ' ' + h.unit;
-    return `<button type="button" class="pick ${chosen ? 'on' : ''}" data-act="run-pick"
-        data-id="${esc(h.id)}" aria-pressed="${chosen}">
-      <i class="pick-mark" aria-hidden="true">${chosen ? '✓' : ''}</i>
-      <b>${esc(h.name)}</b>
-      <small>${esc(h.target === h.start ? A.formatValue('count', h.start) + ' ' + h.unit + ', every day' : ask)}</small>
-      <i class="pick-effort" aria-label="effort ${h.friction} of 5">${'•'.repeat(h.friction)}</i>
-    </button>${
-      h.items
-        ? `<button type="button" class="pick-edit" data-act="run-edit-items" data-id="${esc(h.id)}">${
-            (A.Run.itemsFor({ habitId: h.id, items: draftItems[h.id] }) || []).length
-          } steps · edit</button>`
-        : ''
-    }`;
-  }
-
-  /**
-   * The user's own goals, offered to the run.
-   *
-   * The ineligible ones are listed WITH their reason rather than hidden — the
-   * same rule the add-habit sheet follows. "Why is Wake up not here" has a real
-   * answer, and the two goals a 66-day run looks most made for are exactly the
-   * two it cannot take, so saying nothing would read as a bug.
-   *
-   * Tapping one opens the write-your-own sheet pre-filled from the goal, because
-   * a goal does not carry the one number the run's budget is built on: how many
-   * minutes it costs. That is asked for rather than invented.
-   */
-  function runGoalPicker() {
-    const rows = S.runCandidateGoals();
-    if (!rows.length) return '';
-    const taken = draftCustoms.map((d) => d.fromGoal).filter(Boolean);
-    return `
-      <div class="label">From your goals</div>
-      <div class="card flush runlist-card">${rows
-        .map((r) => {
-          const on = taken.indexOf(r.goal.id) >= 0;
-          return `<div class="row"><div class="body">
-            <div class="name">${esc(r.goal.name)}</div>
-            <div class="sub">${
-              r.eligible
-                ? esc(
-                    A.formatValue(r.goal.unit, r.goal.baseline) + ' → ' +
-                    A.formatValue(r.goal.unit, r.goal.target)
-                  )
-                : esc(r.why)
-            }</div></div>
-            ${
-              !r.eligible
-                ? `<span class="faint" style="font-size:var(--fs-xs)">can't</span>`
-                : on
-                ? `<span class="pill good">on the list</span>`
-                : `<button class="btn" data-act="run-goal-add" data-id="${esc(r.goal.id)}">Add</button>`
-            }</div>`;
-        })
-        .join('')}</div>
-      <p class="faint pickhint">A goal the run takes over is <b>paused</b> while the run holds it,
-        so it is asked for once rather than twice. Everything it has already earned stays, and Plan
-        resumes it with one tap.</p>`;
-  }
-
-  /**
-   * The built-in catalogue, folded away.
-   *
-   * It used to be the subject of the start screen: three headed sections and
-   * fourteen cards of skincare, flossing and brushing teeth, above the user's own
-   * practices. That is the wrong way round — a run is for what somebody is trying
-   * to become, and the catalogue is the fallback for when they have nothing of
-   * their own yet.
-   *
-   * Folded rather than deleted. `buildRun` still needs it for the floor when a
-   * selection is empty, a stored run can still name one, and somebody with no
-   * goals at all would otherwise face an empty screen.
-   */
-  function runPicker() {
-    const chosen = currentRunPicks();
-    const total = A.Run.HABITS.length;
-    const on = A.Run.HABITS.filter((h) => chosen.indexOf(h.id) >= 0).length;
-    const body = PICK_DOMAINS.map((d) => {
-      const rows = A.Run.HABITS.filter((h) => h.domain === d.id);
-      if (!rows.length) return '';
-      return `<div class="label">${esc(d.name)}</div>
-        <div class="pickgrid">${rows.map((h) => pickCard(h, chosen.indexOf(h.id) >= 0)).join('')}</div>`;
-    }).join('');
-
-    return `<details class="archive catalogue" ${on ? 'open' : ''}>
-      <summary>
-        <span class="body"><b>The built-in catalogue</b>
-          <span>${total} general habits · ${on ? on + ' chosen' : 'nothing chosen'}</span></span>
-        ${icon('chev')}
-      </summary>
-      <div style="padding:0 var(--sp-md) var(--sp-md)">
-        <p class="footnote" style="margin-top:0">Generic, and here for when you have nothing of your
-          own to put in yet. Your practices above are the better place to start.</p>
-        ${body}
-      </div>
-    </details>`;
-  }
-
-  function renderRun() {
-    const run = S.run();
-
-    if (!run) {
-      /* Deliberately not a sales pitch. A run is a second commitment on top of
-         goals, so the screen says what it costs before what it gives.
-
-         There was briefly a five-question intake here that scored the catalog
-         and pre-ticked the result. It went because the connection between an
-         answer and a habit was never visible on screen, so it read as a
-         questionnaire that got thrown away. The catalog is the choice. */
-      return `
-        <header class="screenhead">
-          <div class="screenhead-top"><h1>The 66-day run</h1></div>
-          <div class="screenhead-sub">Separate from your goals, and feasible on all 66 days by construction</div>
-        </header>
-        <section class="card">
-          <p>A fixed 66 days built from a closed list of habits, which
-             <b>cannot ask you for a day you can't do</b>. It ramps on the
-             calendar rather than on performance, introduces at most two new
-             habits in any week, and every one of the 66 days is checked against
-             your daily minutes before the run starts.</p>
-          <p class="faint">This is separate from your goals. They keep running
-             exactly as they are, and nothing here touches them.</p>
-          <label class="field"><span>Minutes a day you can actually give it</span>
-            <select id="run_budget">${[30, 45, 60, 75, 90]
-              .map((m) => `<option value="${m}"${m === 45 ? ' selected' : ''}>${m} min</option>`)
-              .join('')}</select></label>
-        </section>
-
-        <button type="button" class="pick together ${runTogether ? 'on' : ''}"
-          data-act="run-together" aria-pressed="${runTogether}">
-          <i class="pick-mark" aria-hidden="true">${runTogether ? '✓' : ''}</i>
-          <b>Start everything on day one</b>
-          <small>${
-            runTogether
-              ? 'All of it from today. Only your minutes still limit the run.'
-              : 'Eased in instead — two new habits a week, the rest waiting their turn.'
-          }</small>
-        </button>
-
-        <p class="faint pickhint">Pick what you want in it. Anything that will not
-          fit your minutes is dropped when the run is built, and you will be told what went — every one
-          of the 66 days has to be a day you can actually do. Fewer than
-          ${A.Run.MIN_HABITS} and the rest is filled in for you.</p>
-
-        ${runGoalPicker()}
-
-        <!-- The catalog is fourteen habits and deliberately closed, so this is
-             the only way a run can hold something it does not have. It used to
-             exist ONLY inside the mid-run "Add a habit" sheet, which meant the
-             one screen where you decide what your 66 days are was the one screen
-             that could not reach it — and a habit added after the start cannot
-             begin before day two, because the legal start days count from
-             today + 1. Written here, it can start on day one. -->
-        <button type="button" class="how-photo-add" data-act="run-custom-open" style="min-height:64px">
-          <b>＋ Write your own</b>
-          <small>Anything the fourteen below do not cover. It lives in this run
-            only — the catalog, your goals and your plan are all untouched.</small>
-        </button>
-        ${
-          draftCustoms.length
-            ? `<div class="card flush runlist-card">${draftCustoms
-                .map(
-                  (d) => `<div class="row"><div class="body">
-                    <div class="name">${esc(d.name)}</div>
-                    <div class="sub">${esc(
-                      A.formatValue('count', d.start) + ' → ' + A.formatValue('count', d.target) + ' ' + d.unit
-                    )}</div></div>
-                    <button class="icon-btn" data-act="run-custom-rm" data-key="${esc(d.key)}"
-                      aria-label="Remove ${esc(d.name)}">✕</button></div>`
-                )
-                .join('')}</div>`
-            : ''
-        }
-
-
-        <div id="runPicker">${runPicker()}</div>
-        <p class="faint pickhint">A run of your own practices is the point of it. The catalogue is
-          there so the screen is never empty, not because it is what you should pick.</p>
-        <button class="btn primary block" data-act="run-start" style="margin-top:14px">Start the run · ${
-          currentRunPicks().length + draftCustoms.length
-        } chosen</button>`;
-    }
-
-    const st = S.runStatus();
-    const unknown = S.runUnknownHabits();
-    const log = run.log || {};
-    const kept = Object.keys(log).filter((d) => {
-      const ids = Object.keys(log[d]);
-      return ids.length && ids.every((k) => log[d][k].done);
-    }).length;
-
-    if (st.state === 'finished') {
-      return `
-        <header class="screenhead">
-          <div class="screenhead-top"><h1>The run is over</h1></div>
-        </header>
-        <section class="hero"><div class="hero-stats">
-          <div class="hero-stat"><b>${RUN().RUN_DAYS}</b><span>days</span></div>
-          <div class="hero-stat"><b>${kept}</b><span>kept in full</span></div>
-          <div class="hero-stat"><b>${run.habits.length}</b><span>habits</span></div>
-        </div></section>
-        <p class="faint" style="margin:12px 4px">It finished ${st.daysOver} day${
-        st.daysOver === 1 ? '' : 's'
-      } ago. Nothing here is asked of you any more.</p>
-        ${runJourney(run, st.day)}
-        <button class="btn ghost block" data-act="run-end" style="margin-top:14px">Clear it and start again</button>`;
-    }
-
-    if (st.state === 'not_started') {
-      return `<header class="screenhead">
-          <div class="screenhead-top"><h1>The 66-day run</h1></div>
-        </header>
-        <div class="empty">It starts on ${esc(A.prettyDate(run.startDate))}.</div>
-        <button class="btn ghost block" data-act="run-end">Cancel it</button>`;
-    }
-
-    const day = st.day;
-    const ph = RUN().phaseFor(day);
-    /* Both of these are reads. A render must not change data — calling the
-       store's check-in here was a write during a render and a hang besides,
-       because `commit` re-renders and the check-in ran again. The patch is a
-       once-a-day event owned by app.js; this shows what it decided. */
-    const patchedToday = run.lastPatchDay === day;
-    const check = {
-      patched: patchedToday,
-      notes: patchedToday ? run.lastPatchNotes || [] : [],
-      recommendations: patchedToday ? [] : RUN().recommend(run, day)
-    };
-    const eased = check.notes.filter((n) => n.indexOf('softened') === 0 || n.indexOf('froze') === 0);
-
-    return `
-      <!-- Ember, like Today's header. The rule for it is "a block whose subject
-           is progress through a fixed length of time", and a screen called
-           "day 12 of 66" is that or nothing is. -->
-      <header class="dayhead ember">
-        <div class="dayhead-top">
-          <div class="dayhead-id">
-            <div class="dayhead-label">The 66-day run</div>
-            <h1 class="daynum">DAY <b>${day}</b><i>/ ${RUN().RUN_DAYS}</i></h1>
-          </div>
-          <div class="dayhead-side">
-            <div class="dayhead-streak"><b>${kept}</b><span>kept in full</span></div>
-          </div>
-        </div>
-        <div class="dayhead-track">
-          <i class="elapsed" style="width:${Math.round((day / RUN().RUN_DAYS) * 100)}%"></i>
-          <i class="kept" style="width:${Math.round((kept / RUN().RUN_DAYS) * 100)}%"></i>
-        </div>
-        <div class="dayhead-foot">
-          <span>${esc(ph.name)} phase</span><span>${run.minutesBudget} min a day</span>
-        </div>
-      </header>
-
-      ${
-        unknown.length
-          ? `<section class="banner warn"><div><b>This run mentions ${unknown.length} habit${
-              unknown.length === 1 ? '' : 's'
-            } this version does not have</b><p>They are kept in your data and simply not shown, so a later
-             version can bring them back. Nothing has been deleted.</p></div></section>`
-          : ''
-      }
-      ${
-        check.patched
-          ? `<section class="banner"><div><b>The run eased off</b><p>${
-              eased.length
-                ? esc(eased.join('. '))
-                : 'It was asking for more than the last two weeks say you can give it.'
-            }</p></div></section>`
-          : ''
-      }
-
-      <div class="label">Today</div>
-      <div class="runlist">${RUN()
-        .runDay(run, day)
-        .map((r) => runRow(r, (log[day] || {})[r.id]))
-        .join('') || '<div class="empty">Nothing is asked of you today.</div>'}</div>
-
-      ${
-        check.recommendations.length
-          ? `<div class="section-head"><h2>What you could take on</h2></div>
-             ${check.recommendations.map(runRec).join('')}`
-          : ''
-      }
-
-      ${runJourney(run, day)}
-
-      <button class="btn ghost block" data-act="run-end" style="margin-top:14px">End this run</button>`;
-  }
-
-  /**
-   * Log what actually happened for one run habit today.
-   *
-   * The ask shown is the one frozen into today's record, not what `doseOn` says
-   * now — a check-in can ease the run part-way through a day, and the number
-   * the user has been working toward since this morning is the one they were
-   * given this morning.
-   */
-  /**
-   * Edit what is inside a checklist habit.
-   *
-   * The catalog is closed and stays closed — this changes only the run's own
-   * copy of the list. Days already recorded keep the list they actually asked
-   * for, which is the reason the record stores the item names rather than a
-   * count of them.
-   */
-  function openRunItems(habitId) {
-    const h = A.Run.habitIn(S.run(), habitId);
-    if (!h) return;
-    const run = S.run();
-    /* Reachable from the picker too, where there is no run yet — the list is
-       held in a draft until `startRun` is given it. Editing what is in a habit
-       before committing to 66 days of it is the whole point of the screen. */
-    const p = run
-      ? (run.habits || []).find((x) => x.habitId === habitId)
-      : { habitId: habitId, items: draftItems[habitId] };
-    const list = A.Run.itemsFor(p) || [];
-    openSheet(h.name, `
-      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">One per line, in the order you
-        do them. This changes your run only — days you have already recorded keep the list they
-        actually asked for.</p>
-      <label class="field"><span>The steps</span>
-        <textarea id="run_items" rows="8">${esc(list.join('\n'))}</textarea></label>
-      <div class="btn-row">
-        <button class="btn primary" data-act="run-save-items" data-id="${esc(habitId)}" style="flex:1">Save</button>
-      </div>
-      <p class="faint" style="font-size:var(--fs-xs);margin:10px 2px 0">Blank lines and repeats are
-        dropped. An empty list is not saved — a habit with nothing in it is not a habit.</p>
-    `);
-  }
-
-  function openRunValue(habitId) {
-    const run = S.run();
-    const day = S.runToday();
-    if (!run || day == null) return;
-    const h = A.Run.habitIn(run, habitId);
-    const entry = ((run.log || {})[day] || {})[habitId];
-    if (!h) return;
-    // A checklist is ticked item by item on the row itself, so tapping its name
-    // means "change what is in it" rather than "log a number".
-    if (A.Run.isItemHabit(habitId)) return openRunItems(habitId);
-    const ask = entry && entry.asked != null ? entry.asked : A.Run.doseOn(
-      (run.habits || []).find((p) => p.habitId === habitId) || { habitId: habitId, startDay: day }, day);
-
-    openSheet(h.name, `
-      <p class="muted" style="margin-top:0;font-size:var(--fs-md)">Asked for
-        <b>${esc(A.formatValue('count', ask))} ${esc(h.unit)}</b> on day ${day}.
-        Log what actually happened — the honest number is what makes the record
-        worth keeping, and short of the ask is still recorded.</p>
-      ${valueInput('run_val', h.unit === 'min' ? 'minutes' : 'count',
-                   entry && entry.did != null ? entry.did : null, 'What you actually did')}
-      <div class="btn-row">
-        <button class="btn primary" data-act="run-save-value" data-id="${esc(habitId)}" style="flex:1">Save</button>
-        <button class="btn ghost" data-act="run-tick" data-id="${esc(habitId)}">${
-          entry && entry.done ? 'Untick it' : 'Just tick it'
-        }</button>
-      </div>
-      <p class="faint" style="font-size:var(--fs-xs);margin:10px 2px 0">Ticking clears any number:
-        a tick is a claim with no measurement in it, and keeping a stale one beside it
-        would store two facts that disagree.</p>
-    `);
-  }
-
-  /* ================= toasts & confetti ================= */
-
   function toast(msg, kind, ms) {
     const el = document.createElement('div');
     el.className = 'toast ' + (kind || '');
@@ -3968,8 +1916,8 @@
   /* ================= router ================= */
 
   const VIEWS = {
-    today: renderToday, plan: renderPlan, read: renderRead,
-    progress: renderProgress, rewards: renderRewards, more: renderMore, run: renderRun
+    today: renderToday, plan: renderPlan,
+    progress: renderProgress, rewards: renderRewards, more: renderMore
   };
 
   /**
@@ -4075,9 +2023,7 @@
 
   UI.route = () => route;
   UI.viewDate = () => viewDate || (viewDate = S.today());
-  UI.setViewDate = (k) => { viewDate = k; workoutOpen = false; };
-  UI.toggleWorkoutOpen = () => { workoutOpen = !workoutOpen; };
-  UI.workoutOpen = () => workoutOpen;
+  UI.setViewDate = (k) => { viewDate = k; editSet = null; rest = null; };
   UI.toggleLibOpen = () => { libOpen = !libOpen; };
   UI.libOpen = () => libOpen;
   UI.setMuscleWindow = (d) => {
@@ -4085,66 +2031,6 @@
     if (MUSCLE_WINDOWS.some((w) => w.days === n)) muscleWindow = n;
   };
   UI.muscleWindow = () => muscleWindow;
-  UI.openReading = openReading;
-  UI.openGoalLog = openGoalLog;
-  UI.openRunValue = openRunValue;
-  UI.openRunAdd = openRunAdd;
-  UI.openRunCustom = openRunCustom;
-  UI.openRunItems = openRunItems;
-  UI.runPicks = currentRunPicks;
-  UI.toggleRunPick = toggleRunPick;
-  UI.resetRunPicks = resetRunPicks;
-  UI.refreshRunPicker = refreshRunPicker;
-  UI.setBuild = (v) => { buildVersion = v; };
-  UI.runTogether = () => runTogether;
-  UI.toggleRunTogether = () => { runTogether = !runTogether; };
-  /** A checklist edited before the run exists. Cleaned by the same rule the
-      store uses, so what the picker shows is what `startRun` will get. */
-  UI.setDraftItems = (id, lines) => {
-    const clean = (lines || [])
-      .map((x) => String(x == null ? '' : x).trim())
-      .filter((x, i, all) => x && all.indexOf(x) === i)
-      .slice(0, 20);
-    if (!clean.length) return null;
-    draftItems[id] = clean;
-    return clean;
-  };
-  UI.draftItems = () => draftItems;
-  /* Habits the user wrote on the start screen, before there is a run to store
-     them against — the same shape of problem `draftItems` already solves for
-     checklists. Cleaned on the way in, so what the picker lists is what
-     `startRun` will actually try to place. */
-  UI.draftCustoms = () => draftCustoms.slice();
-  UI.addDraftCustom = (def) => {
-    const clean = RUN().cleanCustom(Object.assign({ id: 'c_draft' }, def || {}));
-    if (!clean) return null;
-    if (draftCustoms.length + currentRunPicks().length >= RUN().MAX_HABITS) return { refused: 'full' };
-    /* One goal, once. Two drafts from the same goal would pause it once and put
-       the same commitment in the run twice, which is the whole thing this is
-       meant to prevent. */
-    if (def && def.fromGoal && draftCustoms.some((d) => d.fromGoal === def.fromGoal)) {
-      return { refused: 'already' };
-    }
-    const row = {
-      key: A.uid('dc'), name: clean.name, unit: clean.unit, domain: clean.domain,
-      start: clean.start, target: clean.target, step: clean.step,
-      min: clean.min, friction: clean.friction,
-      /* Neither of these survives `cleanCustom`, which returns a fixed shape —
-         they are carried alongside it. `minutesAtTarget` is what the budget cost
-         is derived from, and `fromGoal` is what `startRun` pauses. */
-      minutesAtTarget: def && isFinite(Number(def.minutesAtTarget)) ? Number(def.minutesAtTarget) : null,
-      fromGoal: (def && def.fromGoal) || ''
-    };
-    draftCustoms.push(row);
-    return row;
-  };
-  UI.removeDraftCustom = (key) => { draftCustoms = draftCustoms.filter((d) => d.key !== key); };
-  UI.openGoalDetail = openGoalDetail;
-  UI.openLines = openLines;
-  UI.openCookieJar = openCookieJar;
-  UI.openGoalTemplates = openGoalTemplates;
-  UI.openGoalEditor = openGoalEditor;
-  UI.openGoalRestart = openGoalRestart;
   UI.openExerciseHow = openExerciseHow;
   UI.refreshExerciseHow = refreshExerciseHow;
   UI.openConfirm = openConfirm;
@@ -4152,22 +2038,42 @@
   UI.openTextPrompt = openTextPrompt;
   UI.resolveTextPrompt = resolveTextPrompt;
   UI.openRewardEditor = openRewardEditor;
-  UI.openChallenge = openChallenge;
-  UI.readingForm = readingForm;
   UI.openPicker = openPicker;
   UI.refreshPicker = refreshPicker;
   UI.openPlanEditor = openPlanEditor;
   UI.openExerciseEditor = openExerciseEditor;
   UI.openCopyDay = openCopyDay;
   UI.openSheet = openSheet;
-  UI.wordCount = wordCount;
-  UI.planTab = () => planTab;
-  UI.setPlanTab = (t) => { planTab = t === 'week' ? 'week' : 'goals'; };
-  UI.todayFilter = () => todayFilter;
-  UI.setTodayFilter = (f) => {
-    todayFilter = f === 'done' || f === 'skipped' ? f : 'todo';
-  };
+  UI.setBuild = (v) => { buildVersion = v; };
   UI.picker = () => picker;
   UI.setPicker = (p) => Object.assign(picker, p);
+  /* Which set row is being corrected, if any. View state and nothing else: a
+     half-typed correction is not user data, and it clears the moment the day
+     being looked at changes. */
+  UI.editSet = () => editSet;
+  UI.setEditSet = (itemId, index) => {
+    editSet = itemId == null ? null : { itemId: itemId, index: Number(index) };
+  };
+  /* The rest timer. `startRest` reads the interval off the plan item's own note
+     and stores nothing — see the note on `rest` at the top of this file. */
+  UI.rest = () => rest;
+  UI.restNow = restNow;
+  UI.paintRest = paintRest;
+  UI.stopRest = () => { rest = null; };
+  UI.startRest = (dateKey, itemId) => {
+    const item = S.dayPlan(dateKey).find((i) => i.id === itemId);
+    if (!item) return null;
+    const ex = S.exerciseById(item.exerciseId);
+    const from = A.restFromNote(item.note);
+    rest = {
+      itemId: itemId,
+      name: (ex && ex.name) || 'that set',
+      startedAt: Date.now(),
+      seconds: from ? from.seconds : null,
+      text: from ? from.text.replace(/^rest /i, 'rest ') : '',
+      rang: false
+    };
+    return rest;
+  };
   UI.esc = esc; // toasts built outside this module must escape user text with the same rule
 })(window);

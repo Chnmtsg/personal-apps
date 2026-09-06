@@ -173,28 +173,7 @@
       .filter((x, i, all) => MUSCLE_NAME[x] && all.indexOf(x) === i);
   }
 
-  /* Empty on purpose. A daily habit is a tick that asks the same thing forever,
-     and every one this app used to ship duplicated something it now tracks
-     properly: water and sleep are things to measure rather than tick, reading is
-     a goal with a summary gate, and "no junk food" is a rule rather than a
-     practice. The concept stays — More adds one in a tap, and `habitToGoal`
-     promotes it the moment it deserves a ladder — but nothing is seeded, because
-     a habit nobody chose is a tick nobody meant. */
-  const SEED_HABITS = [];
-
   /* ---------- clock values ---------- */
-
-  /** '06:30' → 390 minutes past midnight. */
-  function hhmmToMin(s) {
-    const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '').trim());
-    if (!m) return null;
-    return (Number(m[1]) % 24) * 60 + Math.min(59, Number(m[2]));
-  }
-
-  function minToHhmm(v) {
-    const n = ((Math.round(v) % 1440) + 1440) % 1440;
-    return String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
-  }
 
   /** Human clock, respecting the device's 12/24-hour preference. */
   function prettyTime(v) {
@@ -203,272 +182,183 @@
     return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   }
 
-  /* ---------- goals: sections, modes, units ---------- */
+  /* ---------- what a set is ----------
 
-  const SECTIONS = [
-    { id: 'sleep', name: 'Sleep & rhythm', icon: '🌙' },
-    { id: 'fitness', name: 'Fitness', icon: '💪' },
-    { id: 'mind', name: 'Mind', icon: '🧠' },
-    { id: 'reading', name: 'Reading', icon: '📖' },
-    { id: 'health', name: 'Health', icon: '🥗' },
-    { id: 'craft', name: 'Skill & craft', icon: '🛠️' },
-    { id: 'custom', name: 'Custom', icon: '✨' }
-  ];
+     The one record this app is built to keep. A plan item says what was ASKED
+     ("3 x 15"); an entry in `log.perf` says what was DONE, and the two are
+     separate objects on purpose — the same rule the rest of the record already
+     runs on. Editing the plan tomorrow must never rewrite what a set weighed
+     last Tuesday.
 
-  const sectionById = (id) => SECTIONS.find((s) => s.id === id) || SECTIONS[SECTIONS.length - 1];
+     A set stores the number the user typed AND the unit it was typed in:
 
-  /**
-   * Difficulty changes the *size of each step*, never the rules for earning one.
-   * You always advance by performing, so hard mode moves faster only if you keep up.
-   */
-  const MODES = {
-    easy: { id: 'easy', name: 'Easy', icon: '🌱', mult: 0.5, blurb: 'Half-size steps. Slow, and very hard to fall off.' },
-    normal: { id: 'normal', name: 'Normal', icon: '⚖️', mult: 1, blurb: 'The standard step. Noticeable but fair.' },
-    hard: { id: 'hard', name: 'Hard', icon: '🔥', mult: 2, blurb: 'Double steps. You reach the target in half the time.' }
-  };
-  const MODE_IDS = ['easy', 'normal', 'hard'];
+         { w: 60, u: 'kg', r: 8 }
 
-  /** unit → how a value is written and read. */
-  const UNITS = {
-    time: { id: 'time', label: 'Time of day', format: prettyTime, parse: hhmmToMin, input: 'time' },
-    minutes: { id: 'minutes', label: 'Minutes', format: (v) => `${Math.round(v)} min`, parse: Number, input: 'number' },
-    count: { id: 'count', label: 'Count', format: (v) => `${Math.round(v)}`, parse: Number, input: 'number' },
-    pages: { id: 'pages', label: 'Pages', format: (v) => `${Math.round(v)} pages`, parse: Number, input: 'number' },
-    km: { id: 'km', label: 'Kilometres', format: (v) => `${(Math.round(v * 10) / 10)} km`, parse: Number, input: 'number' },
-    litres: { id: 'litres', label: 'Litres', format: (v) => `${(Math.round(v * 10) / 10)} L`, parse: Number, input: 'number' },
-    seconds: { id: 'seconds', label: 'Seconds', format: (v) => `${Math.round(v)}s`, parse: Number, input: 'number' }
+     Storing kilos and converting on the way in would be tidier by one field and
+     wrong by rounding: 60 kg becomes 132.3 lb becomes 60.01 kg, and a set the
+     user entered as a round number stops reading as one. Carrying the unit also
+     means switching the display unit is a display change and nothing else — no
+     stored day is re-judged, which is the invariant that governs everything
+     else in here.
+
+     `w` is null for a bodyweight set. That is a real answer, not a missing one:
+     a pull-up set is 8 reps and no load, and writing 0 would put it into the
+     volume total as if it were a zero-kilo barbell. */
+
+  const WEIGHT_UNITS = {
+    kg: { id: 'kg', label: 'Kilograms', short: 'kg', perKg: 1 },
+    lb: { id: 'lb', label: 'Pounds', short: 'lb', perKg: 2.2046226218 }
   };
 
-  const formatValue = (unit, v) => ((UNITS[unit] || UNITS.count).format)(v);
+  const round1 = (n) => Math.round(Number(n) * 10) / 10;
 
-  /* ---------- goal templates ----------
+  /** A weight in `from` units, expressed in `to` units. */
+  function convertWeight(w, from, to) {
+    if (w == null || !isFinite(w)) return null;
+    const a = WEIGHT_UNITS[from] || WEIGHT_UNITS.kg;
+    const b = WEIGHT_UNITS[to] || WEIGHT_UNITS.kg;
+    if (a.id === b.id) return Number(w);
+    return (Number(w) / a.perKg) * b.perKg;
+  }
 
-     The SHAPE of a practice, not the practice itself. A template fills in the
-     things that are true of the activity — what it is measured in, which way it
-     goes, how big a step is, which area it belongs to — and leaves the two
-     numbers that are true of the PERSON to be typed in.
+  /** '60 kg', or 'bodyweight' — never '0 kg', which would be a different claim. */
+  function fmtWeight(w, unit) {
+    if (w == null || !isFinite(w)) return 'bodyweight';
+    const u = (WEIGHT_UNITS[unit] || WEIGHT_UNITS.kg).short;
+    return round1(w) + ' ' + u;
+  }
 
-     Those two are deliberately suggestions rather than answers. Rule 1 of
-     knowledge/project.md is that a goal runs from where the user actually is,
-     and the app already learned this the expensive way: it shipped five seed
-     goals as instructions, and somebody who really wakes at 09:00 was asked for
-     07:30 on their first morning and missed. The sheet says so in as many words.
+  /** One set, as it reads on a row: '60 kg x 8', or '8 reps' with no load. */
+  function fmtLoad(set, unit) {
+    if (!set) return '';
+    const reps = Math.max(0, Math.round(Number(set.r) || 0));
+    if (set.w == null || !isFinite(set.w)) return reps + ' reps';
+    const shown = convertWeight(set.w, set.u || 'kg', unit || set.u || 'kg');
+    return fmtWeight(shown, unit || set.u || 'kg') + ' × ' + reps;
+  }
 
-     There is no template for "become more mature" or "get better with people".
-     They are outcomes rather than practices, and a daily number invented for
-     them would be exactly the thing "This Is Not A Game" forbids — the app's own
-     invention sitting above the user's real record. What moves them is on this
-     list already: writing, reading, gratitude, and time spent with people. */
+  /** Load x reps, in `unit`. A bodyweight set contributes nothing — see above. */
+  function setVolume(set, unit) {
+    if (!set || set.w == null || !isFinite(set.w)) return 0;
+    const w = convertWeight(set.w, set.u || 'kg', unit || 'kg');
+    return w * Math.max(0, Math.round(Number(set.r) || 0));
+  }
 
-  const GOAL_TEMPLATES = [
-    { key: 't_english', name: 'English practice', icon: '🗣️', section: 'craft',
-      unit: 'minutes', direction: 'up', baseline: 15, target: 60, step: 5,
-      schedule: { type: 'daily' },
-      blurb: 'Speaking, listening or writing — whichever you did least of yesterday.' },
-    { key: 't_ai', name: 'AI practice', icon: '🤖', section: 'craft',
-      unit: 'minutes', direction: 'up', baseline: 15, target: 60, step: 5,
-      schedule: { type: 'daily' },
-      blurb: 'Time actually building something with it, not time reading about it.' },
-    { key: 't_geo', name: 'Geology software', icon: '🛠️', section: 'craft',
-      unit: 'minutes', direction: 'up', baseline: 20, target: 90, step: 10,
-      schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] },
-      blurb: 'Weekdays, because this one is your trade rather than your evening.' },
-    { key: 't_income', name: 'Earning work', icon: '💹', section: 'craft',
-      unit: 'minutes', direction: 'up', baseline: 20, target: 90, step: 10,
-      schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] },
-      blurb: 'Time on the thing that might pay. The money is the outcome; this is the input.' },
-    { key: 't_gratitude', name: 'Gratitude', icon: '🙏', section: 'mind',
-      unit: 'count', direction: 'up', baseline: 1, target: 3, step: 1,
-      schedule: { type: 'daily' },
-      blurb: 'Things named, not minutes spent. Three is a ceiling, not a beginning.' },
-    { key: 't_basketball', name: 'Basketball', icon: '🏀', section: 'fitness',
-      unit: 'minutes', direction: 'up', baseline: 45, target: 120, step: 15,
-      schedule: { type: 'weekdays', days: [2, 6] },
-      blurb: 'Set the days you actually play — the two here are a guess.' },
-    { key: 't_volleyball', name: 'Volleyball', icon: '🏐', section: 'fitness',
-      unit: 'minutes', direction: 'up', baseline: 45, target: 120, step: 15,
-      schedule: { type: 'weekdays', days: [4] },
-      blurb: 'Set the days you actually play — the one here is a guess.' },
-    { key: 't_swimming', name: 'Swimming', icon: '🏊', section: 'fitness',
-      unit: 'minutes', direction: 'up', baseline: 20, target: 60, step: 5,
-      schedule: { type: 'weekdays', days: [3, 0] },
-      blurb: 'Set the days you actually swim — the two here are a guess.' }
-  ];
+  /** Everything lifted in one exercise entry, in `unit`. */
+  function entryVolume(perf, unit) {
+    if (!perf || !Array.isArray(perf.sets)) return 0;
+    return perf.sets.reduce((sum, s) => sum + setVolume(s, unit), 0);
+  }
 
-  /* ---------- seed goals ---------- */
+  /** Did anything actually get recorded here? */
+  function isLogged(perf) {
+    if (!perf) return false;
+    if (Array.isArray(perf.sets) && perf.sets.length) return true;
+    return (perf.min != null && perf.min > 0) || (perf.km != null && perf.km > 0);
+  }
 
   /**
-   * Every goal carries a baseline AND a target, so no progression can run away.
-   * steps are per level, in the goal's unit, at normal difficulty.
+   * How an exercise is logged, which is a property of the exercise and not of
+   * the plan item — a plan item may change its sets and reps, never its shape.
    *
-   * These are the practices the app is FOR — the trackable half of the owner's
-   * own "things I want to improve" list, each measured in minutes a day and
-   * stepping up when it is earned rather than when a week passes.
-   *
-   * Three things on that list are deliberately absent.
-   *
-   *   "Become more mature" and "improve interpersonal skills" are outcomes, not
-   *   practices. A daily number invented for either would be the app's own
-   *   invention sitting above the user's real record, which is the one thing
-   *   "This Is Not A Game" in knowledge/project.md forbids. What moves them is
-   *   already here: writing, reading and gratitude.
-   *
-   *   Basketball, volleyball and swimming are in GOAL_TEMPLATES rather than
-   *   seeded, because a seed cannot know which days somebody plays and guessing
-   *   would put a missed session on the record for a day they were never on a
-   *   court. The template asks.
-   *
-   * The numbers are starting points and the app says so — see the "These are
-   * starting numbers, not yours" banner. Rule 1 is that a goal runs from where
-   * the user actually is, and only they know that.
+   *   'reps'      set rows of weight x reps
+   *   'time'      minutes
+   *   'distance'  kilometres, and minutes if you want them
    */
-  const SEED_GOALS = [
-    {
-      key: 'english', name: 'English', icon: '🗣️', section: 'craft',
-      unit: 'minutes', direction: 'up', baseline: 15, target: 45, step: 5,
-      schedule: { type: 'daily' }, track: 'value',
-      blurb: 'Speaking, listening or writing — whichever you did least of yesterday.'
-    },
-    {
-      key: 'ai', name: 'AI practice', icon: '🤖', section: 'craft',
-      unit: 'minutes', direction: 'up', baseline: 15, target: 45, step: 5,
-      schedule: { type: 'daily' }, track: 'value',
-      blurb: 'Time spent building something with it, not time spent reading about it.'
-    },
-    {
-      key: 'read', name: 'Read', icon: '📖', section: 'reading',
-      unit: 'minutes', direction: 'up', baseline: 10, target: 45, step: 5,
-      schedule: { type: 'daily' }, track: 'value', gate: 'summary',
-      blurb: 'Write what you took from it — that is where the learning sticks.'
-    },
-    {
-      key: 'gratitude', name: 'Gratitude', icon: '🙏', section: 'mind',
-      unit: 'minutes', direction: 'up', baseline: 2, target: 10, step: 2,
-      schedule: { type: 'daily' }, track: 'value',
-      blurb: 'Name them rather than think them. Two minutes is a real practice.'
-    },
-    {
-      key: 'geology', name: 'Geology software', icon: '🛠️', section: 'craft',
-      unit: 'minutes', direction: 'up', baseline: 20, target: 60, step: 10,
-      schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] }, track: 'value',
-      blurb: 'Weekdays. This one is the trade, not the evening.'
-    },
-    {
-      key: 'earning', name: 'Earning work', icon: '💹', section: 'craft',
-      unit: 'minutes', direction: 'up', baseline: 20, target: 60, step: 10,
-      schedule: { type: 'weekdays', days: [1, 2, 3, 4, 5] }, track: 'value',
-      blurb: 'Time on the thing that might pay. The money is the outcome; this is the input.'
+  const logShape = (ex) => {
+    const u = ex && ex.unit;
+    return u === 'time' || u === 'distance' ? u : 'reps';
+  };
+
+  /** What the plan ASKED for on this row. Never read from a log. */
+  function targetPhrase(item, ex) {
+    const shape = logShape(ex);
+    if (shape === 'time') {
+      const m = item && item.minutes != null ? item.minutes : ex && ex.minutes;
+      return m ? Math.round(m) + ' min' : 'as long as it takes';
     }
-  ];
-
-  /* ---------- reading journal ---------- */
-
-  /** Rotating prompts. Guidance, never a word count — a minimum length only buys you "asdf". */
-  const READING_PROMPTS = [
-    'What is the single idea you want to keep from today?',
-    'Explain what you read as if to a curious twelve-year-old.',
-    'What did the author claim, and do you actually believe it?',
-    'What will you do differently because of this?',
-    'What surprised you, or contradicted something you thought?',
-    'Which sentence was worth the whole session?',
-    'What question are you left with?',
-    'How does this connect to something you already know?'
-  ];
-
-  const promptForDay = (dateKey) => {
-    const n = Math.abs(daysBetween('2024-01-01', dateKey));
-    return READING_PROMPTS[n % READING_PROMPTS.length];
-  };
-
-  /* ---------- lines worth keeping ----------
-
-     The app's own test for a feature is in knowledge/project.md: does this tell
-     the user something TRUE about their life, or does it only move a counter the
-     app invented? A generic motivational quote fails it — it says nothing about
-     anybody's life and it is the decoration this app is built against.
-
-     A line the user chose to keep passes, because choosing it is the fact. So
-     this list is theirs: `addLine` is the only way one appears, and every seeded
-     entry below can be deleted.
-
-     What IS seeded is short, real and attributed — the principles from the
-     "Can't Hurt Me" analysis the owner brought to this app, not invented
-     encouragement and never a sentence about the user. If it reads as a slogan
-     rather than a claim you could argue with, it does not belong here. */
-
-  const SEED_LINES = [
-    { text: 'Stress plus recovery equals adaptation. Stress without recovery equals damage.', source: 'Can’t Hurt Me' },
-    { text: 'Discipline is architecture, not heroism — consistent people have removed decisions, not won them.', source: 'Can’t Hurt Me' },
-    { text: 'Fault and responsibility are different. Take the second regardless of the first.', source: 'Can’t Hurt Me' },
-    { text: 'Confidence follows evidence. Build the record.', source: 'Can’t Hurt Me' },
-    { text: 'Avoidance inflates difficulty; contact deflates it.', source: 'Can’t Hurt Me' },
-    { text: 'Rehearse the obstacle, not the trophy.', source: 'Can’t Hurt Me' },
-    { text: 'Your perception of your limit arrives long before your limit does.', source: 'Can’t Hurt Me' },
-    { text: 'You cannot improve from a position you refuse to state accurately.', source: 'Can’t Hurt Me' }
-  ];
-
-  /* ---------- rewards ---------- */
-
-  // Streak milestones. xp is granted on claim.
-  /* No `icon` either. The medal is one drawn trophy now: eleven different
-     glyphs was eleven decisions, it re-used the flame that means "streak"
-     everywhere else, and the locked state depended on `grayscale()` treating a
-     colour emoji the same way on every platform, which it does not. */
-  const MILESTONES = [
-    { id: 'm3', days: 3, name: 'Ignition', xp: 50, blurb: 'Three days in. The hardest part is behind you.' },
-    { id: 'm7', days: 7, name: 'One Week Warrior', xp: 120, blurb: 'A full week. This is becoming a rhythm.' },
-    { id: 'm14', days: 14, name: 'Fortnight Forged', xp: 220, blurb: 'Two weeks. Your body is starting to expect it.' },
-    { id: 'm21', days: 21, name: 'Habit Formed', xp: 320, blurb: '21 days — the classic habit threshold, cleared.' },
-    { id: 'm30', days: 30, name: 'Monthly Machine', xp: 500, blurb: 'A month of showing up. Rare air.' },
-    { id: 'm50', days: 50, name: 'Half Century', xp: 800, blurb: 'Fifty days. Discipline over motivation.' },
-    { id: 'm75', days: 75, name: 'Iron Will', xp: 1100, blurb: 'Seventy-five. Nothing knocks you off now.' },
-    { id: 'm100', days: 100, name: 'Centurion', xp: 1600, blurb: 'One hundred days. You are the discipline.' },
-    { id: 'm150', days: 150, name: 'Relentless', xp: 2400, blurb: '150 days of relentless forward motion.' },
-    { id: 'm200', days: 200, name: 'Unbreakable', xp: 3200, blurb: '200 days. Unbreakable.' },
-    { id: 'm365', days: 365, name: 'Year of Arising', xp: 6000, blurb: 'A full year. You rewrote who you are.' }
-  ];
-
-  /* No `icon` here. There were nine, read nowhere — `progress()` renders the
-     name only — and a dead field is an invitation to render it. */
-  const RANKS = [
-    { at: 1, name: 'Awakened' },
-    { at: 4, name: 'Apprentice' },
-    { at: 8, name: 'Fighter' },
-    { at: 13, name: 'Hunter' },
-    { at: 19, name: 'Knight' },
-    { at: 26, name: 'Elite' },
-    { at: 34, name: 'Champion' },
-    { at: 45, name: 'Monarch' },
-    { at: 60, name: 'Sovereign' }
-  ];
-
-  const XP = { exercise: 10, habit: 5, dayBonus: 25, weeklyGoal: 150, goal: 12, summary: 20, levelUp: 40 };
-
-  /** Total XP required to *reach* a level (level 1 = 0). Gentle quadratic curve. */
-  function xpForLevel(level) {
-    if (level <= 1) return 0;
-    const n = level - 1;
-    return Math.round(50 * n * (n + 1) * 0.5 + 60 * n);
+    if (shape === 'distance') {
+      const km = item && item.km != null ? item.km : ex && ex.km;
+      return km ? round1(km) + ' km' : 'any distance';
+    }
+    const sets = (item && item.sets) || (ex && ex.sets) || 0;
+    const reps = (item && item.reps) || (ex && ex.reps) || 0;
+    const max = item && item.repsMax != null ? item.repsMax : ex && ex.repsMax;
+    const rangeText = max && max > reps ? reps + '–' + max : String(reps);
+    if (!sets || !reps) return 'as prescribed';
+    return sets + ' × ' + rangeText;
   }
 
-  function levelFromXp(xp) {
-    let lvl = 1;
-    while (lvl < 200 && xp >= xpForLevel(lvl + 1)) lvl++;
-    return lvl;
+  /** What was DONE, in one line. Empty string when nothing was recorded. */
+  function describeEntry(perf, ex, unit) {
+    if (!isLogged(perf)) return '';
+    /* Read the ENTRY, not the exercise. An exercise that used to be measured in
+       reps and is measured in minutes now still has rep sets on the days it was
+       logged, and asking the current shape for `perf.min` there prints 'NaN
+       min'. What was written down is what gets read back. */
+    const parts = [];
+    if (perf.km != null && perf.km > 0) parts.push(round1(perf.km) + ' km');
+    if (perf.min != null && perf.min > 0) parts.push(round1(perf.min) + ' min');
+    if (parts.length) return parts.join(' in ');
+    const sets = perf.sets || [];
+    if (!sets.length) return '';
+    const reps = sets.map((s) => Math.max(0, Math.round(Number(s.r) || 0)));
+    const loads = sets.filter((s) => s.w != null && isFinite(s.w));
+    if (!loads.length) return sets.length + ' × ' + reps.join(', ');
+    const top = loads.reduce((a, b) => (convertWeight(b.w, b.u || 'kg', unit) > convertWeight(a.w, a.u || 'kg', unit) ? b : a));
+    return fmtWeight(convertWeight(top.w, top.u || 'kg', unit), unit) + ' · ' + sets.length + ' × ' + reps.join(', ');
   }
 
-  function rankFor(level) {
-    let r = RANKS[0];
-    for (const c of RANKS) if (level >= c.at) r = c;
-    return r;
+  /* ---------- the rest between sets ----------
+
+     Read out of the plan item's `note`, never out of a field of its own. The
+     programme already writes it there — 'rest 90 s', 'rest 2–3 min' — and a
+     second place to keep the same number in step is a second place to get it
+     wrong. No new field also means no migration.
+
+     A range takes its LOWER bound. That is the moment the rest is over and you
+     may start again; the upper bound is how long you are ALLOWED to take, not
+     how long you must wait, and counting down to it would hold somebody at the
+     rack for a minute the programme never asked of them.
+
+     The number has to follow the word `rest` immediately. That is what keeps
+     'rest the top of the rear foot on it' and '2 × 20 s per side, knee on the
+     bench · rest 45 s' from being read as intervals — the first has no number
+     and the second has the wrong one first. */
+
+  const REST_RE = /\brest\s+(\d+(?:\.\d+)?)\s*(?:[\u2013\u2014-]\s*(\d+(?:\.\d+)?)\s*)?(min|minutes?|s|secs?|seconds?)\b/i;
+
+  /**
+   * @returns {{seconds:number, upper:number|null, text:string}|null}
+   *   null when the note prescribes no interval, which is a real answer: the
+   *   app must not invent a rest nobody wrote down.
+   */
+  function restFromNote(note) {
+    const m = REST_RE.exec(String(note == null ? '' : note));
+    if (!m) return null;
+    const per = /^m/i.test(m[3]) ? 60 : 1;
+    const seconds = Math.round(Number(m[1]) * per);
+    if (!isFinite(seconds) || seconds <= 0) return null;
+    const upper = m[2] == null ? null : Math.round(Number(m[2]) * per);
+    return {
+      seconds: seconds,
+      upper: upper != null && upper > seconds ? upper : null,
+      text: m[0].replace(/\s+/g, ' ').trim()
+    };
+  }
+
+  /** Seconds as a clock: 105 -> '1:45'. Never negative — the caller signs it. */
+  function fmtClock(seconds) {
+    const n = Math.max(0, Math.round(Number(seconds) || 0));
+    return Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
   }
 
   Object.assign(Arise, {
     DAY_MS, DAY_NAMES, DAY_SHORT, CATEGORIES, MUSCLES, MUSCLE_NAME, MUSCLE_UPGRADE, cleanMuscles,
-    SEED_EXERCISES, SEED_HABITS, SEED_GOALS, GOAL_TEMPLATES, MILESTONES, RANKS, XP,
-    SECTIONS, sectionById, MODES, MODE_IDS, UNITS, formatValue, READING_PROMPTS, promptForDay, SEED_LINES,
+    SEED_EXERCISES,
     key, fromKey, addDays, weekday, daysBetween, prettyDate, weekStart, uid,
-    todayKey, minutesLeftToday, hhmmToMin, minToHhmm, prettyTime,
-    xpForLevel, levelFromXp, rankFor
+    todayKey, minutesLeftToday, prettyTime,
+    WEIGHT_UNITS, convertWeight, round1, fmtWeight, fmtLoad, setVolume, entryVolume,
+    isLogged, logShape, targetPhrase, describeEntry, restFromNote, fmtClock
   });
 })(window);

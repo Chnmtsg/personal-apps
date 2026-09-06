@@ -2,65 +2,82 @@
 
 ## Project Vision
 
-Discipline is a personal-development tracker for one person, on their own phone.
+Discipline is a training log for one person, on their own phone.
 
-The goal is NOT to record habits and workouts. A notes app does that.
+The goal is NOT to tick off that you went to the gym. A notes app does that.
 
-The goal is to carry someone from where they actually are to a target they chose,
-at a pace they can survive — and to keep a streak that survives real life.
+The goal is to hold the one record that answers **"is it going up"** — what you
+did, with what weight, for how many reps, against what you did last time — and to
+keep a streak that survives real life.
+
+---
+
+## What This App Is Now
+
+Until 2026-09 this was a personal-development tracker: a goal ladder engine, a
+reading gate, a journal, a 66-day habit run, XP, levels, ranks and a milestone
+ladder. All of it was removed at the user's request in favour of one subject done
+properly.
+
+What survived is what serves a training log: the exercise library with its
+coaching notes and pictures, the weekly plan and the built-in programme, day
+status, streaks and freezes, the muscle breakdown, the deload cycle and the
+stopping rule, rewards you promise yourself, and export/import.
+
+**Nothing was deleted from anybody's stored data.** The app stopped reading
+`goals`, `goalLogs`, `reading`, `journal`, `lines`, `cookies`, `challenges`,
+`run` and `habits`; every one of them still rides along in `arise.state.v1` and
+in every export. See the invariants in `arise/CLAUDE.md`.
 
 ---
 
 ## This Is Not A Game
 
-The streak, the XP, the levels and the ranks are **instruments, not the point**.
-They exist to make a real life easier to keep hold of. The moment the number
-becomes the thing the user is protecting, the app has started competing with the
-life it was built to serve.
+The streak is an **instrument, not the point**. It exists to make a real habit
+easier to keep hold of. The moment the number becomes the thing the user is
+protecting, the app has started competing with the life it was built to serve.
 
 The test for any feature: *does this tell the user something true about their
-life, or does it only move a counter the app invented?*
+training, or does it only move a counter the app invented?*
 
-- A real total is worth more than a synthetic one. "22 hours of deep work" and
-  "61 mornings you got up when you said you would" are facts about a life.
-  "238 XP" is a fact about a spreadsheet.
-- A reward that costs something real — the sneakers, the next book — beats a
-  badge. That is why collecting one grants no XP.
-- Never invent a number the user did not earn, and never dress an invented
-  number up as an earned one. Elapsed time is not progress; points are not
-  achievement.
+- A real total is worth more than a synthetic one. "3,150 kg moved" and "61
+  sessions you kept" are facts. "238 XP" is a fact about a spreadsheet. The XP,
+  levels, ranks and milestone medals were removed for exactly this reason.
+- A reward that costs something real — the shoes, the next plate — beats a badge.
+  That is why the only rewards left are the ones the user promises themselves,
+  and why collecting one grants nothing but the record that they bought it.
+- Never invent a number the user did not earn. A bodyweight set is not zero kilos.
+  A day the app was never opened is not a day of failure. A gap in the chart is
+  not a zero.
 - Streaks may never become the app's argument for itself. A streak is context.
   Losing one must never read as a verdict, and protecting one must never be more
-  attractive than living the day.
-
-Nothing here says delete the game layer. It says keep it in its place, below the
-things that are true.
+  attractive than training well.
 
 ---
 
-## The Three Rules
+## The Rules
 
 These are the vision, not implementation detail. No feature may contradict them.
 
-**1. Every goal has a baseline and a target.**
+**1. The plan says what was asked; the log says what was done.**
 
-A goal is `start → target`, never `start + step forever`. A progression with only
-a step size is a countdown to failure: at −15 min/week you are being asked to wake
-at 3:45am by week twelve. `valueAt(level)` is clamped to the target, and on
-arrival the goal switches to maintenance.
+They are separate objects and neither is derived from the other. A plan item
+carries the prescription — `3 × 8`, `5 km`, `3 min`. A log entry carries what
+actually happened — `60 kg × 8, 8, 6`. Changing tomorrow's prescription must not
+rewrite last Tuesday's record, and a set the user logged must not be re-read
+through an exercise that has since been edited.
 
-**2. Levels are earned by performing, never granted by the calendar.**
+**2. A set carries everything needed to read it back.**
 
-The obvious version advances on dates — week 1 is 6:30, week 2 is 6:15, whether or
-not you managed week 1. That guarantees the app outruns the user and everyone fails
-on schedule. Here a step is earned (by default 5 good days in the last 7), and
-missing enough scheduled days in a row steps *back* so the app walks down to meet
-you.
+The weight, the unit it was typed in, and the reps. That is what makes switching
+between kilos and pounds a *display* choice rather than a re-valuation of
+history, and it is what makes a rename or a re-prescription harmless.
 
-**3. Difficulty changes the size of a step, not the rules for earning one.**
+**3. Logging is generous in one direction only.**
 
-Easy halves the step, Hard doubles it. Switching re-scores the existing record at
-the new step size. Nothing is wiped and no completed day is un-completed.
+Filling in the last prescribed set ticks the exercise off, because that is
+obviously what happened. Nothing ever un-ticks it — correcting a typo must not
+retract a session the user knows they did. Taking it back is their own tap.
 
 ---
 
@@ -70,35 +87,37 @@ A core module is one the application ships today and can be reached by name.
 
 | Module | Where it lives |
 |---|---|
-| Today | Tab bar — the day's goals, workout, reading gate, habits, journal |
-| Plan | Tab bar — goal management and the seven-day training split |
-| Read | Tab bar — reading summaries and the daily journal, plus both archives |
-| Stats | Tab bar — streaks, level/XP, goal ladders, heat map, training mix |
-| Rewards | Tab bar — your own rewards, 11 streak milestones, weekly chest, XP, rank ladder |
-| More | Tab bar — difficulty, streak rules, exercise library, habits, backup |
+| Today | Tab bar — the day's session, with the set log on every exercise |
+| Plan | Tab bar — the seven-day training split and the built-in programmes |
+| Stats | Tab bar — streaks, top-set charts, heaviest sets, heat map, muscle mix |
+| More | Tab bar — units, streak rules, exercise library, rewards, backup |
 
-**The training program** is content under Plan, not its own screen: a built-in
-six-day dumbbell split living in the exercise library and the weekly plan. Every
-exercise carries how-to notes reachable from any workout row.
+**The training programme** is content under Plan, not its own screen: two
+contexts (site, dumbbells only; home, barbell) each laying down a six-day split.
+Every exercise carries how-to notes and optional pictures, reachable from any
+row on Today.
 
-**The run** is an optional fixed length the day counter counts against — DAY 5 / 66. It must stay
-optional: a finish line the user did not choose is a deadline, and this app does not set deadlines.
-Its progress bar shows elapsed days *and* kept days as separate layers, because elapsed time is not
-progress and must never be drawn as if it were. Runs are archived on completion, never deleted.
+**Your own rewards** live behind More. A reward is a promise the user makes to
+themselves — "fourteen sessions, then the shoes" — tied to the training streak.
+It pays out in the real world, so collecting it records that they actually bought
+the thing. A reward is earned on the *best* run the streak ever reached, not the
+current one, so a slip afterwards cannot revoke something already won.
 
-**Your own rewards** live at the top of Rewards. A reward is a promise the user
-makes to themselves — "fourteen days of workouts, then the sneakers" — tied
-either to the overall streak or to one goal's streak. It pays out in the real
-world, so collecting it records that they actually bought the thing and grants
-no XP: inventing points for buying yourself trainers is exactly the unearned
-number this app refuses to show. A reward is earned on the *best* run the streak
-ever reached, not the current one, so a slip afterwards cannot revoke something
-already won.
+**Streak freezes** ship under More. A streak that shatters on one bad day teaches
+people to quit. A freeze is earned (one per 10 completed days, max 5) and spent
+by hand on a specific past day, so it holds the chain without pretending a missed
+session happened.
 
-**Streak freezes** ship under More. They are named here because they serve the
-vision directly: a streak that shatters on one bad day teaches people to quit. A
-freeze is earned (one per 10 completed days, max 5) and spent by hand on a
-specific past day, so it holds the chain without pretending a missed day happened.
+**The rest timer** starts itself when a set is logged and counts the interval the
+plan prescribes. It reads that interval out of the plan's own note and invents
+none: an exercise that prescribes no rest counts up rather than being handed a
+number the app made up. It is never saved — a half-finished rest is not
+something the user did.
+
+**The deload cycle and the stopping rule** are the recovery half, and they are
+first-class rather than a footnote. Stress plus recovery is adaptation; stress
+without recovery is damage. Every feature that raises the standard is only safe
+underneath that sentence.
 
 ---
 
@@ -120,30 +139,31 @@ The application must be
 
 A change that breaks one of these is a Critical finding.
 
-**A day you have lived is never re-judged.** Every goal entry stores the target it
-was judged against; every day's log freezes its own exercise list; every goal keeps
-a `scheduleHistory`. Editing a goal, switching difficulty, moving a baseline or
-changing a schedule must never reach back and change what a past day meant.
+**A day you have lived is never re-judged.** Every day's log freezes its own
+exercise list, and every set stores its own weight, unit and reps. Editing the
+plan, renaming an exercise, changing a prescription or switching the display unit
+must never reach back and change what a past day meant.
 
 **Day status is derived, never stored.** Every number is recomputed from the logs
 so nothing drifts out of sync. This is why `commit()` must stay O(1), why the
-best-streak high-water mark is maintained on read, and why day status and goal
-timelines are memoised per revision.
+best-streak high-water mark is maintained on read, and why day status is memoised
+per revision.
 
 **Stored data is sacred.** Everything lives in `localStorage` on one device and is
 never uploaded. A migration must be additive and must tolerate state written by an
-older version. Backup is More → Export, and it is the only recovery there is.
+older version — including keys this version no longer reads. Backup is More →
+Export, and it is the only recovery there is.
 
-**Today is never a failure until it is over.** An unfinished today can lift your
-level; it can never drop it.
+**Today is never a failure until it is over.** An unfinished today can extend your
+streak; it can never break it.
 
 ---
 
 ## Target Users
 
-One person tracking their own life.
+One person tracking their own training.
 
-No training required. No fitness or accounting knowledge assumed.
+No coaching knowledge assumed beyond knowing what a set is.
 
 Every screen should be understandable without explanation.
 
@@ -155,11 +175,18 @@ These are decisions, not gaps. Re-proposing one needs a reason.
 
 - **Alarms and reliable reminders.** A PWA cannot wake anyone: browsers do not run
   timers in the background, and iOS delivers web push to a home-screen install
-  unreliably and without timing guarantees. Discipline tracks a wake-up; it must never
-  imply it causes one. The reminder setting fires only while the app is open.
+  unreliably and without timing guarantees. Discipline tracks training; it must
+  never imply it gets you to the gym. The reminder setting fires only while the
+  app is open.
 - **Cloud sync and accounts.** Data stays on the device.
 - **Anti-cheat.** Winding the device clock back cannot be prevented offline. The
   app detects it and says so rather than quietly rewarding it.
+- **A prescribed weight.** The programme prescribes sets, reps and an RIR target,
+  never a load. What you can lift is a fact about you, and the app has no honest
+  way to guess it — so the weight field starts from what you did last time and
+  from nothing else.
+- **An estimated one-rep max.** It is a formula's opinion, not a lift you did.
+  The heaviest set you actually performed is a fact and is what Stats reports.
 
 ---
 
@@ -169,5 +196,4 @@ Future versions may include
 
 - Cloud sync and multi-device
 - Progress photos and body measurements
-- Per-lift volume and progression analytics
-- Custom training programs beyond the built-in split
+- Custom training programmes beyond the two built-in splits

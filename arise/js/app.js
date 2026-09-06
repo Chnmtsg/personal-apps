@@ -10,60 +10,30 @@
   const esc = UI.esc;
   let deferredInstall = null;
 
-  /* ---------- celebrate level-ups and newly unlocked milestones ---------- */
+  /* ---------- celebrate what was actually earned ----------
+
+     What used to be here diffed levels, XP, ranks and an eleven-medal ladder —
+     every one of them a number the app invented about itself. All that survives
+     is the two things that are facts: a streak that grew, and a promise the
+     user made to themselves that has now come due. */
 
   function snapshot() {
-    const goals = {};
-    S.activeGoals().forEach((g) => {
-      const tl = S.goalTimeline(g.id);
-      goals[g.id] = tl ? tl.level : 0;
-    });
     return {
-      level: S.progress().level,
-      unlocked: S.rewards().filter((r) => r.unlocked).length,
       streak: S.currentStreak(),
-      weekHit: S.weekStats().hit,
-      goals: goals
+      ready: S.customRewards().filter((r) => S.customRewardProgress(r).unlocked).length
     };
   }
 
   function celebrate(before) {
     const after = snapshot();
-    let party = false;
-
-    // A goal stepping up is the single most motivating event in the app — say it loudly.
-    S.activeGoals().forEach((g) => {
-      const was = before.goals[g.id];
-      const now = after.goals[g.id];
-      if (was == null || now == null || now <= was) return;
-      const tl = S.goalTimeline(g.id);
-      UI.toast(
-        `<span><b>${esc(g.name)}</b> steps to ${esc(A.formatValue(g.unit, tl.target))}${
-          tl.atTarget ? ' — target reached!' : ''
-        }</span>`,
-        'gold'
-      );
-      party = true;
-    });
-
-    if (after.unlocked > before.unlocked) {
-      const m = S.rewards().filter((r) => r.unlocked).slice(-1)[0];
-      UI.toast(`${m.icon} <span>Milestone unlocked — <b>${m.name}</b>! Claim it in Rewards.</span>`, 'gold');
-      party = true;
+    if (after.ready > before.ready) {
+      UI.toast('<span>A reward is earned — collect it in Rewards.</span>', 'gold');
+      UI.confetti();
+      return;
     }
-    if (after.level > before.level) {
-      const p = S.progress();
-      UI.toast(`${p.rank.icon} <span>Level ${p.level} — <b>${p.rank.name}</b></span>`, 'gold');
-      party = true;
-    }
-    if (after.weekHit && !before.weekHit) {
-      UI.toast('<span>Weekly goal hit — chest ready!</span>', 'gold');
-      party = true;
-    }
-    if (!party && after.streak > before.streak && after.streak > 1) {
+    if (after.streak > before.streak && after.streak > 1) {
       UI.toast(`<span><b>${after.streak}</b> day streak</span>`);
     }
-    if (party) UI.confetti();
   }
 
   /* ---------- undo, for the actions that destroy something ----------
@@ -106,11 +76,6 @@
     return out;
   }
 
-  /* ---------- the two day-level goal actions ----------
-     Named once, because there are now three ways to reach each of them — the
-     tick, the day strip and a swipe — and three copies of "what keeping a goal
-     means" would be three things to keep in step. */
-
   /** A short buzz, where the device has one. Completion only, never undo. */
   function buzz(ms) {
     try {
@@ -120,28 +85,52 @@
     }
   }
 
-  function keepGoal(id, dateKey) {
-    const g = S.goalById(id);
-    if (!g) return;
-    const kept = act(() => S.hitGoalTarget(dateKey, id));
-    if (!kept) return; // un-ticking *is* the undo; it does not need one of its own
-    buzz(12);
-    UI.toastAction(`<span><b>${esc(g.name)}</b> kept</span>`, {
-      act: 'goal-hit',
-      id: id,
-      date: dateKey
-    });
+  /* ---------- the rest timer ----------
+
+     `js/ui.js` owns the rest itself and paints it a field at a time; this owns
+     the heartbeat, because an interval is an event and events live here.
+
+     It runs only while a rest is running and stops itself the moment there is
+     none, so an idle app has one 30-second interval and nothing else. Twice a
+     second rather than once: a clock that ticks on a 1000ms interval visibly
+     skips a second whenever the browser throttles it, and half a second of
+     wasted work is cheaper than a countdown that reads 2:00, 1:58.
+
+     Everything is derived from `Date.now()` and not from a count of ticks, so a
+     backgrounded tab that stops being serviced comes back with the right number
+     rather than one that is however many ticks behind. */
+
+  let restTicker = null;
+
+  function armRest() {
+    if (restTicker != null) return;
+    restTicker = setInterval(() => {
+      if (!UI.rest()) {
+        clearInterval(restTicker);
+        restTicker = null;
+        return;
+      }
+      // True exactly once, on the tick it runs out.
+      if (UI.paintRest()) buzz(30);
+    }, 500);
   }
 
-  function skipGoal(id, dateKey) {
-    const g = S.goalById(id);
-    if (!g) return;
-    if (!S.skipGoal(dateKey, id)) return; // un-skipping is likewise its own undo
-    UI.toastAction(`⏭ <span><b>${esc(g.name)}</b> skipped</span>`, {
-      act: 'goal-skip',
-      id: id,
-      date: dateKey
-    });
+  /* ---------- reading a set out of the row ----------
+
+     The inputs are rebuilt on every render, so they are addressed by the id the
+     view stamps on them rather than held onto. A blank weight is `null` and not
+     zero: a bodyweight set is a real answer, and zero would put it into the
+     volume total as a zero-kilo barbell. */
+
+  function readSet(itemId) {
+    const w = document.getElementById('w_' + itemId);
+    const r = document.getElementById('r_' + itemId);
+    const raw = w ? String(w.value).trim() : '';
+    const weight = raw === '' ? null : parseFloat(raw);
+    return {
+      weight: weight == null || isNaN(weight) ? null : weight,
+      reps: Math.max(0, Math.round(parseFloat(r ? r.value : 0) || 0))
+    };
   }
 
   /* ---------- helpers ---------- */
@@ -193,84 +182,12 @@
     return isNaN(n) ? fallback : n;
   };
 
-  /** Read the goal editor sheet into a plain goal patch.
-      `existing` is the goal being edited (null when creating), so a saved
-      `wrapAt` can be preserved instead of re-guessed. */
-  function readGoalForm(existing) {
-    const unit = $('#gg_unit').value;
-    const val = (sel, fallback) => {
-      const el = $(sel);
-      if (!el) return fallback;
-      const n = el.type === 'time' ? A.hhmmToMin(el.value) : parseFloat(el.value);
-      return n == null || isNaN(n) ? fallback : n;
-    };
-    const schedType = $('#gg_sched').value;
-    const days = Array.from(document.querySelectorAll('#gg_days input:checked')).map((c) => Number(c.dataset.wd));
-    const adv = {
-      successes: Math.max(1, parseInt($('#gg_succ').value, 10) || 5),
-      window: Math.max(1, parseInt($('#gg_win').value, 10) || 7)
-    };
-    if (adv.window < adv.successes) adv.window = adv.successes;
-
-    const baseline = val('#gg_base', 0);
-    const target = val('#gg_target', 0);
-
-    const data = {
-      name: $('#gg_name').value.trim() || 'Untitled goal',
-      /* The field is gone from the sheet — a goal's mark is drawn from its
-          area — so this keeps whatever is already stored rather than reading a
-          control that no longer exists. `$()` returns null in a real browser and
-          the stub DOM does not, so a plain `.value` here would have crashed only
-          on a phone. */
-      icon: (existing && existing.icon) || '',
-      section: $('#gg_section').value,
-      unit: unit,
-      // Derived from the two numbers, never read back off the form. The editor
-      // shows it read-only for the same reason: a goal must not be pointable
-      // away from its own target, and goal-save recomputes this regardless.
-      direction: target >= baseline ? 'up' : 'down',
-      baseline: baseline,
-      target: target,
-      step: Math.max(0.25, parseFloat($('#gg_step').value) || 1),
-      mode: $('#gg_mode').value,
-      schedule: schedType === 'weekdays' ? { type: 'weekdays', days: days } : { type: 'daily' },
-      advance: adv,
-      regress: $('#gg_reg').checked ? { misses: Math.max(2, parseInt($('#gg_miss').value, 10) || 3) } : false,
-      gate: $('#gg_gate').checked ? 'summary' : null,
-      /* Optional, and null rather than 0 when blank — 0 is a floor somebody
-         might mean, and an empty box is not a number at all. */
-      floor: (() => {
-        const el = $('#gg_floor');
-        if (!el || String(el.value).trim() === '') return null;
-        const n = el.type === 'time' ? A.hhmmToMin(el.value) : parseFloat(el.value);
-        return n == null || isNaN(n) ? null : n;
-      })()
-    };
-    // A bedtime that crosses midnight needs the wrap rule, or 00:30 reads as "earlier" than 23:30.
-    // That's only a guess worth making for a brand-new goal — editing an existing one must
-    // never silently reset a wrapAt that's already correct, or a real midnight-crossing miss
-    // (e.g. 00:15 vs. a 22:30 target) would start reading as a numeric "earlier" success.
-    if (data.unit !== 'time') {
-      data.wrapAt = null;
-    } else if (existing && existing.unit === 'time') {
-      data.wrapAt = existing.wrapAt;
-    } else {
-      data.wrapAt = data.direction === 'down' && (data.baseline < 360 || data.target < 360) ? 720 : null;
-    }
-    return data;
-  }
-
-  /** Read the reward editor sheet. Shared with the source selector, which
-      rebuilds the sheet to show or hide the goal picker. */
+  /** Read the reward editor sheet. */
   function readRewardForm() {
-    const src = $('#rw_source').value === 'goal' ? 'goal' : 'overall';
-    const goalSel = $('#rw_goal');
     return {
       name: $('#rw_name').value.trim(),
       // A reward keeps a glyph the user typed; it just no longer gets a stock one.
       icon: ($('#rw_icon') && $('#rw_icon').value.trim()) || '',
-      source: src,
-      goalId: src === 'goal' && goalSel ? goalSel.value : null,
       days: Math.max(1, Math.min(999, parseInt($('#rw_days').value, 10) || 14))
     };
   }
@@ -330,232 +247,6 @@
 
     switch (a) {
       /* --- goals --- */
-      case 'goal-hit':
-        keepGoal(id, sheetDate);
-        break;
-      case 'goal-log':
-        UI.openGoalLog(id, sheetDate);
-        break;
-      case 'goal-detail':
-        // The day being viewed, so the sheet's day-level actions land on it.
-        UI.openGoalDetail(id, sheetDate);
-        break;
-      /* Fills the box; it does not save. One tap to put 15 in, another to commit
-         it — a chip that logged straight away would make a mis-tap a record. */
-      case 'goal-quick': {
-        const box = $('#g_val');
-        if (box) box.value = actEl.dataset.v;
-        break;
-      }
-      case 'goal-save-val': {
-        const g = S.goalById(id);
-        const el = $('#g_val');
-        if (!g || !el) break;
-        const raw = g.unit === 'time' ? A.hhmmToMin(el.value) : parseFloat(el.value);
-        const value = isNaN(raw) || raw == null ? null : raw;
-        act(() => S.setGoalValue(sheetDate, id, value));
-        UI.closeSheet();
-        if (S.goalDone(sheetDate, id)) {
-          UI.toast('<span>Target met</span>');
-          break;
-        }
-        /* The +10% rule, delivered at the only moment it is useful: you have just
-           logged short, so the urge to stop already arrived. The app names the
-           number and stops — it cannot do the work and it will not log a figure
-           you did not earn. Ten percent is small enough to always be possible,
-           which is the whole reason the rule uses it. */
-        const more = value != null && value > 0 && g.unit !== 'time'
-          ? A.formatValue(g.unit, A.Goals.roundValue(g, value * 1.1))
-          : null;
-        UI.toast(
-          more
-            ? '<span>Short of target. Ten percent more is <b>' + esc(more) + '</b> — do that, then stop.</span>'
-            : '<span>Logged — short of target</span>'
-        );
-        break;
-      }
-      /* Logs the floor as the real number it is. No special status, no discount
-         to the day's score — the whole value of the record is that it does not
-         flatter anybody, and a "bad day" that scored as kept would be the first
-         lie in it. */
-      case 'goal-floor': {
-        const g = S.goalById(id);
-        if (!g || g.floor == null) break;
-        act(() => S.setGoalValue(sheetDate, id, g.floor));
-        UI.closeSheet();
-        UI.toast('<span><b>' + esc(A.formatValue(g.unit, g.floor)) +
-                 '</b> logged. Short of the ask, and not nothing.</span>');
-        break;
-      }
-      case 'goal-skip':
-        skipGoal(id, sheetDate);
-        UI.closeSheet();
-        break;
-      case 'goal-clear':
-        S.clearGoalEntry(sheetDate, id);
-        UI.closeSheet();
-        break;
-      case 'goal-new':
-        UI.openGoalEditor(null);
-        break;
-      case 'goal-edit':
-        UI.openGoalEditor(id);
-        break;
-      case 'goal-save': {
-        const existing = id ? S.goalById(id) : null;
-        const data = readGoalForm(existing);
-        // Direction is a fact about the two numbers, not a separate choice — keep them consistent
-        // so a goal can never be pointed away from its own target.
-        const nb = A.Goals.norm(data, data.baseline);
-        const nt = A.Goals.norm(data, data.target);
-        if (nb === nt) {
-          UI.toast('<span>Start and target must differ — otherwise there is nothing to progress</span>');
-          break;
-        }
-        data.direction = nt > nb ? 'up' : 'down';
-        // A ladder this long is a typo, not an intention — and it is the input
-        // that used to make opening the goal freeze the tab.
-        const rungCount = A.Goals.maxLevel(data, S.settings().mode);
-        if (rungCount > 400) {
-          UI.toast(
-            `<span>That is ${rungCount.toLocaleString()} steps. Raise the step size or move the target closer.</span>`
-          );
-          break;
-        }
-        const fromHabit = actEl.dataset.habit || '';
-        if (existing) {
-          S.updateGoal(id, data);
-        } else if (fromHabit) {
-          const moved = S.habitToGoal(fromHabit, data);
-          if (moved) {
-            UI.closeSheet();
-            /* Undoable, because it deletes a habit. The restore puts it back
-               under its OWN id — a fresh one would orphan every day already
-               logged against it and read the streak as zero. */
-            offerUndo(
-              '<span><b>' + esc(moved.goal.name) + '</b> is a goal now, and off your daily habits.</span>',
-              () => S.restoreHabitFromGoal(moved.habit, moved.index, moved.goal.id)
-            );
-            break;
-          }
-          // The habit went while the sheet was open. Keep the goal rather than
-          // throwing away a form the user just filled in.
-          S.addGoal(data);
-        } else {
-          S.addGoal(data);
-        }
-        UI.closeSheet();
-        UI.toast('<span>Goal saved</span>');
-        break;
-      }
-      case 'goal-archive':
-        S.archiveGoal(id);
-        UI.closeSheet();
-        break;
-      case 'goal-delete': {
-        const g = S.goalById(id);
-        if (!g) break;
-        UI.openConfirm({
-          title: `Delete ${g.name}?`,
-          body: 'Its logged history goes with it. Pause it instead if you just need a break.',
-          confirmLabel: 'Delete goal',
-          danger: true,
-          onConfirm: () => S.removeGoal(id),
-          // This interrupted the goal editor — cancelling should put it back.
-          onCancel: () => UI.openGoalEditor(id)
-        });
-        break;
-      }
-      case 'goal-restart':
-        UI.openGoalRestart(id);
-        break;
-      case 'goal-restart-save': {
-        const g = S.goalById(id);
-        const el = $('#g_base');
-        if (!g || !el) break;
-        const n = g.unit === 'time' ? A.hhmmToMin(el.value) : parseFloat(el.value);
-        if (n == null || isNaN(n)) {
-          UI.toast('<span>Enter a starting point first</span>');
-          break;
-        }
-        // A start equal to the target leaves nothing to progress through.
-        if (A.Goals.norm(g, n) === A.Goals.norm(g, g.target)) {
-          UI.toast('<span>That is already the target — pick a start you can climb from</span>');
-          break;
-        }
-        S.restartGoal(id, n);
-        UI.closeSheet();
-        UI.toast('<span>Re-baselined from today</span>');
-        break;
-      }
-
-      /* --- reading & journal --- */
-      case 'open-read':
-        UI.openReading(sheetDate);
-        break;
-      case 'read-save': {
-        // The Read tab renders this form inline *and* can open it in a sheet for a past
-        // day, so ids are not unique. Always read the copy the button belongs to.
-        const form = actEl.closest('#sheetBody') || actEl.closest('.card') || document;
-        const fld = (sel) => form.querySelector(sel);
-        const text = (fld('#r_summary') && fld('#r_summary').value) || '';
-        if (!text.trim()) {
-          UI.toast('<span>Write a summary first — that is the point</span>', 'gold');
-          break;
-        }
-        const minEl = fld('#r_min');
-        const mins = minEl && minEl.value !== '' ? parseFloat(minEl.value) : null;
-        act(() =>
-          S.setReading(sheetDate, {
-            book: (fld('#r_book') && fld('#r_book').value.trim()) || '',
-            minutes: mins == null || isNaN(mins) ? null : mins,
-            summary: text
-          })
-        );
-        UI.closeSheet();
-        /* "Reading complete" is only true if the day's ask was actually met.
-           Saying it regardless made the app state something false in the
-           ordinary case — a summary written with no minutes logged. The value
-           path in `goal-save-val` already gets this right; this mirrors it. */
-        const readGoal = S.activeGoals().find((g) => g.gate === 'summary');
-        if (readGoal && S.goalDone(sheetDate, readGoal.id)) {
-          UI.toast('<span>Summary saved — reading complete</span>', 'gold');
-        } else {
-          UI.toast('<span>Summary saved</span>', 'gold');
-        }
-        break;
-      }
-      case 'read-clear':
-        UI.openConfirm({
-          title: 'Clear this summary?',
-          body: 'The reading goal will count as unmet for that day.',
-          confirmLabel: 'Clear summary',
-          danger: true,
-          onConfirm: () => S.setReading(sheetDate, { summary: '', book: '', minutes: null }),
-          onCancel: () => UI.openReading(sheetDate)
-        });
-        break;
-      case 'mood': {
-        // The Read tab always shows today's journal, but the page-back arrows on
-        // Today leave viewDate on some other day. Score the mood against the day
-        // the button was rendered for, or it lands on an entry nobody is looking at.
-        const cur = S.journalEntry(sheetDate);
-        const i = Number(actEl.dataset.i);
-        S.setJournal(sheetDate, { mood: cur && cur.mood === i ? null : i });
-        UI.render();
-        break;
-      }
-
-      /* --- settings & streak rules --- */
-      case 'set-mode':
-        act(() => S.updateSettings({ mode: actEl.dataset.mode }));
-        UI.toast(
-          `${A.MODES[actEl.dataset.mode].icon} <span>${esc(A.MODES[actEl.dataset.mode].name)} mode · ${S.activeGoals()
-            .slice(0, 1)
-            .map((g) => `${esc(g.name)} now ${esc(A.formatValue(g.unit, S.goalTarget(g.id)))}`)
-            .join('')}</span>`
-        );
-        break;
       case 'freeze':
         if (S.applyFreeze(sheetDate)) UI.toast('<span>Freeze applied — streak held</span>', 'gold');
         else UI.toast('<span>No freezes available yet</span>');
@@ -569,10 +260,15 @@
       case 'clear-day':
         UI.openConfirm({
           title: 'Clear this day?',
-          body: `Everything logged for ${A.prettyDate(date)} is removed. Your streak is recalculated from what is left.`,
+          body: `Every tick and every set logged for ${A.prettyDate(date)} is removed. Your streak is recalculated from what is left.`,
           confirmLabel: 'Clear day',
           danger: true,
-          onConfirm: () => S.clearDay(date)
+          onConfirm: () => {
+            /* Both halves come back together or the undo would restore a day
+               that says three sets were lifted and none were done. */
+            const before = S.clearDay(date);
+            if (before) offerUndo('<span>Day cleared.</span>', () => S.restoreExercises(date, before));
+          }
         });
         break;
       case 'add-extra': {
@@ -588,14 +284,6 @@
                   () => S.restoreExtras(date, wasExtras));
         break;
       }
-      case 'plan-tab':
-        UI.setPlanTab(actEl.dataset.tab);
-        UI.render();
-        break;
-      case 'today-filter':
-        UI.setTodayFilter(actEl.dataset.filter);
-        UI.render();
-        break;
       case 'date-prev':
         UI.setViewDate(A.addDays(date, -1));
         UI.render();
@@ -626,49 +314,6 @@
         break;
 
       /* --- rewards --- */
-      case 'claim':
-        if (S.claimReward(id)) {
-          const m = A.MILESTONES.find((x) => x.id === id);
-          UI.toast(`<span>Claimed <b>${esc(m.name)}</b> · +${m.xp} XP</span>`, 'gold');
-        }
-        break;
-      /* --- the run --- */
-      case 'challenge-open':
-        UI.openChallenge();
-        break;
-      case 'challenge-start': {
-        const nameEl = $('#ch_name');
-        const daysEl = $('#ch_days');
-        act(() =>
-          S.startChallenge({
-            name: (nameEl && nameEl.value.trim()) || 'Reset',
-            days: daysEl ? parseInt(daysEl.value, 10) : 66
-          })
-        );
-        UI.closeSheet();
-        UI.toast('<span>Day one. Go.</span>', 'gold');
-        break;
-      }
-      case 'challenge-end': {
-        const run = S.activeChallenge();
-        if (!run) break;
-        const done = S.challengeProgress(run);
-        UI.openConfirm({
-          title: done.complete ? `Archive ${run.name}?` : `End ${run.name} early?`,
-          body: done.complete
-            ? `You kept ${done.kept} of ${done.days} days. It moves to your finished countdowns and the counter goes back to counting plain days.`
-            : `You are on day ${done.day} of ${done.days}, having kept ${done.kept}. Ending it now keeps the record — nothing you logged is lost — but the countdown stops here.`,
-          confirmLabel: done.complete ? 'Archive it' : 'End the countdown',
-          danger: !done.complete,
-          onConfirm: () => {
-            S.endChallenge(run.id);
-            UI.toast('<span>Countdown archived</span>');
-          },
-          onCancel: () => UI.openChallenge()
-        });
-        break;
-      }
-      /* --- rewards the user set for themselves --- */
       case 'reward-new':
         UI.openRewardEditor(null);
         break;
@@ -708,13 +353,6 @@
         });
         break;
       }
-      case 'claim-weekly':
-        if (S.claimWeekly(date)) {
-          UI.toast(`<span>Weekly chest opened · +${A.XP.weeklyGoal} XP</span>`, 'gold');
-        }
-        break;
-
-      /* --- plan --- */
       case 'plan-add':
         UI.openPicker(day);
         break;
@@ -869,161 +507,114 @@
         UI.toast('<span>Saved</span>');
         break;
       }
-      case 'habit-add':
-        UI.openTextPrompt({
-          title: 'New daily habit',
-          label: 'Habit',
-          placeholder: 'e.g. Meditate 10 min',
-          confirmLabel: 'Add habit',
-          onSave: (name) => S.addHabit(name)
-        });
-        break;
-      /* A habit is a tick that asks the same thing forever; a goal ramps and is
-         earned by performing. The editor opens pre-filled with the habit's name
-         and icon and carries its id, so saving MOVES it rather than leaving the
-         same commitment on two lists with two ticks. The numbers cannot be
-         guessed — only the user knows where they actually are today — so this
-         opens the form rather than converting on the tap. */
-      case 'lines-open':
-        UI.openLines();
-        break;
-      case 'line-add': {
-        const box = $('#ln_text');
-        const src = $('#ln_src');
-        const made = S.addLine(box ? box.value : '', src ? src.value : '');
-        if (!made) {
-          UI.toast('<span>Write the line itself — a blank one keeps nothing.</span>', 'bad');
-          break;
-        }
-        UI.openLines();
-        break;
-      }
-      case 'line-rm': {
-        const gone = S.removeLine(id);
-        if (!gone) break;
-        UI.openLines();
-        offerUndo('<span>Line removed.</span>',
-                  () => { S.restoreLine(gone.line, gone.index); UI.openLines(); });
-        break;
-      }
-      case 'cookie-jar':
-        UI.openCookieJar();
-        break;
-      case 'cookie-add': {
-        const box = $('#ck_text');
-        const made = S.addCookie(box ? box.value : '');
-        if (!made) {
-          UI.toast('<span>Write the actual thing that happened — a day, and a detail.</span>', 'bad');
-          break;
-        }
-        // Straight back to the jar so the entry is visibly in it.
-        UI.openCookieJar();
-        break;
-      }
-      case 'cookie-rm': {
-        const gone = S.removeCookie(id);
-        if (!gone) break;
-        UI.openCookieJar();
-        offerUndo('<span>Taken out of the jar.</span>',
-                  () => { S.restoreCookie(gone.cookie, gone.index); UI.openCookieJar(); });
-        break;
-      }
-      /* Reaching a target is not the end of a goal, it is the end of the
-         estimate that produced it. This opens the editor with the target moved
-         up by one more step-block so the next ceiling is visible rather than
-         invented — and it is still the editor, so the number is the user's to
-         accept, change or ignore. Nothing is saved by tapping this. */
-      case 'goal-raise': {
-        const g = S.goalById(id);
-        if (!g) break;
-        const tl = S.goalTimeline(id);
-        /* Extend the ladder by as many rungs as it already had — the next
-           ceiling is the same distance again, which is a suggestion built from
-           this goal's own history rather than a number pulled from nowhere. */
-        const rungs = Math.max(1, (tl && tl.maxLevel) || 1);
-        const reach = Math.abs(A.Goals.stepFor(g, S.settings().mode)) * rungs;
-        const next = A.Goals.norm(g, g.target) + (g.direction === 'down' ? -reach : reach);
-        UI.openGoalEditor(id, { target: A.Goals.denorm(g, Math.max(0, next)) });
-        break;
-      }
-      /* The seed reaches a fresh install and nobody else, so this is how an
-         account that already exists gets to the same place. Behind a confirm,
-         because it pauses goals — and the sheet has to say that they are PAUSED
-         rather than deleted, since the difference is every day ever logged
-         against them. */
-      case 'practices-install':
-        UI.openConfirm({
-          title: 'Only your practices?',
-          body: 'Every goal that is not one of your practices is PAUSED — not deleted. Everything ' +
-                'those goals have already earned stays exactly as it is, no day you have logged ' +
-                'changes, and Plan resumes any of them in one tap. A practice you already have is ' +
-                'left alone rather than duplicated. Your daily habits are cleared; days you have ' +
-                'already opened keep the habits they froze.',
-          confirmLabel: 'Do it',
-          onConfirm: () => {
-            const out = S.installPractices();
-            const parts = [];
-            if (out.added.length) parts.push(out.added.length + ' added');
-            if (out.paused.length) parts.push(out.paused.length + ' paused');
-            if (out.habits.length) parts.push(out.habits.length + ' habits cleared');
-            offerUndo(
-              '<span>' + esc(parts.join(' · ') || 'Nothing to change') + '.</span>',
-              () => S.undoInstallPractices(out)
-            );
-          }
-        });
-        break;
-      case 'goal-templates':
-        UI.openGoalTemplates();
-        break;
-      /* The template carries the shape; the editor asks for the numbers. It does
-         NOT create the goal — nothing exists until the form is saved, which is
-         what keeps a mistap from putting a goal on Today with numbers nobody
-         chose. */
-      case 'goal-template': {
-        const t = (A.GOAL_TEMPLATES || []).find((x) => x.key === actEl.dataset.key);
-        if (!t) break;
-        UI.openGoalEditor(null, {
-          name: t.name, section: t.section, unit: t.unit,
-          direction: t.direction, baseline: t.baseline, target: t.target,
-          step: t.step, schedule: t.schedule
-        });
-        break;
-      }
-      case 'habit-to-goal': {
-        const h = S.habitById(id);
-        if (!h) break;
-        UI.openGoalEditor(null, { name: h.name, fromHabit: h.id });
-        break;
-      }
-      case 'habit-rm': {
-        const h = S.habitById(id);
-        if (!h) break;
-        UI.openConfirm({
-          title: `Delete ${h.name}?`,
-          body: 'The habit is removed from every future day. Days you already logged keep their record.',
-          confirmLabel: 'Delete habit',
-          danger: true,
-          onConfirm: () => S.removeHabit(id)
-        });
-        break;
-      }
-
-      /* --- today ---
-         These two were deleted by accident in 2026-08 along with the onboarding
-         handlers that happened to sit above them in the same switch, and nothing
-         noticed for a commit: ticking an exercise or a daily habit silently did
-         nothing on the one screen the app is opened for. See the tests in
-         tools/wire.js that now cover both. */
       case 'toggle-ex':
         act(() => S.toggleExercise(date, id));
         break;
-      case 'toggle-hb':
-        act(() => S.toggleHabit(date, id));
+
+      /* --- the set log ---
+         Every one of these is a write against ONE day and one exercise. The
+         store refuses a future date itself, so nothing here has to guard it. */
+      case 'log-set': {
+        const v = readSet(id);
+        if (!v.reps) {
+          UI.toast('<span>How many reps? A set with no reps is not a set.</span>', 'bad');
+          break;
+        }
+        const editing = UI.editSet();
+        if (editing && editing.itemId === id) {
+          S.updateSet(date, id, editing.index, v.weight, v.reps);
+          UI.setEditSet(null);
+          UI.render();
+          break;
+        }
+        const before = S.dayStatus(date).status;
+        /* The rest starts on the set, not on a button: finishing a set IS the
+           start of the rest, and a timer you have to remember to press is a
+           timer nobody presses. `startRest` reads the interval off the plan
+           item's own note.
+
+           BEFORE the write, and that ordering is the whole point. The write
+           commits, the commit notifies the view, and the view repaints — so a
+           rest started after it is a rest the screen does not know about until
+           something unrelated happens to repaint. It cost nothing to get wrong
+           in either stub suite and showed up the first time a real browser
+           logged a real set. It stores nothing, so starting it early is free;
+           the refusal path below takes it back. */
+        if (S.settings().restTimer) UI.startRest(date, id);
+        const added = act(() => S.addSet(date, id, v.weight, v.reps));
+        if (!added) {
+          UI.stopRest();
+          UI.render();
+          break;
+        }
+        armRest();
+        buzz(10);
+        /* Only when logging the set is what finished the exercise — the tick
+           moving on its own is the one thing here worth saying out loud. */
+        if (before !== 'complete' && S.dayStatus(date).status === 'complete') {
+          UI.toast('<span>Session complete.</span>', 'gold');
+        }
         break;
-      case 'starting-ack':
-        S.acknowledgeStart();
+      }
+      case 'rest-skip':
+        UI.stopRest();
+        UI.render();
         break;
+      case 'set-edit':
+        UI.setEditSet(id, actEl.dataset.index);
+        UI.render();
+        break;
+      case 'set-cancel':
+        UI.setEditSet(null);
+        UI.render();
+        break;
+      case 'set-rm': {
+        const index = Number(actEl.dataset.index);
+        const gone = S.removeSet(date, id, index);
+        if (!gone) break;
+        UI.setEditSet(null);
+        offerUndo('<span>Set removed.</span>', () => S.restoreSet(date, id, index, gone));
+        break;
+      }
+      case 'save-amount': {
+        const min = document.getElementById('min_' + id);
+        const km = document.getElementById('km_' + id);
+        const patch = {};
+        if (min) patch.min = String(min.value).trim();
+        if (km) patch.km = String(km.value).trim();
+        const before = S.dayStatus(date).status;
+        act(() => S.setAmount(date, id, patch));
+        if (before !== 'complete' && S.dayStatus(date).status === 'complete') {
+          UI.toast('<span>Session complete.</span>', 'gold');
+        }
+        break;
+      }
+      case 'perf-note': {
+        const l = S.log(date);
+        const current = ((l && l.perf && l.perf[id]) || {}).note || '';
+        UI.openTextPrompt({
+          title: 'Note on this exercise',
+          label: 'How did it feel? What did the bar do?',
+          value: current,
+          placeholder: 'Left shoulder tight on the last set',
+          confirmLabel: 'Save note',
+          maxlength: 240,
+          allowEmpty: true,     // clearing a note is a real answer
+          onSave: (text) => S.setPerfNote(date, id, text)
+        });
+        break;
+      }
+      /* The day strip's one button. It scrolls rather than logs: the numbers
+         are the user's to type, and a button that filled them in would be the
+         app writing a set nobody did. */
+      case 'ex-focus': {
+        const el = document.getElementById('w_' + id) || document.getElementById('min_' + id);
+        if (el) {
+          if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          if (el.focus) el.focus();
+        }
+        break;
+      }
       case 'undo-last': {
         const slot = pendingUndo;
         /* Only the button this restore was made for. A stale one says so rather
@@ -1036,10 +627,6 @@
         act(slot.restore);
         break;
       }
-      case 'workout-more':
-        UI.toggleWorkoutOpen();
-        UI.render();
-        break;
       case 'lib-open':
         UI.toggleLibOpen();
         UI.render();
@@ -1133,223 +720,6 @@
       }
 
       /* --- the 66-day run --- */
-      case 'run-start': {
-        const sel = $('#run_budget');
-        const budget = sel ? Number(sel.value) : 45;
-        const picks = UI.runPicks();
-        S.startRun(picks, budget, UI.runTogether(), UI.draftItems(), UI.draftCustoms());
-        const refused = S.takeRunRefusals();
-        UI.resetRunPicks();
-        UI.go('run');
-        /* Say what the budget forced out, by name. `buildRun` repairs rather
-           than refusing — every one of the 66 days has to be doable — so a
-           selection that does not fit comes back smaller, and a start screen
-           that quietly returned four of the seven things somebody chose would
-           be the app deciding for them without saying so. */
-        const got = S.run().habits.map((p) => p.habitId);
-        const dropped = picks.filter((id) => got.indexOf(id) < 0)
-          .map((id) => (A.Run.habitIn(S.run(), id) || { name: id }).name)
-          // Written habits are refused by name rather than by id — they have no
-          // id until the run accepts them — so both lists say the same thing.
-          .concat(refused.map((r) => r.name));
-        const paused = S.takeRunPaused();
-        if (paused.length) {
-          UI.toast('<span><b>' + esc(paused.join(', ')) +
-                   '</b> ' + (paused.length === 1 ? 'is' : 'are') +
-                   ' paused while the run holds ' + (paused.length === 1 ? 'it' : 'them') +
-                   ' — everything already earned stays.</span>', 'gold');
-        }
-        if (dropped.length) {
-          UI.toast('<span>Day 1 of 66. <b>' + esc(dropped.join(', ')) +
-                   '</b> did not fit ' + budget + ' min a day and was left out.</span>', 'gold');
-        } else {
-          UI.toast('<span>Day 1 of 66. It starts now.</span>');
-        }
-        break;
-      }
-      /* Editing a run in progress. Both refuse rather than repair: an addition
-         that does not fit is not made, and a removal at the habit floor is not
-         offered. Repairing either would let one tap sacrifice a habit the user
-         is three weeks into. */
-      case 'run-add-open':
-        UI.openRunAdd();
-        break;
-      case 'run-add': {
-        const added = S.runAddHabit(id);
-        const h = A.Run.habit(id);
-        if (added) {
-          UI.closeSheet();
-          UI.toast('<span><b>' + esc(h ? h.name : id) + '</b> joins the run on day ' + added.startDay + '.</span>');
-        } else {
-          UI.toast('<span>No room for <b>' + esc(h ? h.name : id) + '</b> — every legal start day is taken.</span>', 'bad');
-        }
-        break;
-      }
-      case 'run-custom-open':
-        UI.openRunCustom();
-        break;
-      /* A goal, offered to the run. It opens the same sheet rather than adding
-         on the tap, because a goal carries no minutes cost and the budget check
-         is built on one — the number is asked for instead of invented. */
-      case 'run-goal-add': {
-        const cand = S.runCandidateGoals().find((r) => r.goal.id === id);
-        if (!cand || !cand.eligible) break;
-        UI.openRunCustom(cand.draft);
-        break;
-      }
-      case 'run-custom-rm':
-        UI.removeDraftCustom(actEl.dataset.key);
-        UI.render();
-        break;
-      case 'run-custom-save': {
-        /* Before the run exists there is nothing to add it TO, so it waits on
-           the picker with the ticked ones and `startRun` places it. Same form,
-           same validation — `addDraftCustom` cleans through `A.Run.cleanCustom`,
-           which is the function the store would have used — so what the list
-           shows is what the run will actually try to take. */
-        if (!S.run()) {
-          const draft = UI.addDraftCustom({
-            name: ($('#rc_name') && $('#rc_name').value) || '',
-            unit: ($('#rc_unit') && $('#rc_unit').value) || 'min',
-            domain: ($('#rc_domain') && $('#rc_domain').value) || 'self_care',
-            start: numVal('rc_start', NaN),
-            target: numVal('rc_target', NaN),
-            step: numVal('rc_step', NaN),
-            friction: numVal('rc_friction', 2),
-            minutesAtTarget: numVal('rc_at_target', NaN),
-            fromGoal: ($('#rc_from_goal') && $('#rc_from_goal').value) || '',
-            min: 1
-          });
-          if (!draft) {
-            UI.toast('<span>Give it a name, and numbers that build upward.</span>', 'bad');
-          } else if (draft.refused === 'full') {
-            UI.toast('<span>A run holds at most ' + A.Run.MAX_HABITS + ' habits.</span>', 'bad');
-          } else if (draft.refused === 'already') {
-            UI.toast('<span>That goal is already on the list.</span>', 'bad');
-          } else {
-            UI.closeSheet();
-            UI.toast('<span><b>' + esc(draft.name) + '</b> is on the list.</span>');
-          }
-          UI.render();
-          break;
-        }
-        const out = S.runAddCustomHabit({
-          name: ($('#rc_name') && $('#rc_name').value) || '',
-          unit: ($('#rc_unit') && $('#rc_unit').value) || 'min',
-          domain: ($('#rc_domain') && $('#rc_domain').value) || 'self_care',
-          start: numVal('rc_start', NaN),
-          target: numVal('rc_target', NaN),
-          step: numVal('rc_step', NaN),
-          friction: numVal('rc_friction', 2),
-          min: 1
-        });
-        /* Each refusal says which one it is. "It didn't work" on a form the user
-           just filled in is the least useful thing an app can say. */
-        if (!out || out.refused === 'invalid') {
-          UI.toast('<span>Give it a name, and numbers that build upward.</span>', 'bad');
-        } else if (out.refused === 'full') {
-          UI.toast('<span>This run already holds ' + A.Run.MAX_HABITS + ' habits.</span>', 'bad');
-        } else if (out.refused === 'no_room') {
-          UI.toast('<span>It does not fit — every legal start day is taken, or it would make a day you could not do.</span>', 'bad');
-        } else {
-          UI.closeSheet();
-          UI.toast('<span><b>' + esc(out.name) + '</b> joins the run on day ' + out.startDay + '.</span>');
-        }
-        break;
-      }
-      case 'run-remove': {
-        const h = A.Run.habitIn(S.run(), id);
-        UI.openConfirm({
-          title: 'Remove ' + (h ? h.name : 'this habit') + '?',
-          body: 'It stops being asked for from today. Every day you have already recorded keeps exactly what it asked for, and the days you earned do not change.',
-          confirmLabel: 'Remove it',
-          danger: true,
-          onConfirm: () => {
-            const out = S.runRemoveHabit(id);
-            if (out && out.refused === 'floor') {
-              UI.toast('<span>A run needs at least ' + A.Run.MIN_HABITS + ' habits.</span>', 'bad');
-            } else if (out) {
-              UI.toast('<span><b>' + esc(h ? h.name : id) + '</b> is out of the run.</span>');
-            }
-          }
-        });
-        break;
-      }
-      case 'run-together':
-        UI.toggleRunTogether();
-        UI.render();
-        break;
-      case 'run-edit-items':
-        UI.openRunItems(id);
-        break;
-      case 'run-pick':
-        // Repaint the picker, not the page. See UI.refreshRunPicker.
-        UI.toggleRunPick(id);
-        UI.refreshRunPicker();
-        break;
-      case 'run-end':
-        UI.openConfirm({
-          title: 'End the 66-day run?',
-          body: 'The 66 days of habits and everything recorded against them are erased, and that cannot be undone. This is not your countdown — your goals, logs, streaks and journal are not touched.',
-          confirmLabel: 'End the 66-day run',
-          danger: true,
-          onConfirm: () => {
-            S.endRun();
-            UI.go('run');
-          }
-        });
-        break;
-      case 'run-tick': {
-        // The run's own tick. Deliberately not routed through `act()`: a run day
-        // is not what the XP and milestone diff is computed from, and firing
-        // confetti for it would be the app claiming credit on the wrong ledger.
-        const row = S.toggleRunHabit(id);
-        if (row && row.done) buzz(12);
-        break;
-      }
-      case 'run-value':
-        UI.openRunValue(id);
-        break;
-      case 'run-item':
-        S.toggleRunItem(id, actEl.dataset.item);
-        break;
-      case 'run-save-items': {
-        const box = $('#run_items');
-        if (!box) break;
-        /* Before a run exists the list has nowhere to be stored against, so it
-           waits in the picker's draft and is handed to `startRun`. Editing what
-           is inside a habit before committing to 66 days of it is most of why
-           the editor is reachable from the picker at all. */
-        const lines = box.value.split(/\r?\n/);
-        const saved = S.run() ? S.setRunItems(id, lines) : UI.setDraftItems(id, lines);
-        UI.closeSheet();
-        if (!saved) UI.toast('<span>A checklist needs at least one step, so nothing was saved.</span>', 'gold');
-        else if (!S.run()) UI.render();
-        break;
-      }
-      case 'run-save-value': {
-        const el = $('#run_val');
-        if (!el) break;
-        S.setRunValue(id, el.value === '' ? null : el.value);
-        UI.closeSheet();
-        break;
-      }
-      case 'run-accept': {
-        /* Rebuilt from data attributes rather than an index: the list the user
-           tapped and the list a handler would recompute are two different
-           objects, and `applyRecommendation` re-checks anyway — it declines
-           rather than repairing when the run has moved underneath it. */
-        const dayAttr = actEl.dataset.day;
-        const out = S.runApply({
-          kind: actEl.dataset.kind,
-          habitId: id,
-          startDay: dayAttr === '' || dayAttr == null ? null : Number(dayAttr)
-        });
-        if (out) UI.toast('<span>' + esc(out.notes[0]) + '</span>');
-        break;
-      }
-
-      /* --- app --- */
       case 'install':
         if (deferredInstall) {
           deferredInstall.prompt();
@@ -1417,7 +787,7 @@
           ].join(', ');
           UI.openConfirm({
             title: 'Restore this backup?',
-            body: `That file holds ${held}.\n\nRestoring it replaces everything currently on this device — your plan, logs, streaks, goals and journal. This cannot be undone.`,
+            body: `That file holds ${held}.\n\nRestoring it replaces everything currently on this device — your plan, every logged set, your streaks and your rewards. This cannot be undone.`,
             confirmLabel: 'Replace my data',
             danger: true,
             onConfirm: () => {
@@ -1464,122 +834,18 @@
     }
   });
 
-  /* ---------- swipe and hold on a goal card ----------
-     The tick is a 40px target in the far corner of a full-width card; on a phone
-     held in one hand that is the hardest pixel on the screen to reach. These
-     give the same three actions a target the size of the whole card:
-
-       swipe right    keep it          (the tick, without aiming at the tick)
-       swipe left     skip it
-       press and hold log part of it   (the value sheet)
-
-     All three end in `keepGoal` / `skipGoal` / `UI.openGoalLog` — the same
-     functions a tap goes through — so a gesture can never mean something a tap
-     does not. Nothing here is covered by the suites: it is event wiring in
-     app.js, which neither suite loads. Drive it by hand in a browser. */
-
-  const SWIPE_COMMIT = 92; // px of travel before a gesture means it
-  const HOLD_MS = 480;     // press that becomes "open it and log part of it"
-
-  let drag = null;
-  let holdTimer = null;
-  /* A committed swipe still ends in a click on whatever was under the finger —
-     usually .gcard-open, which would open the sheet on top of the action just
-     taken. Swallow exactly one. */
-  let swallowClick = false;
-
-  function endDrag() {
-    if (!drag) return;
-    drag.card.classList.remove('is-swiping', 'will-keep', 'will-skip');
-    drag.card.style.transform = '';
-    drag = null;
-  }
-
-  function cardGoalId(card) {
-    return card.dataset.goal || '';
-  }
-
-  document.addEventListener('pointerdown', (ev) => {
-    if (ev.button != null && ev.button !== 0) return;
-    const card = ev.target.closest && ev.target.closest('.gcard');
-    if (!card || card.classList.contains('locked')) return;
-    if (ev.target.closest('.gcard-tick')) return; // the tick is its own control
-
-    const id = cardGoalId(card);
-    if (!id) return;
-    drag = { card: card, x: ev.clientX, dx: 0, moved: false };
-
-    clearTimeout(holdTimer);
-    holdTimer = setTimeout(() => {
-      if (!drag || drag.moved) return;
-      endDrag();
-      swallowClick = true;
-      buzz(10);
-      UI.openGoalLog(id, UI.viewDate());
-    }, HOLD_MS);
-  });
-
-  window.addEventListener('pointermove', (ev) => {
-    if (!drag) return;
-    const dx = ev.clientX - drag.x;
-    // Under the slop threshold this is still a tap, or a vertical scroll.
-    if (!drag.moved && Math.abs(dx) > 6) {
-      drag.moved = true;
-      clearTimeout(holdTimer);
-      drag.card.classList.add('is-swiping');
-    }
-    if (!drag.moved) return;
-    drag.dx = Math.max(-150, Math.min(150, dx));
-    drag.card.style.transform = `translateX(${drag.dx}px)`;
-    // The card states its own verdict while it moves, so releasing is never a guess.
-    drag.card.classList.toggle('will-keep', drag.dx > SWIPE_COMMIT);
-    drag.card.classList.toggle('will-skip', drag.dx < -SWIPE_COMMIT);
-  });
-
-  window.addEventListener('pointerup', () => {
-    if (!drag) return;
-    clearTimeout(holdTimer);
-    const id = cardGoalId(drag.card);
-    const dx = drag.dx;
-    const moved = drag.moved;
-    endDrag();
-    if (!moved) return;
-    swallowClick = true;
-    if (dx > SWIPE_COMMIT) keepGoal(id, UI.viewDate());
-    else if (dx < -SWIPE_COMMIT) skipGoal(id, UI.viewDate());
-  });
-
-  window.addEventListener('pointercancel', () => {
-    clearTimeout(holdTimer);
-    endDrag();
-  });
-
-  document.addEventListener(
-    'click',
-    (ev) => {
-      if (!swallowClick) return;
-      swallowClick = false;
-      if (ev.target.closest && ev.target.closest('.gcard')) {
-        ev.stopPropagation();
-        ev.preventDefault();
-      }
-    },
-    true // capture: it has to run before the router below it
-  );
+  /* The swipe-and-hold gestures that used to live here belonged to the goal
+     cards: swipe right to keep, left to skip, hold to log part of it. There is
+     no card with a single yes/no answer on Today any more — an exercise is a
+     list of sets and the numbers have to be typed — so the gestures went with
+     the thing they operated on rather than being remapped onto something they
+     do not fit. */
 
   /* ---------- inputs ---------- */
 
   document.addEventListener('input', (ev) => {
     const t = ev.target;
-    if (t.id === 'dayNote') S.setJournal(t.dataset.date || UI.viewDate(), { text: t.value });
-    /* The word count beside the Save button, updated in place. A re-render
-       would rebuild the textarea and take the caret with it, which is why this
-       writes one element rather than calling UI.render(). */
-    else if (t.id === 'r_summary') {
-      const out = document.getElementById('r_words');
-      if (out) out.textContent = UI.wordCount(t.value) + ' words · any length counts';
-    }
-    else if (t.id === 'pickerQ') {
+    if (t.id === 'pickerQ') {
       UI.setPicker({ q: t.value });
       UI.refreshPicker();
       const q = document.getElementById('pickerQ');
@@ -1598,16 +864,6 @@
   document.addEventListener('change', (ev) => {
     const t = ev.target;
 
-    // Changing the unit swaps clock fields for number fields — rebuild the sheet
-    // from what's already typed rather than throwing the user's input away.
-    // Which goal a reward tracks only applies when it tracks a goal at all, so
-    // rebuild the sheet from what is already typed rather than hiding a field
-    // that would still be read on save.
-    if (t.id === 'rw_source') {
-      const saveBtn = document.querySelector('[data-act="reward-save"]');
-      UI.openRewardEditor((saveBtn && saveBtn.dataset.id) || null, readRewardForm());
-      return;
-    }
     // Changing what an exercise is measured in relabels one field and retires
     // two others, so rebuild from what is already typed.
     if (t.id === 'e_unit') {
@@ -1618,20 +874,6 @@
       );
       return;
     }
-    // gg_sched and gg_reg decide which fields apply at all, so the sheet is
-    // rebuilt to show or hide them rather than leaving dead controls on screen.
-    if (t.id === 'gg_unit' || t.id === 'gg_sched' || t.id === 'gg_reg') {
-      const saveBtn = document.querySelector('[data-act="goal-save"]');
-      const editingId = saveBtn && saveBtn.dataset.id ? saveBtn.dataset.id : null;
-      const draft = readGoalForm(editingId ? S.goalById(editingId) : null);
-      if (t.id === 'gg_unit') {
-        draft.baseline = null;
-        draft.target = null;
-      }
-      UI.openGoalEditor(editingId, draft);
-      return;
-    }
-
     const setting = t.dataset && t.dataset.set;
     if (!setting) return;
     let value;
@@ -1715,12 +957,13 @@
     if (lastNudge === k) return;
     const left = A.minutesLeftToday(S.settings().dayBoundaryHour);
     if (left > 90) return; // only near the rollover, when it still matters
-    const open = S.goalsForDay(k).filter((e) => !e.done && !e.skipped);
-    if (!open.length) return;
+    const st = S.dayStatus(k);
+    const open = Math.max(0, st.total - st.done);
+    if (!open) return;
     lastNudge = k;
     try {
       new Notification('Discipline', {
-        body: `${open.length} goal${open.length === 1 ? '' : 's'} still open — ${left} min before the day rolls over.`,
+        body: `${open} exercise${open === 1 ? '' : 's'} still unlogged — ${left} min before the day rolls over.`,
         icon: './icons/icon-192.png',
         tag: 'discipline-day'
       });
@@ -1735,7 +978,6 @@
     const now = S.today();
     if (lastKey && now !== lastKey) {
       UI.setViewDate(now);
-      S.runCheckIn();
       UI.render();
     }
     lastKey = now;
@@ -1747,9 +989,6 @@
   try {
     S.load();
     lastKey = S.today();
-    // The run's daily check-in: a once-a-day event, deliberately not
-    // something a render does. See Store.runCheckIn.
-    S.runCheckIn();
     UI.go((location.hash || '').replace('#/', '') || 'today');
 
     /* Fill the picture cache, then repaint. Reading IndexedDB is async and

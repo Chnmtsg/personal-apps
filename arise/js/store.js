@@ -1,22 +1,17 @@
-/* Discipline — state, persistence and all derived stats (streaks, XP, rewards). */
+/* Discipline — state, persistence and every derived training stat. */
 (function (root) {
   'use strict';
 
   const A = root.Arise;
-  const G = A.Goals;
 
-  /** A stored line. Its own id so an undo can put the same one back. */
-  const mkLine = (l) => ({
-    id: A.uid('ln'),
-    text: String((l && l.text) || '').slice(0, 240),
-    source: String((l && l.source) || '').slice(0, 60)
-  });
   const STORAGE_KEY = 'arise.state.v1';
   // The one deliberate exception to "all state lives under one key". This is a
   // lifeboat, not state: nothing in the normal read path ever touches it. It
   // exists so the single-key rule can never cost a user their history.
   const QUARANTINE_KEY = 'arise.state.v1.unreadable';
-  const STATE_VERSION = 6;
+  /* 7 adds `log.perf` — what each exercise actually weighed. Additive: a v6
+     state gains an empty object per day and nothing it already held moves. */
+  const STATE_VERSION = 7;
 
   /* ---------- defaults ---------- */
 
@@ -71,41 +66,23 @@
 
   function seedState() {
     const exercises = seedExerciseList();
-    const habits = A.SEED_HABITS.map((h) => Object.assign({ id: A.uid('hb') }, h));
     const plan = programPlan(exercises);
-
     const start = A.todayKey(4);
-    const goals = A.SEED_GOALS.filter((s) => s.enabled !== false).map((s) => {
-      const g = G.fromSeed(s, start);
-      delete g.enabled;
-      return g;
-    });
 
     return {
       version: STATE_VERSION,
       createdAt: start,
       exercises,
-      habits,
       plan,
-      goals,
+      /* dateKey -> { plan: frozen items, ex: {itemId:true}, perf: {itemId:entry},
+         extra: [], note: '' }. `ex` says an exercise was done; `perf` says what
+         it weighed. They are separate because they answer different questions
+         and because every log written before set logging existed has the first
+         and not the second. */
       logs: {},
-      goalLogs: {},   // dateKey -> goalId -> { value, checked, skipped, at }
-      reading: {},    // dateKey -> { book, summary, savedAt }
-      journal: {},    // dateKey -> { text, mood, updatedAt }
       freezes: {},    // dateKey -> true  (a streak freeze the user spent)
-      claimed: {},
-      weeklyClaims: {},
-      // Rewards the user promises themselves: "14 days of workouts → new sneakers".
+      // Rewards the user promises themselves: "14 sessions kept → new shoes".
       customRewards: [],
-      /* The user's own evidence, and empty on purpose — see `addCookie`. */
-      cookies: [],
-      lines: (A.SEED_LINES || []).map(mkLine),
-      // A fixed-length run — "66 days" — that the day counter counts against.
-      challenges: [],
-      /* The 66-day run, or null for the great majority of accounts that never
-         start one. It is a separate thing from `goals` on purpose — see the
-         header of js/run.js — and nothing here reads or writes the other. */
-      run: null,
       bestStreak: 0,
       // programInstalled is already true here: seedState lays the program out
       // directly, so a later migrate() must not install it a second time over a
@@ -114,35 +91,35 @@
       // state existed but could not be parsed.
       meta: {
         maxSeen: start, lastTick: Date.now(), clockWarning: false,
-        /* `onboarded` is inert since the starting-point sheet was removed. It
-           stays in the shape so a backup written before that still migrates
-           without losing a key. */
         /* `musclesV6` is seeded true for the same reason `programInstalled` is:
            a fresh install already HAS the nineteen-group tags, so the one-time
            v5→v6 re-derivation must not run against it. Without this the first
            reload after a fresh install treated a seed as an upgrade and reverted
            any muscle edit made before it. */
-        onboarded: false, programInstalled: true, musclesV6: true, storageError: null
+        programInstalled: true, musclesV6: true, storageError: null
       },
       settings: {
         name: 'Hunter',
-        mode: 'normal',
         dayBoundaryHour: 4,
+        /* Sessions a week. The key is still `goalPerWeek` and must stay that
+           way: renaming a settings key silently resets it to the default for
+           everybody who had already chosen a number. */
         goalPerWeek: 5,
-        requireHabits: false,
-        goalsCountTowardDay: true,
-        runCountsTowardDay: true,
-        /* OFF by default, and it has to be. Day status is derived rather than
-           stored, so switching this on re-scores every day in the record — a day
-           the user kept without writing a journal becomes a day they did not.
-           That is true of every switch in this group and is the user's decision
-           to make; defaulting it ON would make it the app's, silently, on an
-           update they did not ask for. */
-        journalCountsTowardDay: false,
-        /* Every Nth week is a deload. 0 is off, and off is the default for the
-           same reason as the switch above it — this changes what the app tells
-           you a week is for, and that is the user's call. 4 is the number the
-           training literature and "Can't Hurt Me"'s own safety section land on. */
+        /* Which unit the weight fields are typed and read in. Purely a display
+           choice — every set stores the unit it was entered in, so switching
+           this re-reads history rather than re-judging it. */
+        weightUnit: 'kg',
+        /* Start the rest countdown when a set is logged. ON by default, which
+           is safe in a way the switches below it are not: it changes nothing
+           about the record and re-scores no day, so the only thing at stake is
+           whether a timer somebody did not ask for appears at the bottom of the
+           screen. It reads the interval off the plan's own note and invents
+           none, so an exercise that prescribes no rest counts up instead. */
+        restTimer: true,
+        /* Every Nth week is a deload. 0 is off, and off is the default because
+           this changes what the app tells you a week is for, and that is the
+           user's call. 4 is the number the training literature and "Can't Hurt
+           Me"'s own safety section land on. */
         deloadEveryWeeks: 0,
         restCountsAsStreak: true,
         completionPct: 100,
@@ -157,12 +134,10 @@
   let state = null;
   const listeners = new Set();
   let saveTimer = null;
-  let journalTimer = null; // typing debounces longer than tapping does
   let unreadableRaw = null; // the bytes that would not parse, kept for this session
   let writesBlocked = false; // set only when those bytes could not be copied anywhere
 
   function load() {
-    tlCache.clear();
     dsCache.clear();
 
     let raw = null;
@@ -264,46 +239,21 @@
     const base = seedState();
     s.settings = Object.assign({}, base.settings, s.settings || {});
     s.logs = s.logs || {};
-    s.claimed = s.claimed || {};
-    s.weeklyClaims = s.weeklyClaims || {};
     s.exercises = s.exercises || base.exercises;
-    s.habits = s.habits || [];
     s.plan = s.plan || base.plan;
     for (let d = 0; d <= 6; d++) if (!Array.isArray(s.plan[d])) s.plan[d] = [];
     s.createdAt = s.createdAt || A.todayKey(s.settings.dayBoundaryHour);
     s.bestStreak = s.bestStreak || 0;
-
-    /* v1 → v2: goals, journal, reading and freezes. Existing logs are untouched. */
-    s.goals = Array.isArray(s.goals) ? s.goals : base.goals;
-    s.goalLogs = s.goalLogs || {};
-    s.reading = s.reading || {};
-    s.journal = s.journal || {};
     s.freezes = s.freezes || {};
     // Additive: an account written before custom rewards existed simply has none.
     s.customRewards = Array.isArray(s.customRewards) ? s.customRewards : [];
-    /* The cookie jar. Additive in the same shape as the two below it: an account
-       written before it existed simply has none, and the app must never write
-       one for them — a cookie somebody else composed is not evidence. */
-    s.cookies = Array.isArray(s.cookies) ? s.cookies : [];
 
-    s.challenges = Array.isArray(s.challenges) ? s.challenges : [];
+    /* Anything this version no longer reads — goals, goalLogs, reading, journal,
+       lines, cookies, challenges, run, habits, claimed, weeklyClaims — is left
+       exactly where it is and carried through every save and every export.
+       Deleting it would be the one mistake with no recovery, and the app has no
+       reason to: it simply stops looking. */
 
-    /* v3 → v4: the 66-day run. Purely additive, and null is the honest default:
-       an account written before runs existed has not started one, and inventing
-       a run for it would put a programme in front of somebody who never asked
-       for one. Nothing in goals, logs, streaks or journals is touched. */
-    const isRunObj = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
-    if (!isRunObj(s.run)) s.run = null;
-    if (s.run) {
-      s.run.habits = Array.isArray(s.run.habits) ? s.run.habits : [];
-      s.run.log = isRunObj(s.run.log) ? s.run.log : {};
-      s.run.minutesBudget = Number(s.run.minutesBudget) || 45;
-      // Bookkeeping added after runs shipped: absent means never checked in.
-      if (typeof s.run.checkedOn !== 'number') s.run.checkedOn = null;
-      // Per-run checklists arrived after runs did. Absent means "use the
-      // catalog's defaults", which is what `A.Run.itemsFor` already does.
-      s.run.habits.forEach((p) => { if (!Array.isArray(p.items)) delete p.items; });
-    }
     // Read this BEFORE merging defaults: base.meta says the program is installed
     // (seedState lays it out itself), which would mask an old account that has
     // never seen it.
@@ -314,37 +264,6 @@
        skip it there too — which is the flag masking its own subject. */
     const hadMusclesV6 = !!(s.meta && s.meta.musclesV6);
     s.meta = Object.assign({}, base.meta, s.meta || {});
-
-    /* Lines: additive, and seeded ONCE. Guarded by its own flag rather than by
-       the version number, so somebody who deletes every line does not get them
-       handed back on the next update — the same rule `programInstalled` follows
-       and for the same reason. An existing list is never overwritten.
-
-       It has to sit after `s.meta` is merged, or the flag is written onto
-       undefined. It did exactly that the first time. */
-    if (!Array.isArray(s.lines)) {
-      s.lines = s.meta.linesSeeded ? [] : (A.SEED_LINES || []).map(mkLine);
-    }
-    s.meta.linesSeeded = true;
-
-    s.goals.forEach((g) => {
-      g.schedule = g.schedule || { type: 'daily' };
-      g.advance = Object.assign({}, G.DEFAULT_ADVANCE, g.advance || {});
-      if (g.regress !== false) g.regress = Object.assign({}, G.DEFAULT_REGRESS, g.regress || {});
-      g.mode = g.mode || 'inherit';
-      g.track = g.track || 'value';
-      g.startDate = g.startDate || s.createdAt;
-      g.archived = !!g.archived;
-      /* A goal already paused when dated activation shipped carries no record of
-         WHEN it was paused, and guessing would move days the user has already
-         lived. Grandfather it as never having been asked: that reproduces exactly
-         the history this account computes today, so the fix moves nobody's past
-         and binds only from here on. A `startDate` an old re-baseline moved is
-         likewise left where it is — un-moving it would re-judge days too. */
-      if (g.archived && !Array.isArray(g.activeHistory)) {
-        g.activeHistory = [{ from: g.startDate, archived: true }];
-      }
-    });
 
     /* v4 → v6: what an exercise works.
        Both catalogues, because most of a real library came from the training
@@ -384,10 +303,16 @@
     });
     s.meta.musclesV6 = true;
 
-    // Old journals lived on the day log; lift them into the journal proper.
+    /* v6 → v7: the performance record.
+       Purely additive, and an empty object is the honest default — a day logged
+       before set logging existed has a tick and no numbers, and inventing any
+       would be the app writing history the user did not. `ex` still says the
+       exercise was done, so nothing about that day's status changes. */
     for (const k in s.logs) {
-      const note = s.logs[k] && s.logs[k].note;
-      if (note && !s.journal[k]) s.journal[k] = { text: note, mood: null, updatedAt: k };
+      const l = s.logs[k];
+      if (!l || typeof l !== 'object') continue;
+      if (!l.perf || typeof l.perf !== 'object' || Array.isArray(l.perf)) l.perf = {};
+      for (const id in l.perf) l.perf[id] = normalisePerf(l.perf[id]);
     }
 
     /* v2 → v3: the built-in training program. Runs exactly once, tracked by a
@@ -400,6 +325,37 @@
 
     s.version = STATE_VERSION;
     return s;
+  }
+
+  /**
+   * Bring one stored performance entry back to a shape the app can render.
+   *
+   * Defensive rather than corrective: it drops what it cannot read and keeps
+   * everything it can, because the alternative on a half-written entry is a
+   * `NaN` on a screen, and a number the user cannot explain is worse than a
+   * blank. Nothing here invents a value.
+   */
+  function normalisePerf(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    if (Array.isArray(raw.sets)) {
+      out.sets = raw.sets
+        .filter((x) => x && typeof x === 'object')
+        .map((x) => {
+          const w = Number(x.w);
+          return {
+            w: x.w == null || !isFinite(w) ? null : w,
+            u: x.u === 'lb' ? 'lb' : 'kg',
+            r: Math.max(0, Math.round(Number(x.r) || 0))
+          };
+        });
+    }
+    const min = Number(raw.min);
+    const km = Number(raw.km);
+    if (raw.min != null && isFinite(min) && min > 0) out.min = min;
+    if (raw.km != null && isFinite(km) && km > 0) out.km = km;
+    if (raw.note) out.note = String(raw.note);
+    return out;
   }
 
   /**
@@ -456,11 +412,9 @@
    * this when the page is hidden or unloading.
    */
   function flush() {
-    if (saveTimer == null && journalTimer == null) return;
+    if (saveTimer == null) return;
     clearTimeout(saveTimer);
-    clearTimeout(journalTimer);
     saveTimer = null;
-    journalTimer = null;
     writeNow();
   }
 
@@ -496,7 +450,6 @@
    * fine on day three, quadratic by year two. history() now keeps it instead.
    */
   function commit(detail) {
-    tlCache.clear();
     dsCache.clear();
     save();
     emit(detail);
@@ -507,7 +460,6 @@
   const get = () => state;
   const settings = () => state.settings;
   const exerciseById = (id) => state.exercises.find((e) => e.id === id) || null;
-  const habitById = (id) => state.habits.find((h) => h.id === id) || null;
 
   /** Plan items scheduled for a date: the frozen snapshot if the day was touched,
       otherwise the live weekday template. Editing the plan never rewrites history. */
@@ -515,12 +467,6 @@
     const log = state.logs[dateKey];
     if (log && log.plan) return log.plan;
     return state.plan[A.weekday(dateKey)] || [];
-  }
-
-  function dayHabits(dateKey) {
-    const log = state.logs[dateKey];
-    if (log && log.habits) return log.habits;
-    return state.habits;
   }
 
   function log(dateKey) {
@@ -533,916 +479,21 @@
     if (!l) {
       l = state.logs[dateKey] = {
         plan: (state.plan[A.weekday(dateKey)] || []).map((i) => Object.assign({}, i)),
-        habits: state.habits.map((h) => Object.assign({}, h)),
         ex: {},
-        hb: {},
+        perf: {},
         extra: [],
         note: ''
       };
     }
     l.ex = l.ex || {};
-    l.hb = l.hb || {};
+    l.perf = l.perf || {};
     l.extra = l.extra || [];
     return l;
-  }
-
-  /* ---------- goals ---------- */
-
-  const tlCache = new Map();
-
-  const goals = () => state.goals || [];
-  const activeGoals = () => goals().filter((g) => !g.archived);
-  const goalById = (id) => goals().find((g) => g.id === id) || null;
-
-  /** A day's raw entry for a goal. Gated goals fold in the summary they depend on. */
-  function goalEntry(dateKey, goalId) {
-    const g = goalById(goalId);
-    const day = state.goalLogs[dateKey];
-    let e = day && day[goalId] ? day[goalId] : null;
-    if (g && g.gate === 'summary') {
-      const r = state.reading[dateKey];
-      const summary = (r && r.summary) || '';
-      if (!e && !summary) return null;
-      e = Object.assign({ checked: false, value: null }, e, { summary: summary });
-    }
-    return e;
-  }
-
-  /** Derived level/target for a goal. Cached — history() walks a lot of days. */
-  function goalTimeline(goalId) {
-    const g = goalById(goalId);
-    if (!g) return null;
-    const cacheKey = goalId + '|' + today();
-    if (tlCache.has(cacheKey)) return tlCache.get(cacheKey);
-    const ctx = {
-      today: today(),
-      mode: settings().mode,
-      entry: (k) => goalEntry(k, goalId),
-      frozen: (k) => !!state.freezes[k]
-    };
-    const tl = G.timeline(g, ctx);
-    tl.streak = G.streak(g, ctx, tl);
-    tlCache.set(cacheKey, tl);
-    return tl;
-  }
-
-  const goalTarget = (goalId) => {
-    const tl = goalTimeline(goalId);
-    return tl ? tl.target : null;
-  };
-
-  /** What the goal asked for on a day — the frozen ask if one was recorded. */
-  function goalTargetOn(goalId, dateKey) {
-    const g = goalById(goalId);
-    if (!g) return null;
-    const day = state.goalLogs[dateKey];
-    const raw = day && day[goalId];
-    if (raw && raw.target != null) return raw.target;
-    const tl = goalTimeline(goalId);
-    return tl ? G.targetOn(g, dateKey, tl, settings().mode) : null;
-  }
-
-  function goalDone(dateKey, goalId) {
-    const g = goalById(goalId);
-    if (!g) return false;
-    return G.evaluate(g, goalEntry(dateKey, goalId), goalTargetOn(goalId, dateKey));
-  }
-
-  /**
-   * Was this goal asking anything on that day?
-   *
-   * The answer lives in `goals.js` — it touches no storage, and the ladder needs
-   * the same answer this layer gives. Kept here as a delegate so the callers
-   * below read the same as they always did.
-   */
-  function askedOn(g, dateKey) {
-    return G.askedOn(g, dateKey);
-  }
-
-  /** Everything a given day actually asks of you, with its target frozen to that day. */
-  function goalsForDay(dateKey) {
-    return goals()
-      .filter((g) => askedOn(g, dateKey))
-      .map((g) => {
-        const tl = goalTimeline(g.id);
-        const target = goalTargetOn(g.id, dateKey);
-        const entry = goalEntry(dateKey, g.id);
-        return {
-          goal: g,
-          tl,
-          target,
-          entry,
-          done: G.evaluate(g, entry, target),
-          skipped: !!(entry && entry.skipped),
-          streak: tl ? tl.streak : 0
-        };
-      });
-  }
-
-  /** Creates the entry and freezes the ask that was in force at that moment. */
-  function ensureGoalLog(dateKey, goalId) {
-    const ask = goalTargetOn(goalId, dateKey);
-    const day = (state.goalLogs[dateKey] = state.goalLogs[dateKey] || {});
-    const e = (day[goalId] = day[goalId] || { value: null, checked: false, skipped: false, at: null, target: null });
-    if (e.target == null) e.target = ask;
-    return e;
-  }
-
-  function setGoalValue(dateKey, goalId, value) {
-    if (isFuture(dateKey)) return false;
-    const e = ensureGoalLog(dateKey, goalId);
-    e.value = value === '' || value == null ? null : Number(value);
-    e.skipped = false;
-    e.at = Date.now();
-    commit({ type: 'goalValue', dateKey, goalId });
-    return goalDone(dateKey, goalId);
-  }
-
-  /** One-tap completion: records exactly the target that was asked for. */
-  function hitGoalTarget(dateKey, goalId) {
-    if (isFuture(dateKey)) return false;
-    const g = goalById(goalId);
-    if (!g) return false;
-    const e = ensureGoalLog(dateKey, goalId);
-    const done = goalDone(dateKey, goalId);
-    if (done) {
-      e.value = null;
-      e.checked = false;
-    } else {
-      e.value = g.track === 'check' ? null : goalTargetOn(goalId, dateKey);
-      e.checked = true;
-    }
-    e.skipped = false;
-    e.at = Date.now();
-    commit({ type: 'goalHit', dateKey, goalId });
-    return !done;
-  }
-
-  /** Deliberately skipping a scheduled day: honest, and it still breaks the chain.
-      Toggles, and returns the state it landed in — the caller needs to know
-      whether it just skipped or just un-skipped to say the right thing. */
-  function skipGoal(dateKey, goalId) {
-    if (isFuture(dateKey)) return false;
-    const e = ensureGoalLog(dateKey, goalId);
-    e.skipped = !e.skipped;
-    if (e.skipped) {
-      e.value = null;
-      e.checked = false;
-    }
-    e.at = Date.now();
-    commit({ type: 'goalSkip', dateKey, goalId });
-    return e.skipped;
-  }
-
-  function clearGoalEntry(dateKey, goalId) {
-    const day = state.goalLogs[dateKey];
-    if (!day) return;
-    delete day[goalId];
-    commit({ type: 'goalClear', dateKey, goalId });
-  }
-
-  /* ---------- goal CRUD ---------- */
-
-  function addGoal(data) {
-    const g = G.fromSeed(
-      Object.assign(
-        {
-          /* No stock glyph. A goal's mark is drawn from its area, so a default
-             here only ever wrote a character nothing renders. */
-          name: 'New goal', icon: '', section: 'custom',
-          unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5,
-          blurb: ''
-        },
-        data || {}
-      ),
-      (data && data.startDate) || today()
-    );
-    state.goals.push(g);
-    commit({ type: 'goalAdd', id: g.id });
-    return g;
-  }
-
-  const sameSchedule = (a, b) => JSON.stringify(a || { type: 'daily' }) === JSON.stringify(b || { type: 'daily' });
-
-  /**
-   * Close off the old schedule and start the new one from today, so past days keep
-   * being judged by the schedule you actually kept on them. Days you already lived
-   * are never re-scheduled — the same rule that protects frozen targets and plans.
-   */
-  function recordScheduleChange(g, previous) {
-    if (sameSchedule(previous, g.schedule)) return;
-    if (!Array.isArray(g.scheduleHistory)) g.scheduleHistory = [];
-    if (!g.scheduleHistory.length) {
-      // Everything up to now ran on the schedule the goal is leaving behind.
-      g.scheduleHistory.push({ from: g.startDate || today(), schedule: JSON.parse(JSON.stringify(previous || { type: 'daily' })) });
-    }
-    const from = today();
-    const last = g.scheduleHistory[g.scheduleHistory.length - 1];
-    const next = JSON.parse(JSON.stringify(g.schedule));
-    // Several edits on the same day collapse into one period.
-    if (last.from === from) last.schedule = next;
-    else g.scheduleHistory.push({ from: from, schedule: next });
-  }
-
-  /**
-   * Edit a goal, without any edit reaching backwards.
-   *
-   * Two fields cannot simply be assigned, and the guard lives here rather than
-   * at the call sites so a caller written later cannot reopen the hole:
-   *
-   * - `startDate` is rejected outright. It is where the goal's whole history
-   *   hangs from, so moving it forward drops every day already lived out of
-   *   `askedOn` — the record does not change, it just stops being counted.
-   *   Re-baselining is what callers actually wanted, and `restartGoal` does it.
-   * - `baseline` is diverted into `restartGoal`, which closes the era the goal
-   *   has been running in and opens a new one from today. Assigning it directly
-   *   re-runs the entire ladder as though the new number had always been true.
-   */
-  function updateGoal(id, patch) {
-    const g = goalById(id);
-    if (!g) return;
-    const next = Object.assign({}, patch);
-    delete next.startDate;
-    const rebaseline =
-      Object.prototype.hasOwnProperty.call(next, 'baseline') && Number(next.baseline) !== Number(g.baseline);
-    const baseline = next.baseline;
-    delete next.baseline; // restartGoal applies it, after the old era is closed
-
-    const previousSchedule = g.schedule;
-    Object.assign(g, next);
-    if (g.schedule && g.schedule.type === 'weekdays' && !(g.schedule.days || []).length) {
-      g.schedule = { type: 'daily' };
-    }
-    recordScheduleChange(g, previousSchedule);
-    // restartGoal commits, so the whole edit still lands in exactly one revision.
-    if (rebaseline) restartGoal(id, baseline);
-    else commit({ type: 'goalUpdate', id });
-  }
-
-  /**
-   * Close off the period the goal was running (or paused) and start the new one
-   * from today, so days already lived keep counting exactly what they counted.
-   * Same shape, and same reason, as recordScheduleChange.
-   */
-  function recordActiveChange(g, archived) {
-    const from = today();
-    if (!Array.isArray(g.activeHistory) || !g.activeHistory.length) {
-      // Everything up to now ran in the state the goal is leaving behind.
-      g.activeHistory = [{ from: g.startDate || from, archived: !archived }];
-    }
-    const last = g.activeHistory[g.activeHistory.length - 1];
-    // Pausing and resuming on the same day collapses into one period.
-    if (last.from === from) last.archived = archived;
-    else g.activeHistory.push({ from: from, archived: archived });
-  }
-
-  function archiveGoal(id, on) {
-    const g = goalById(id);
-    if (!g) return;
-    const previous = !!g.archived;
-    g.archived = on == null ? !g.archived : !!on;
-    if (g.archived !== previous) recordActiveChange(g, g.archived);
-    commit({ type: 'goalArchive', id });
-  }
-
-  function removeGoal(id) {
-    state.goals = state.goals.filter((g) => g.id !== id);
-    for (const k in state.goalLogs) delete state.goalLogs[k][id];
-    commit({ type: 'goalRemove', id });
-  }
-
-  /**
-   * Re-baseline to where you actually are today, without wiping the record.
-   *
-   * `startDate` deliberately stays put. Moving it forward used to be how the
-   * ladder was restarted, but it also dropped every earlier day out of
-   * `askedOn`, which silently re-scored days the user had already lived. The
-   * restart is recorded as a dated era instead: today still becomes day one.
-   */
-  function restartGoal(id, baseline) {
-    const g = goalById(id);
-    if (!g) return;
-    const from = today();
-    const previous = g.baseline;
-    if (baseline != null) g.baseline = Number(baseline);
-    if (!Array.isArray(g.baselineHistory) || !g.baselineHistory.length) {
-      g.baselineHistory = [{ from: g.startDate || from, baseline: previous }];
-    }
-    const last = g.baselineHistory[g.baselineHistory.length - 1];
-    // Several re-baselines on the same day collapse into one era.
-    if (last.from === from) last.baseline = g.baseline;
-    else g.baselineHistory.push({ from: from, baseline: g.baseline });
-    commit({ type: 'goalRestart', id });
-  }
-
-  /* ---------- reading & journal ---------- */
-
-  const readingEntry = (dateKey) => state.reading[dateKey] || null;
-
-  /**
-   * Saving the summary *is* the completion — there is no second checkbox to
-   * fall out of sync with. An empty summary clears the day again.
-   */
-  function setReading(dateKey, patch) {
-    if (isFuture(dateKey)) return false;
-    const cur = state.reading[dateKey] || { book: '', summary: '', minutes: null, savedAt: null };
-    const next = Object.assign({}, cur, patch);
-    next.summary = String(next.summary || '');
-    const has = !!next.summary.trim();
-    if (!has && !next.book) delete state.reading[dateKey];
-    else {
-      next.savedAt = has ? next.savedAt || Date.now() : null;
-      state.reading[dateKey] = next;
-    }
-    const g = activeGoals().find((x) => x.gate === 'summary');
-    if (g) {
-      const e = ensureGoalLog(dateKey, g.id);
-      if (has) {
-        if (next.minutes != null) e.value = Number(next.minutes);
-        /* Writing the summary is what marks the day written. Whether the reading
-           GOAL was met is a separate question, and only a check-tracked goal is
-           met by the writing itself — a goal that asks for ten minutes has to be
-           given ten minutes. `checked` unconditionally meant a rung, its XP and
-           a streak day for a summary saved with the minutes box emptied. */
-        e.checked = g.track === 'check';
-        e.skipped = false;
-        e.at = e.at || Date.now();
-      } else {
-        e.checked = false;
-        e.value = null;
-      }
-    }
-    commit({ type: 'reading', dateKey });
-    return has;
-  }
-
-  function readingDays() {
-    return Object.keys(state.reading)
-      .filter((k) => (state.reading[k].summary || '').trim())
-      .sort((a, b) => (a < b ? 1 : -1));
-  }
-
-  const journalEntry = (dateKey) => state.journal[dateKey] || null;
-
-  function setJournal(dateKey, patch) {
-    const cur = state.journal[dateKey] || { text: '', mood: null, updatedAt: null };
-    const next = Object.assign({}, cur, patch);
-    next.text = String(next.text || '');
-    if (!next.text.trim() && next.mood == null) delete state.journal[dateKey];
-    else {
-      next.updatedAt = Date.now();
-      state.journal[dateKey] = next;
-    }
-    /* The memo has to go even though the render does not. `dayStatus` is cached
-       per commit, and once `journalCountsTowardDay` is on the journal IS part of
-       the day's score — so leaving the cache alone meant typing an entry
-       completed nothing until some unrelated tap happened to commit. Clearing
-       the caches is not the same thing as re-rendering, and only the second one
-       steals focus. */
-    dsCache.clear();
-    tlCache.clear();
-
-    // Deliberately no emit: re-rendering on every keystroke would steal focus
-    // from the textarea the user is typing into.
-    //
-    // And a longer debounce than a tap gets. A tap is one write; typing is one
-    // per keystroke, and each one re-serialises the whole state — which on a
-    // multi-year account is megabytes on the main thread. flush() still catches
-    // the last words when the page is hidden or closed.
-    if (writesBlocked) return;
-    clearTimeout(journalTimer);
-    journalTimer = setTimeout(() => {
-      journalTimer = null;
-      writeNow();
-    }, 500);
-  }
-
-  function journalDays() {
-    return Object.keys(state.journal)
-      .filter((k) => (state.journal[k].text || '').trim() || state.journal[k].mood != null)
-      .sort((a, b) => (a < b ? 1 : -1));
   }
 
   /* ---------- streak freezes ---------- */
 
   /** Earned by showing up, spent by hand — no silent magic on a day you missed. */
-  /* ---------- the 66-day run ---------- */
-
-  /* Everything below is a thin shell over `A.Run`, which is pure. The rule the
-     shell exists to keep is that the run is *stored* rather than recomputed:
-     `recordRunDay` freezes what a day asked at the moment it was lived, so
-     softening in week five cannot change what week two is shown to have asked
-     for. See js/run.js. */
-
-  const run = () => state.run;
-
-  function runStatus() {
-    return state.run ? A.Run.where(state.run, today()) : null;
-  }
-
-  /** The run's current day number, or null when there is no run to be on. */
-  function runToday() {
-    const st = runStatus();
-    return st && st.running ? st.day : null;
-  }
-
-  /**
-   * @param {string[]} picks       catalog ids ticked on the start screen
-   * @param {object[]} [customs]   habits the user wrote themselves, cleaned
-   *
-   * `buildRun` takes catalog ids only — it `filter(isCatalogId)`s its picks — so
-   * anything the user wrote is appended afterwards rather than passed in. That
-   * is also the honest order: the catalog half is feasible-by-construction and
-   * repairs itself down to what fits, and each written habit is then offered to
-   * the run one at a time and either fits or does not.
-   *
-   * A habit that does not fit is DROPPED rather than squeezed in, and the caller
-   * is told which — same contract `buildRun` already has for a selection too big
-   * for the budget. Every one of the 66 days has to be a day the user can
-   * actually do, and that outranks getting everything they asked for.
-   */
-  /**
-   * The user's goals, judged against what a run can actually hold.
-   *
-   * This is the ONLY place the two systems meet, and it lives here rather than
-   * in run.js or goals.js on purpose: "the run and the goals share nothing" is
-   * an invariant about those two modules, and the store is the one thing that
-   * already owns both. Neither engine learns about the other.
-   *
-   * It reports the ineligible ones WITH their reason rather than hiding them,
-   * the same way the add-habit sheet shows a habit with no legal day left. "Why
-   * is Wake up not on this list" has a real answer and it is better said than
-   * left to be guessed at.
-   *
-   * Two rules decide it, and both come from the run engine rather than taste:
-   *
-   *   A run's dose only ever rises toward its target — `doseOn` clamps upward
-   *   and `validate` enforces `dose_monotonic` — so a ladder that counts DOWN
-   *   cannot exist in a run at all. That rules out every "less than" goal, which
-   *   unhappily includes the two a 66-day run looks most made for: an earlier
-   *   wake-up and an earlier bedtime.
-   *
-   *   A clock reading is not a dose. "06:15" is a point in the day, not an
-   *   amount of something you can do more of, so a `time` goal has no ramp the
-   *   run could walk even when its numbers happen to ascend.
-   */
-  function runCandidateGoals() {
-    return activeGoals().map((g) => {
-      if (g.unit === 'time') {
-        return { goal: g, eligible: false, why: 'a time of day is not an amount the run can ask for more of' };
-      }
-      const from = G.norm(g, g.baseline);
-      const to = G.norm(g, g.target);
-      if (!(to > from)) {
-        return { goal: g, eligible: false, why: 'it counts down, and a run only ever asks for more' };
-      }
-      if (!(g.step > 0) || !isFinite(g.step)) {
-        return { goal: g, eligible: false, why: 'it has no step to ramp by' };
-      }
-      /* `min` is minutes of daily cost per unit of dose, and it is the one thing
-         a goal does not carry. For a goal measured in time it is arithmetic; for
-         anything else — pages, litres, reps — there is no honest conversion, so
-         the number is asked for rather than invented. `minutesAtTarget` is the
-         answerable form of the same question. */
-      const perUnit = g.unit === 'minutes' ? 1 : g.unit === 'seconds' ? 1 / 60 : null;
-      return {
-        goal: g,
-        eligible: true,
-        why: '',
-        draft: {
-          name: g.name,
-          unit: g.unit === 'minutes' ? 'min' : g.unit === 'seconds' ? 'sec' : g.unit,
-          domain: 'self_care',
-          start: from,
-          target: to,
-          step: g.step,
-          minutesAtTarget: perUnit == null ? null : Math.round(to * perUnit * 100) / 100,
-          fromGoal: g.id
-        }
-      };
-    });
-  }
-
-  let runRefused = [];
-  let runPaused = [];
-
-  function startRun(picks, minutesBudget, together, items, customs) {
-    // One run at a time. Replacing a live one would erase days the user earned,
-    // which is the same thing the day counter refuses to do.
-    if (state.run) return state.run;
-    /* The user's own habits go INTO the build rather than after it. Appended
-       afterwards they could never be the first three: `validate` enforces
-       `min_habits`, so the first custom offered to an empty run is refused for
-       being one of one. In the draft they are habits like any other, and a run
-       made of nothing but the user's own practices becomes possible. */
-    runRefused = [];
-    const own = [];
-    (customs || []).forEach((def) => {
-      const clean = A.Run.cleanCustom(def);
-      if (!clean) return;
-      /* `min` is minutes of daily cost per unit of dose, and the budget check is
-         built on it. The form asks the answerable version — how long the whole
-         thing takes at the target — because "how many minutes is one push-up" is
-         not a question anybody can answer. */
-      const atTarget = Number(def.minutesAtTarget);
-      const perUnit = isFinite(atTarget) && atTarget > 0 && clean.target > 0
-        ? atTarget / clean.target
-        : clean.min;
-      const entry = {
-        habitId: 'c_' + A.uid('').replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase(),
-        startDay: 1, scale: 1, frozenDay: null,
-        custom: {
-          name: clean.name, unit: clean.unit, domain: clean.domain,
-          start: clean.start, target: clean.target, step: clean.step,
-          min: perUnit > 0 ? perUnit : 1, friction: clean.friction
-        }
-      };
-      /* Where it came from, beside the definition rather than inside it:
-         `cleanCustom` returns a fixed shape and would drop it. */
-      if (def.fromGoal) entry.fromGoal = def.fromGoal;
-      own.push(entry);
-    });
-
-    state.run = A.Run.buildRun(today(), minutesBudget || 45, picks, together !== false, own);
-
-    /* What the budget could not hold, by name. `repair` strips rather than
-       refuses — every one of the 66 days has to be doable — so a selection that
-       does not fit comes back smaller, and saying nothing would be the app
-       quietly deciding for somebody. */
-    const placed = {};
-    (state.run.habits || []).forEach((p) => { if (p.custom) placed[p.custom.name] = true; });
-    own.forEach((p) => {
-      if (!placed[p.custom.name]) runRefused.push({ name: p.custom.name, why: 'no_room' });
-    });
-
-    /* Checklists edited on the picker, before there was a run to store them
-       against. Applied only to habits that survived the build. */
-    if (items) {
-      state.run.habits.forEach((p) => {
-        if (Array.isArray(items[p.habitId]) && items[p.habitId].length) p.items = items[p.habitId].slice();
-      });
-    }
-
-    /* A goal the run has taken over is PAUSED, in the same commit that starts
-       the run. Leaving it active would put the same commitment on Today twice —
-       once as a goal row and once as a run row — with two ticks for one act, and
-       that is the duplication the run's catalogue was cut in half to remove.
-
-       Paused, not deleted: every day it has already earned stays exactly as it
-       was, `activeHistory` records when it stopped so no past day is re-judged,
-       and Plan's Paused section resumes it with one tap whenever the user wants
-       it back — including the day the run ends. */
-    runPaused = [];
-    state.run.habits.forEach((p) => {
-      if (!p.fromGoal) return;
-      const g = goalById(p.fromGoal);
-      if (!g || g.archived) return;
-      g.archived = true;
-      recordActiveChange(g, true);
-      runPaused.push(g.name);
-    });
-
-    commit({ type: 'runStart' });
-    return state.run;
-  }
-
-  /** Goals `startRun` paused because the run took them over. Same read-once
-      contract as the refusals, and for the same reason. */
-  function takeRunPaused() {
-    const out = runPaused;
-    runPaused = [];
-    return out;
-  }
-
-  /** What `startRun` could not fit, for the toast that reports it.
-      Module-local rather than on `state`: it describes one start, not the run it
-      produced, and anything put on `state` is persisted, exported and migrated
-      forever. Read once and cleared. */
-  function takeRunRefusals() {
-    const out = runRefused;
-    runRefused = [];
-    return out;
-  }
-
-  function endRun() {
-    if (!state.run) return;
-    state.run = null;
-    commit({ type: 'runEnd' });
-  }
-
-  /** Freeze one day of the run. `done` is a list of ids, `did` a map of
-      measurements — see A.Run.recordDay for why they are separate. */
-  function recordRunDay(day, done, did) {
-    if (!state.run || !(day >= 1 && day <= A.Run.RUN_DAYS)) return null;
-    const entry = A.Run.recordDay(state.run, day, done, did);
-    state.run.log = state.run.log || {};
-    state.run.log[day] = entry;
-    commit({ type: 'runRecord', day: day });
-    return entry;
-  }
-
-  /**
-   * Today's record, created on the first touch of the day.
-   *
-   * An `asked` already frozen is kept. `runCheckIn` can patch the run part-way
-   * through a day, which moves what `doseOn` says — but today's ask was settled
-   * when the day opened, and re-deriving it would move the target the user has
-   * spent the afternoon working toward.
-   */
-  function runEntryFor(day) {
-    const log = state.run.log || (state.run.log = {});
-    if (!log[day]) log[day] = A.Run.recordDay(state.run, day, [], null);
-    return log[day];
-  }
-
-  /**
-   * Tick a run habit for today, or untick it.
-   *
-   * A tick clears any measurement, and that is deliberate rather than tidy: a
-   * tick is a claim with no number in it, and leaving a stale `did` beside a
-   * verdict that contradicts it stores two facts that disagree. Use
-   * `setRunValue` for anything the user actually counted.
-   */
-  function toggleRunHabit(habitId) {
-    const day = runToday();
-    if (!state.run || day == null) return null;
-    const row = runEntryFor(day)[habitId];
-    if (!row) return null;                       // not asked today
-    row.done = !row.done;
-    row.did = null;
-    commit({ type: 'runToggle', day: day, habitId: habitId });
-    return row;
-  }
-
-  /**
-   * Record what the user actually managed — 1.5 of 2 glasses.
-   *
-   * Meeting the ask is the whole ask: the verdict is frozen here against the
-   * ask that was recorded for the day, not against whatever the run asks now.
-   * There is no partial credit toward `done`, and the shortfall is kept rather
-   * than rounded away, because it is the honest number.
-   */
-  function setRunValue(habitId, value) {
-    const day = runToday();
-    if (!state.run || day == null) return null;
-    const row = runEntryFor(day)[habitId];
-    if (!row) return null;
-    const n = value == null || value === '' ? null : Number(value);
-    row.did = n == null || !isFinite(n) ? null : n;
-    row.done = row.did != null && row.asked != null && row.did + 1e-9 >= row.asked;
-    commit({ type: 'runValue', day: day, habitId: habitId });
-    return row;
-  }
-
-  /**
-   * Tick one item of a checklist habit for today — one supplement, one step.
-   *
-   * The habit is done when every item is, and that verdict is frozen into the
-   * record here rather than derived on read, so the rule cannot change after
-   * the day is over.
-   */
-  function toggleRunItem(habitId, name) {
-    const day = runToday();
-    if (!state.run || day == null) return null;
-    const row = runEntryFor(day)[habitId];
-    if (!row || !row.items) return null;
-    A.Run.toggleItem(row, name);
-    commit({ type: 'runItem', day: day, habitId: habitId, item: name });
-    return row;
-  }
-
-  /**
-   * Rewrite a checklist. The catalog is closed; what is inside a habit is not.
-   *
-   * Only the run's own copy is touched, never the catalog, and never a day that
-   * has already been recorded — days behind keep the list they actually asked
-   * for, which is why the record stores the item names and not just a count.
-   */
-  function setRunItems(habitId, list) {
-    if (!state.run || !A.Run.isItemHabit(habitId)) return null;
-    const clean = (list || [])
-      .map((x) => String(x == null ? '' : x).trim())
-      .filter((x, i, all) => x && all.indexOf(x) === i)
-      .slice(0, 20);
-    if (!clean.length) return null;            // a checklist of nothing is not a habit
-    const p = (state.run.habits || []).find((x) => x.habitId === habitId);
-    if (!p) return null;
-    p.items = clean;
-    /* CODE-05: today's row is re-opened from the new list, carrying each
-       surviving item's ticked state across by name. `runCheckIn` freezes the
-       record when the day opens, so without this the editor changed nothing
-       until tomorrow — on the one day the user is actually looking at it. Days
-       already recorded keep the list they really asked for, which is why the
-       record stores the names and not just a count. */
-    reconcileToday();
-    commit({ type: 'runItems', habitId: habitId });
-    return clean;
-  }
-
-  /**
-   * Habits in the run this build's catalog no longer has.
-   *
-   * They are kept in storage rather than dropped — see `activeOn` in run.js —
-   * so this is how the app can say so out loud instead of silently showing a
-   * shorter day than the one the user signed up for.
-   */
-  function runUnknownHabits() {
-    if (!state.run) return [];
-    return (state.run.habits || []).filter((p) => !A.Run.isKnownEntry(p)).map((p) => p.habitId);
-  }
-
-  /**
-   * Step in, or offer more — never both. Once a day, and never from a render.
-   *
-   * This used to be called by `renderRun`, which is a write during a render and
-   * an infinite loop besides: `commit` notifies the view, the view re-renders,
-   * the render checks in again. Softening does not change the *logs*, so
-   * `diagnose` returns the same rates every time and `needsIntervention` never
-   * clears — the app would hang on the Run screen for exactly the user it was
-   * built to help. Call it from boot and from the day rollover; a render reads
-   * `lastPatchDay` and asks `A.Run.recommend` directly, both of which are pure.
-   */
-  function runCheckIn() {
-    const day = runToday();
-    if (!state.run || day == null) return null;
-    if (state.run.checkedOn === day) return null;
-    const out = A.Run.checkIn(state.run, day);
-    /* Open today's record here rather than on first tap. It used to appear the
-       moment a habit was ticked, which made *interacting* with the run worse
-       than ignoring it: tick one of four and the day is judged 1/4, leave the
-       section alone and the run asked nothing of you at all. Created once, from
-       today's programme, on the day itself — so it freezes what today asks and
-       re-derives nothing behind the user. */
-    runEntryFor(day);
-    const carry = { log: state.run.log, checkedOn: day };
-    if (out.patched) {
-      carry.lastPatchDay = day;
-      carry.lastPatchNotes = out.notes;
-    }
-    state.run = Object.assign({}, out.patched ? out.run : state.run, carry);
-    commit({ type: 'runCheckIn', day: day });
-    return out;
-  }
-
-  /** Take up a recommendation. Refuses rather than repairs — see run.js. */
-  /**
-   * Reconcile TODAY's record with the programme, and answer what today asks.
-   *
-   * This app has two answers to that question and they can disagree. The screens
-   * draw the day from the PROGRAMME (`A.Run.runDay` → `activeOn`); every score —
-   * `computeDayStatus`, the streak, `history()` — reads the RECORD
-   * (`runEntriesOn`). `runCheckIn` freezes the record when the day opens, so any
-   * edit made after that opens a gap between them, and each gap is its own bug:
-   * a removed habit left a row nothing could tick and the day could never be
-   * completed; an edited checklist changed nothing until tomorrow.
-   *
-   * So one function owns it, and every run-editing verb goes through it rather
-   * than patching its own corner. Membership comes from the programme; the ASK
-   * comes from the record wherever the record already has one, because a number
-   * the user has been working toward since this morning must not move under
-   * them. New rows are taken from the programme. Rows for habits no longer live
-   * today go.
-   *
-   * TODAY ONLY. It reads `runToday()` itself and can touch nothing else, which
-   * is what keeps "a day you have lived is never re-judged" true — a past day is
-   * its record and this never looks at one.
-   */
-  function reconcileToday() {
-    const day = runToday();
-    if (!state.run || day == null) return null;
-    const log = state.run.log || (state.run.log = {});
-    const prev = log[day] || {};
-    const fresh = A.Run.recordDay(state.run, day, [], null);
-    const next = {};
-
-    Object.keys(fresh).forEach((id) => {
-      const was = prev[id];
-      if (!was) { next[id] = fresh[id]; return; }
-
-      /* An item habit whose checklist was edited: carry every surviving name's
-         ticked state across, take the new names as unticked, and re-freeze the
-         verdict from the new list. `done` is stored rather than derived
-         everywhere else in the run, so it has to be recomputed here too. */
-      if (fresh[id].items) {
-        const items = {};
-        Object.keys(fresh[id].items).forEach((name) => {
-          items[name] = !!(was.items && was.items[name]);
-        });
-        const names = Object.keys(items);
-        const ticked = names.filter((n) => items[n]).length;
-        next[id] = {
-          asked: names.length,
-          done: names.length > 0 && ticked === names.length,
-          did: ticked || (was.did != null ? 0 : null),
-          items: items
-        };
-        return;
-      }
-      // Not an item habit: the frozen ask and whatever was logged against it stay.
-      next[id] = was;
-    });
-
-    if (JSON.stringify(next) === JSON.stringify(prev)) return next;
-    log[day] = next;
-    return next;
-  }
-
-  /**
-   * Put a habit into a run that is already going.
-   *
-   * Refuses rather than repairs, exactly as `applyRecommendation` does: it goes
-   * in on the first day the spacing and phase rules allow, and if no such day
-   * exists before the last intro day it does not go in at all. Forcing it
-   * through `repair` would let one addition silently sacrifice a habit the user
-   * is three weeks into.
-   *
-   * The day record is untouched. Days already lived asked what they asked.
-   */
-  function runAddHabit(habitId) {
-    const day = runToday();
-    if (!state.run || day == null || !A.Run.isCatalogId(habitId)) return null;
-    if ((state.run.habits || []).some((p) => p.habitId === habitId)) return null;
-    const start = A.Run.firstLegalStart(state.run, { habitId: habitId, startDay: 1, scale: 1, frozenDay: null }, day);
-    if (start == null) return null;
-    const after = A.Run.withAdded(state.run, habitId, start);
-    state.run = Object.assign({}, after, { log: state.run.log });
-    reconcileToday();
-    commit({ type: 'runAdd', habitId: habitId, startDay: start });
-    return { habitId: habitId, startDay: start };
-  }
-
-  /**
-   * Put a habit the user wrote themselves into a run.
-   *
-   * The catalog stays closed. This does not add to it — the definition lives on
-   * the run habit entry, so it exists inside this run and nowhere else, and
-   * nothing outside can ever reference an id that only means something here.
-   *
-   * It is validated before it is stored and the run is walked across all 66
-   * days before it is kept, so a habit whose numbers do not work is refused at
-   * the moment it is written rather than becoming an impossible day 41. That is
-   * the guarantee the closed catalog used to buy, kept by checking the
-   * definition instead of the id.
-   */
-  function runAddCustomHabit(def) {
-    const day = runToday();
-    if (!state.run || day == null) return null;
-    const clean = A.Run.cleanCustom(def);
-    if (!clean) return { refused: 'invalid' };
-    if ((state.run.habits || []).length >= A.Run.MAX_HABITS) return { refused: 'full' };
-
-    const id = 'c_' + A.uid('').replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase();
-    const payload = {
-      name: clean.name, unit: clean.unit, domain: clean.domain,
-      start: clean.start, target: clean.target, step: clean.step,
-      min: clean.min, friction: clean.friction
-    };
-    const entry = { habitId: id, startDay: 1, scale: 1, frozenDay: null, custom: payload };
-    const start = A.Run.firstLegalStart(state.run, entry, day);
-    if (start == null) return { refused: 'no_room' };
-    const after = A.Run.withEntry(state.run, Object.assign({}, entry, { startDay: start }));
-    state.run = Object.assign({}, after, { log: state.run.log });
-    reconcileToday();
-    commit({ type: 'runAddCustom', habitId: id, startDay: start });
-    return { habitId: id, startDay: start, name: clean.name };
-  }
-
-  /**
-   * Take a habit out of a run that is already going.
-   *
-   * Everything already recorded stays exactly as it is — `run.log` is not
-   * touched, so a day that asked for this habit still says so, and the streak
-   * that day earned does not move. Removing is about tomorrow, never about
-   * re-scoring yesterday.
-   *
-   * Refuses at the floor: a run of fewer than MIN_HABITS is not a run, and
-   * `validate` would start reporting a state the user asked for.
-   */
-  function runRemoveHabit(habitId) {
-    const day = runToday();
-    if (!state.run || day == null) return null;
-    const habits = state.run.habits || [];
-    if (!habits.some((p) => p.habitId === habitId)) return null;
-    if (habits.length <= A.Run.MIN_HABITS) return { refused: 'floor' };
-    state.run = Object.assign({}, state.run, {
-      habits: habits.filter((p) => p.habitId !== habitId)
-    });
-    reconcileToday();          // today's row goes with the habit; see the helper
-    commit({ type: 'runRemove', habitId: habitId });
-    return { habitId: habitId };
-  }
-
-  function runApply(rec) {
-    const day = runToday();
-    if (!state.run || day == null) return null;
-    const out = A.Run.applyRecommendation(state.run, rec, day);
-    if (out.run !== state.run) {
-      state.run = Object.assign({}, out.run, { log: state.run.log });
-      commit({ type: 'runApply' });
-    }
-    return out;
-  }
-
   function freezeStats() {
     const earned = Math.min(5, Math.floor(history().completeDays / 10));
     const used = Object.keys(state.freezes).length;
@@ -1511,50 +562,15 @@
     return out;
   }
 
-  /**
-   * What the run asked of one calendar day, and what happened — from the
-   * record, never from the programme.
-   *
-   * `A.Run.runDay` would re-derive it from the run as it stands *now*, so
-   * easing a habit in week five would change what week two demanded and
-   * re-score days the user has already lived. The record is frozen when the day
-   * opens, which is the same reason `DayEntry.asked` exists.
-   *
-   * A day with no record contributes nothing, and that is the safe direction: a
-   * day the user never opened the app on is one we know nothing about, and it
-   * must not become a day the run retroactively decided they failed.
-   */
-  function runEntriesOn(dateKey) {
-    const run = state.run;
-    if (!run || !run.startDate) return [];
-    const day = A.daysBetween(run.startDate, dateKey) + 1;
-    const entry = (run.log || {})[day];
-    if (!entry) return [];
-    return Object.keys(entry).map((k) => entry[k]);
-  }
-
   function computeDayStatus(dateKey) {
     const l = state.logs[dateKey];
     const plan = dayPlan(dateKey);
-    const habits = settings().requireHabits ? dayHabits(dateKey) : [];
-    const gl = settings().goalsCountTowardDay ? goalsForDay(dateKey) : [];
-    const rn = settings().runCountsTowardDay ? runEntriesOn(dateKey) : [];
-    /* The journal, when the user has asked for it to count. One item, and it
-       needs no frozen list the way habits do: the thing being asked for and the
-       thing that records it are the same object, so they cannot drift apart. */
-    const jrTotal = settings().journalCountsTowardDay ? 1 : 0;
-    const jrDone = jrTotal && (((state.journal[dateKey] || {}).text || '').trim() ? 1 : 0);
     const exDone = plan.filter((i) => l && l.ex && l.ex[i.id]).length;
-    const hbDone = habits.filter((h) => l && l.hb && l.hb[h.id]).length;
-    const glDone = gl.filter((x) => x.done).length;
-    const rnDone = rn.filter((e) => e.done).length;
     const extra = l && l.extra ? l.extra.length : 0;
-    const total = plan.length + habits.length + gl.length + rn.length + jrTotal;
-    const done = exDone + hbDone + glDone + rnDone + jrDone;
+    const total = plan.length;
+    const done = exDone;
     const shape = {
-      done, total, exDone, exTotal: plan.length, hbDone, hbTotal: habits.length,
-      glDone, glTotal: gl.length, rnDone, rnTotal: rn.length,
-      jrDone, jrTotal,
+      done, total, exDone, exTotal: plan.length,
       extra, frozen: !!state.freezes[dateKey]
     };
 
@@ -1592,8 +608,6 @@
   function historyStart() {
     let earliest = state.createdAt;
     for (const k in state.logs) if (k < earliest) earliest = k;
-    for (const k in state.goalLogs) if (k < earliest) earliest = k;
-    for (const k in state.reading) if (k < earliest) earliest = k;
     return earliest;
   }
 
@@ -1658,51 +672,176 @@
     return { best: Math.max(rawBest, state.bestStreak || 0), rawBest, completeDays, restDays, missedDays };
   }
 
-  /* ---------- what actually happened ---------- */
+  /* ---------- the performance record ----------
 
-  /* Units that accumulate. A wake-up time does not: forty mornings at 06:30 do
-     not sum to anything, so those goals report days kept and nothing else. */
-  const ACCUMULATES = { minutes: 1, count: 1, pages: 1, km: 1, litres: 1, seconds: 1 };
+     What the app is for. Everything above answers "did you train today"; this
+     answers "with what, and was it more than last time".
+
+     Two rules hold the whole section up, and both are the frozen-history rule
+     wearing a different hat:
+
+     - A performance is stored against the LOG, never against the plan. Editing
+       Monday's prescription must not rewrite what Monday weighed.
+     - Nothing here re-derives a past day from the exercise as it stands now. A
+       set carries its own weight, its own unit and its own rep count, so
+       renaming an exercise or changing its prescription leaves every number
+       already recorded exactly where it was. */
+
+  const weightUnit = () => (settings().weightUnit === 'lb' ? 'lb' : 'kg');
+
+  /** The frozen plan item, its exercise, and whatever was recorded against it. */
+  function dayEntries(dateKey) {
+    const l = state.logs[dateKey];
+    return dayPlan(dateKey).map((item) => ({
+      item: item,
+      ex: exerciseById(item.exerciseId),
+      done: !!(l && l.ex && l.ex[item.id]),
+      perf: (l && l.perf && l.perf[item.id]) || null
+    }));
+  }
+
+  /** Everything recorded on a day, rolled up. `unit` defaults to the display one. */
+  function dayVolume(dateKey, unit) {
+    const u = unit || weightUnit();
+    let volume = 0;
+    let sets = 0;
+    let reps = 0;
+    let minutes = 0;
+    let km = 0;
+    dayEntries(dateKey).forEach((row) => {
+      const perf = row.perf;
+      if (!perf) return;
+      (perf.sets || []).forEach((set) => {
+        sets++;
+        reps += Math.max(0, Math.round(Number(set.r) || 0));
+        volume += A.setVolume(set, u);
+      });
+      if (perf.min > 0) minutes += perf.min;
+      if (perf.km > 0) km += perf.km;
+    });
+    return { volume: volume, sets: sets, reps: reps, minutes: minutes, km: km, unit: u };
+  }
+
+  /**
+   * The last day this exercise was actually logged, strictly before `beforeKey`.
+   *
+   * Keyed on the EXERCISE and not on the plan item: the same lift on Monday and
+   * on Thursday is two plan items with two ids, and "what did I press last
+   * time" does not care which day of the week it was.
+   */
+  function lastPerformance(exerciseId, beforeKey) {
+    const before = beforeKey || today();
+    let bestKey = null;
+    for (const k in state.logs) {
+      if (k >= before) continue;
+      if (bestKey && k <= bestKey) continue;
+      const l = state.logs[k];
+      if (!l || !l.perf) continue;
+      const item = (l.plan || []).find((i) => i.exerciseId === exerciseId && A.isLogged(l.perf[i.id]));
+      if (item) bestKey = k;
+    }
+    if (!bestKey) return null;
+    const l = state.logs[bestKey];
+    const item = (l.plan || []).find((i) => i.exerciseId === exerciseId && A.isLogged(l.perf[i.id]));
+    return { date: bestKey, perf: l.perf[item.id] };
+  }
+
+  /**
+   * One exercise over time, newest last — the series behind its chart.
+   *
+   * Only days that were LOGGED appear. A day the exercise was scheduled and
+   * nothing was written down is not a zero: we know the user did not record it,
+   * not that they lifted nothing, and drawing a zero would invent the second.
+   */
+  function exerciseSeries(exerciseId, days, unit) {
+    const u = unit || weightUnit();
+    const n = Math.max(1, days || 90);
+    const end = today();
+    const out = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const k = A.addDays(end, -i);
+      const l = state.logs[k];
+      if (!l || !l.perf) continue;
+      const item = (l.plan || []).find((x) => x.exerciseId === exerciseId && A.isLogged(l.perf[x.id]));
+      if (!item) continue;
+      const perf = l.perf[item.id];
+      const sets = perf.sets || [];
+      const loaded = sets.filter((x) => x.w != null && isFinite(x.w));
+      const top = loaded.length
+        ? Math.max.apply(null, loaded.map((x) => A.convertWeight(x.w, x.u || 'kg', u)))
+        : null;
+      out.push({
+        date: k,
+        volume: A.entryVolume(perf, u),
+        sets: sets.length,
+        reps: sets.reduce((sum, x) => sum + Math.max(0, Math.round(Number(x.r) || 0)), 0),
+        top: top,
+        minutes: perf.min > 0 ? perf.min : null,
+        km: perf.km > 0 ? perf.km : null
+      });
+    }
+    return out;
+  }
 
   /**
    * The real ledger: what the user actually did, counted from their own logs.
    *
-   * Deliberately free of XP, levels and ranks. Those are the app's own
-   * invention; these are facts about a life — hours read, mornings kept,
-   * sessions done — and knowledge/project.md says a real total outranks a
-   * synthetic one. Nothing here is stored; it is all derived, like every other
-   * number in the app.
+   * Nothing here is stored; it is all derived, like every other number in the
+   * app, and every one of them is a fact rather than a score — sessions kept,
+   * sets performed, kilos moved. knowledge/project.md says a real total
+   * outranks a synthetic one, which is why there is no points column.
    */
   function lifeTotals() {
     const start = historyStart();
     const t = today();
     const days = Math.max(1, A.daysBetween(start, t) + 1);
     const hist = history();
+    const u = weightUnit();
 
     let sessions = 0;
     let workoutDays = 0;
+    let sets = 0;
+    let reps = 0;
+    let volume = 0;
+    let minutes = 0;
+    let km = 0;
+    const byExercise = new Map();
+
     for (const k in state.logs) {
       const l = state.logs[k];
       const done = Object.values(l.ex || {}).filter(Boolean).length + (l.extra || []).length;
       sessions += done;
       if (done > 0) workoutDays++;
+      if (!l.perf) continue;
+      (l.plan || []).forEach((item) => {
+        const perf = l.perf[item.id];
+        if (!A.isLogged(perf)) return;
+        const ex = exerciseById(item.exerciseId);
+        const id = item.exerciseId;
+        const row = byExercise.get(id) || {
+          id: id, name: (ex && ex.name) || item.name || 'Exercise',
+          days: 0, sets: 0, reps: 0, volume: 0, best: null, last: null
+        };
+        byExercise.set(id, row);
+        row.days++;
+        if (!row.last || k > row.last) row.last = k;
+        (perf.sets || []).forEach((set) => {
+          const r = Math.max(0, Math.round(Number(set.r) || 0));
+          row.sets++;
+          row.reps += r;
+          row.volume += A.setVolume(set, u);
+          sets++;
+          reps += r;
+          volume += A.setVolume(set, u);
+          if (set.w != null && isFinite(set.w)) {
+            const w = A.convertWeight(set.w, set.u || 'kg', u);
+            if (!row.best || w > row.best.w) row.best = { w: w, r: r, date: k };
+          }
+        });
+        if (perf.min > 0) minutes += perf.min;
+        if (perf.km > 0) km += perf.km;
+      });
     }
-
-    const perGoal = goals()
-      .map((g) => {
-        let kept = 0;
-        let total = 0;
-        for (const k in state.goalLogs) {
-          if (!state.goalLogs[k][g.id]) continue;
-          if (!goalDone(k, g.id)) continue;
-          kept++;
-          const v = Number(state.goalLogs[k][g.id].value);
-          if (ACCUMULATES[g.unit] && !isNaN(v)) total += v;
-        }
-        return { goal: g, kept: kept, total: ACCUMULATES[g.unit] ? total : null };
-      })
-      .filter((row) => row.kept > 0)
-      .sort((a, b) => b.kept - a.kept);
 
     return {
       days: days,
@@ -1710,97 +849,20 @@
       kept: hist.completeDays,
       sessions: sessions,
       workoutDays: workoutDays,
-      summaries: readingDays().length,
-      journal: journalDays().length,
-      goals: perGoal
+      sets: sets,
+      reps: reps,
+      volume: volume,
+      minutes: minutes,
+      km: km,
+      unit: u,
+      exercises: Array.from(byExercise.values()).sort((a, b) => b.days - a.days || b.volume - a.volume)
     };
   }
 
-  /* ---------- xp & level ---------- */
-
-  /** Every day that has any activity at all — logs, goals or reading. */
+  /** Every day the app has a record for. */
   function activeDays() {
-    const set = Object.create(null);
-    for (const k in state.logs) set[k] = 1;
-    for (const k in state.goalLogs) set[k] = 1;
-    for (const k in state.reading) set[k] = 1;
-    return Object.keys(set);
+    return Object.keys(state.logs);
   }
-
-  function totalXp() {
-    let xp = 0;
-    for (const k in state.logs) {
-      const l = state.logs[k];
-      xp += Object.values(l.ex || {}).filter(Boolean).length * A.XP.exercise;
-      xp += Object.values(l.hb || {}).filter(Boolean).length * A.XP.habit;
-      xp += (l.extra || []).length * A.XP.exercise;
-    }
-    for (const k in state.goalLogs) {
-      for (const gid in state.goalLogs[k]) if (goalDone(k, gid)) xp += A.XP.goal;
-    }
-    for (const k in state.reading) if ((state.reading[k].summary || '').trim()) xp += A.XP.summary;
-    // Level-ups pay from the event log, so a later slip never claws XP back —
-    // and neither does pausing the goal, which is why this reads every goal
-    // rather than only the active ones. Those steps were earned.
-    goals().forEach((g) => {
-      const tl = goalTimeline(g.id);
-      if (tl) xp += tl.events.filter((e) => e.type === 'up').length * A.XP.levelUp;
-    });
-    activeDays().forEach((k) => {
-      if (dayStatus(k).status === 'complete') xp += A.XP.dayBonus;
-    });
-    for (const id in state.claimed) {
-      const m = A.MILESTONES.find((x) => x.id === id);
-      if (m) xp += m.xp;
-    }
-    xp += Object.keys(state.weeklyClaims).length * A.XP.weeklyGoal;
-    return xp;
-  }
-
-  function progress() {
-    const xp = totalXp();
-    const level = A.levelFromXp(xp);
-    const floor = A.xpForLevel(level);
-    const ceil = A.xpForLevel(level + 1);
-    return {
-      xp,
-      level,
-      rank: A.rankFor(level),
-      into: xp - floor,
-      need: ceil - floor,
-      pct: Math.min(100, Math.round(((xp - floor) / Math.max(1, ceil - floor)) * 100))
-    };
-  }
-
-  /* ---------- rewards ---------- */
-
-  function rewards() {
-    const best = history().best;
-    const cur = currentStreak();
-    return A.MILESTONES.map((m) => ({
-      ...m,
-      unlocked: best >= m.days,
-      claimed: !!state.claimed[m.id],
-      claimedOn: state.claimed[m.id] || null,
-      progress: Math.min(100, Math.round((Math.max(cur, best) / m.days) * 100))
-    }));
-  }
-
-  function nextMilestone() {
-    const best = history().best;
-    return A.MILESTONES.find((m) => m.days > best) || null;
-  }
-
-  function claimReward(id) {
-    if (state.claimed[id]) return false;
-    const r = rewards().find((x) => x.id === id);
-    if (!r || !r.unlocked) return false;
-    state.claimed[id] = today();
-    commit({ type: 'claim', id });
-    return true;
-  }
-
-
   /* ---------- rewards the user sets for themselves ---------- */
 
   /**
@@ -1810,17 +872,18 @@
    * no XP, because inventing points for buying yourself trainers would be
    * exactly the kind of unearned number this app refuses to show.
    *
-   * `source` is 'overall' (the whole-day streak) or 'goal' (one goal's streak).
+   * There is one thing it can be tied to — the training streak — and it is
+   * earned on the BEST run that streak ever reached, so a slip afterwards
+   * cannot revoke something already won.
    */
   const customRewards = () => state.customRewards || [];
 
   function addCustomReward(data) {
     const r = Object.assign(
-      { id: A.uid('rw'), name: 'New reward', icon: '', source: 'overall', goalId: null, days: 14, claimedOn: null },
+      { id: A.uid('rw'), name: 'New reward', icon: '', days: 14, claimedOn: null },
       data || {}
     );
     r.days = Math.max(1, Math.round(Number(r.days) || 1));
-    if (r.source !== 'goal') r.goalId = null;
     state.customRewards.push(r);
     commit({ type: 'rewardAdd', id: r.id });
     return r;
@@ -1831,7 +894,6 @@
     if (!r) return;
     Object.assign(r, patch);
     r.days = Math.max(1, Math.round(Number(r.days) || 1));
-    if (r.source !== 'goal') r.goalId = null;
     commit({ type: 'rewardUpdate', id: id });
   }
 
@@ -1842,13 +904,7 @@
 
   /** Best run ever reached, so a reward stays earned once the streak got there. */
   function customRewardProgress(r) {
-    let have = 0;
-    if (r.source === 'goal' && r.goalId) {
-      const tl = goalTimeline(r.goalId);
-      have = tl ? tl.bestStreak : 0;
-    } else {
-      have = history().best;
-    }
+    const have = history().best;
     const need = Math.max(1, Math.round(Number(r.days) || 1));
     return {
       have: have,
@@ -1871,92 +927,6 @@
   }
 
 
-  /* ---------- the challenge ---------- */
-
-  /**
-   * A challenge is a fixed-length run the day counter counts against: DAY 5 / 66.
-   *
-   * It is optional on purpose. Discipline works without one — the counter then just
-   * counts days since you installed it — because a finish line you did not
-   * choose is a deadline, and this app does not set deadlines for people.
-   *
-   * Challenges are never deleted when they end, only stamped with `endedOn`, so
-   * the record of a run you finished (or abandoned) survives.
-   */
-  /** Clamp a run length. `|| 66` would be wrong here: 0 is a value the user
-      typed, not a missing one, and it must clamp to 1 rather than silently
-      become the default. */
-  function clampRunLength(v) {
-    const n = Math.round(Number(v));
-    return isNaN(n) ? 66 : Math.max(1, Math.min(999, n));
-  }
-
-  const challenges = () => state.challenges || [];
-  const activeChallenge = () => challenges().find((c) => !c.endedOn) || null;
-
-  /** Day number within a challenge, 1-based. Null when the date sits outside it. */
-  function challengeDay(c, dateKey) {
-    if (!c) return null;
-    const n = A.daysBetween(c.startDate, dateKey) + 1;
-    return n >= 1 ? n : null;
-  }
-
-  /**
-   * Where a challenge stands. `kept` counts days actually completed inside the
-   * window — the elapsed day number says how long it has been, which is not the
-   * same thing and must not be dressed up as if it were.
-   */
-  function challengeProgress(c) {
-    const ch = c || activeChallenge();
-    if (!ch) return null;
-    const elapsed = Math.max(1, A.daysBetween(ch.startDate, today()) + 1);
-    const day = Math.min(elapsed, ch.days);
-    let kept = 0;
-    for (let i = 0; i < Math.min(elapsed, ch.days); i++) {
-      if (dayStatus(A.addDays(ch.startDate, i)).status === 'complete') kept++;
-    }
-    return {
-      challenge: ch,
-      day: day,
-      days: ch.days,
-      elapsed: elapsed,
-      kept: kept,
-      pct: Math.min(100, Math.round((day / ch.days) * 100)),
-      keptPct: Math.min(100, Math.round((kept / ch.days) * 100)),
-      complete: elapsed > ch.days,
-      finalDay: elapsed === ch.days
-    };
-  }
-
-  /** Starting a new run closes whatever was already going. */
-  function startChallenge(data) {
-    const open = activeChallenge();
-    if (open) open.endedOn = today();
-    const c = Object.assign(
-      { id: A.uid('ch'), name: 'Reset', days: 66, startDate: today(), endedOn: null },
-      data || {}
-    );
-    c.days = clampRunLength(c.days);
-    state.challenges.push(c);
-    commit({ type: 'challengeStart', id: c.id });
-    return c;
-  }
-
-  function updateChallenge(id, patch) {
-    const c = challenges().find((x) => x.id === id);
-    if (!c) return;
-    Object.assign(c, patch);
-    c.days = clampRunLength(c.days);
-    commit({ type: 'challengeUpdate', id: id });
-  }
-
-  function endChallenge(id) {
-    const c = challenges().find((x) => x.id === id);
-    if (!c || c.endedOn) return;
-    c.endedOn = today();
-    commit({ type: 'challengeEnd', id: id });
-  }
-
   /* ---------- weekly goal ---------- */
 
   function weekStats(anchorKey) {
@@ -1976,17 +946,8 @@
       complete,
       goal,
       hit: complete >= goal,
-      claimed: !!state.weeklyClaims[start],
       pct: Math.min(100, Math.round((complete / Math.max(1, goal)) * 100))
     };
-  }
-
-  function claimWeekly(anchorKey) {
-    const w = weekStats(anchorKey);
-    if (!w.hit || w.claimed) return false;
-    state.weeklyClaims[w.start] = true;
-    commit({ type: 'claimWeekly', week: w.start });
-    return true;
   }
 
   /* ---------- mutations: logging ---------- */
@@ -2000,29 +961,15 @@
     return !!l.ex[itemId];
   }
 
-  function toggleHabit(dateKey, habitId) {
-    if (isFuture(dateKey)) return false;
-    const l = ensureLog(dateKey);
-    l.hb[habitId] = !l.hb[habitId];
-    if (!l.hb[habitId]) delete l.hb[habitId];
-    commit({ type: 'toggleHabit', dateKey, habitId, on: !!l.hb[habitId] });
-    return !!l.hb[habitId];
-  }
-
   function completeAll(dateKey) {
     if (isFuture(dateKey)) return;
     const l = ensureLog(dateKey);
     dayPlan(dateKey).forEach((i) => (l.ex[i.id] = true));
-    if (settings().requireHabits) dayHabits(dateKey).forEach((h) => (l.hb[h.id] = true));
     commit({ type: 'completeAll', dateKey });
   }
 
   /**
    * Tick the whole of a day's workout, or take it all back off.
-   *
-   * Exercises only, and that is the point of it existing beside `completeAll`:
-   * that one also ticks the daily habits, which is more than a control sitting
-   * on the workout heading has any business answering for.
    *
    * It toggles rather than only completing, so the tap is its own undo — the
    * heading is the one place a whole workout can be marked from, and a
@@ -2040,6 +987,221 @@
     });
     commit({ type: 'toggleWorkout', dateKey });
     return !all;
+  }
+
+  /* ---------- mutations: the set log ----------
+
+     Writing a set is a separate verb from ticking the exercise off, and the two
+     only ever move in one direction together: filling in the last prescribed
+     set marks the exercise done, and nothing here ever un-marks it. Deleting a
+     set you mistyped must not quietly retract a session you know you did — that
+     is the user's own tap to take back, on the tick they made themselves.
+
+     Every one of these refuses a future date, exactly as `toggleExercise` does.
+     Deciding what next Tuesday will weigh is a prescription, and prescriptions
+     live in the plan. */
+
+  /** The plan item on a day, from the day's own frozen list. */
+  function itemOn(dateKey, itemId) {
+    return dayPlan(dateKey).find((i) => i.id === itemId) || null;
+  }
+
+  /** How many sets this row asked for, from the item and never from the log. */
+  function askedSets(dateKey, itemId) {
+    const item = itemOn(dateKey, itemId);
+    if (!item) return 0;
+    const ex = exerciseById(item.exerciseId);
+    if (A.logShape(ex) !== 'reps') return 0;
+    return Math.max(0, Math.round(Number(item.sets != null ? item.sets : ex && ex.sets) || 0));
+  }
+
+  /** Mark the row done once it has met what it asked for. Never the reverse. */
+  function maybeComplete(l, dateKey, itemId) {
+    if (l.ex[itemId]) return;
+    const item = itemOn(dateKey, itemId);
+    if (!item) return;
+    const ex = exerciseById(item.exerciseId);
+    const perf = l.perf[itemId];
+    if (!A.isLogged(perf)) return;
+    const shape = A.logShape(ex);
+    if (shape === 'reps') {
+      const want = askedSets(dateKey, itemId);
+      if (want && (perf.sets || []).length >= want) l.ex[itemId] = true;
+      return;
+    }
+    if (shape === 'time') {
+      const want = Number(item.minutes != null ? item.minutes : ex && ex.minutes) || 0;
+      if (want && perf.min >= want) l.ex[itemId] = true;
+      return;
+    }
+    const want = Number(item.km != null ? item.km : ex && ex.km) || 0;
+    if (want && perf.km >= want) l.ex[itemId] = true;
+  }
+
+  /** An entry that exists so a set has somewhere to land. */
+  function ensurePerf(l, itemId) {
+    if (!l.perf[itemId]) l.perf[itemId] = {};
+    return l.perf[itemId];
+  }
+
+  /** Drop an entry that holds nothing, so an empty one never reads as logged. */
+  function prunePerf(l, itemId) {
+    const perf = l.perf[itemId];
+    if (!perf) return;
+    if (Array.isArray(perf.sets) && !perf.sets.length) delete perf.sets;
+    if (!A.isLogged(perf) && !perf.note) delete l.perf[itemId];
+  }
+
+  /**
+   * Record one set.
+   *
+   * `weight` is null for a bodyweight set, which is a real answer and not a
+   * missing one — see the note on the set shape in js/data.js. The unit in
+   * force right now is stamped onto the set, so switching the display unit
+   * later re-reads this set rather than re-valuing it.
+   */
+  function addSet(dateKey, itemId, weight, reps) {
+    if (isFuture(dateKey)) return null;
+    const l = ensureLog(dateKey);
+    const perf = ensurePerf(l, itemId);
+    perf.sets = perf.sets || [];
+    const w = Number(weight);
+    perf.sets.push({
+      w: weight == null || weight === '' || !isFinite(w) ? null : w,
+      u: weightUnit(),
+      r: Math.max(0, Math.round(Number(reps) || 0))
+    });
+    maybeComplete(l, dateKey, itemId);
+    commit({ type: 'addSet', dateKey, itemId });
+    return perf.sets[perf.sets.length - 1];
+  }
+
+  function updateSet(dateKey, itemId, index, weight, reps) {
+    if (isFuture(dateKey)) return false;
+    const l = ensureLog(dateKey);
+    const perf = l.perf[itemId];
+    const set = perf && perf.sets && perf.sets[index];
+    if (!set) return false;
+    const w = Number(weight);
+    set.w = weight == null || weight === '' || !isFinite(w) ? null : w;
+    set.u = weightUnit();
+    set.r = Math.max(0, Math.round(Number(reps) || 0));
+    commit({ type: 'updateSet', dateKey, itemId, index });
+    return true;
+  }
+
+  function removeSet(dateKey, itemId, index) {
+    if (isFuture(dateKey)) return null;
+    const l = ensureLog(dateKey);
+    const perf = l.perf[itemId];
+    if (!perf || !perf.sets || !perf.sets[index]) return null;
+    const gone = perf.sets.splice(index, 1)[0];
+    prunePerf(l, itemId);
+    commit({ type: 'removeSet', dateKey, itemId, index });
+    return gone;
+  }
+
+  /** Undo for `removeSet`: the same set back in the same place. */
+  function restoreSet(dateKey, itemId, index, set) {
+    if (!set || isFuture(dateKey)) return;
+    const l = ensureLog(dateKey);
+    const perf = ensurePerf(l, itemId);
+    perf.sets = perf.sets || [];
+    perf.sets.splice(Math.max(0, Math.min(index, perf.sets.length)), 0, set);
+    commit({ type: 'restoreSet', dateKey, itemId });
+  }
+
+  /** Minutes and kilometres, for the exercises that are measured in them. */
+  function setAmount(dateKey, itemId, patch) {
+    if (isFuture(dateKey)) return false;
+    const l = ensureLog(dateKey);
+    const perf = ensurePerf(l, itemId);
+    ['min', 'km'].forEach((f) => {
+      if (!(f in patch)) return;
+      const n = Number(patch[f]);
+      if (patch[f] == null || patch[f] === '' || !isFinite(n) || n <= 0) delete perf[f];
+      else perf[f] = n;
+    });
+    maybeComplete(l, dateKey, itemId);
+    prunePerf(l, itemId);
+    commit({ type: 'setAmount', dateKey, itemId });
+    return true;
+  }
+
+  /** A free-text note on one exercise — how it felt, what the bar did. */
+  function setPerfNote(dateKey, itemId, text) {
+    if (isFuture(dateKey)) return false;
+    const l = ensureLog(dateKey);
+    const perf = ensurePerf(l, itemId);
+    const t = String(text || '').trim().slice(0, 240);
+    if (t) perf.note = t;
+    else delete perf.note;
+    prunePerf(l, itemId);
+    commit({ type: 'setPerfNote', dateKey, itemId });
+    return true;
+  }
+
+  /** Everything recorded against one exercise on one day, thrown away. */
+  function clearPerf(dateKey, itemId) {
+    const l = state.logs[dateKey];
+    if (!l || !l.perf || !l.perf[itemId]) return null;
+    const gone = l.perf[itemId];
+    delete l.perf[itemId];
+    commit({ type: 'clearPerf', dateKey, itemId });
+    return gone;
+  }
+
+  function restorePerf(dateKey, itemId, perf) {
+    if (!perf) return;
+    const l = ensureLog(dateKey);
+    l.perf[itemId] = perf;
+    commit({ type: 'restorePerf', dateKey, itemId });
+  }
+
+  /**
+   * What to put in the boxes before the user types anything.
+   *
+   * Last session first, because "what did I do last time" is the question this
+   * whole screen exists to answer, and the plan prescription second. It
+   * SUGGESTS and never writes: nothing is stored until a set is actually
+   * logged, so an exercise the user skipped leaves no trace claiming otherwise.
+   * `from` says which of the three it came from, so the screen can say so.
+   */
+  function suggestSet(dateKey, itemId) {
+    const item = itemOn(dateKey, itemId);
+    if (!item) return null;
+    const ex = exerciseById(item.exerciseId);
+    const shape = A.logShape(ex);
+    const u = weightUnit();
+    const prev = lastPerformance(item.exerciseId, dateKey);
+    const l = state.logs[dateKey];
+    const perf = (l && l.perf && l.perf[itemId]) || null;
+    const doneSets = (perf && perf.sets) || [];
+
+    if (shape !== 'reps') {
+      const asked = shape === 'time'
+        ? { min: Number(item.minutes != null ? item.minutes : ex && ex.minutes) || null }
+        : { km: Number(item.km != null ? item.km : ex && ex.km) || null };
+      return { shape: shape, from: prev ? 'last' : 'plan', last: prev, asked: asked, unit: u };
+    }
+
+    /* The set already typed today beats last week's: within a session you climb
+       or you hold, and the row above is what you climbed from. */
+    const here = doneSets[doneSets.length - 1];
+    const prevSets = (prev && prev.perf.sets) || [];
+    const there = prevSets.length ? prevSets[Math.min(doneSets.length, prevSets.length - 1)] : null;
+    const src = here || there || null;
+    const reps = Number(item.reps != null ? item.reps : ex && ex.reps) || 0;
+    return {
+      shape: 'reps',
+      from: here ? 'today' : there ? 'last' : 'plan',
+      last: prev,
+      unit: u,
+      weight: src && src.w != null ? A.round1(A.convertWeight(src.w, src.u || 'kg', u)) : null,
+      reps: (src && src.r) || reps || 0,
+      index: doneSets.length,
+      asked: askedSets(dateKey, itemId)
+    };
   }
 
   /**
@@ -2116,24 +1278,13 @@
      happens to agree. Day status is derived from these, so putting them back
      puts it back too. */
 
-  /**
-   * Dismiss the first-run "these are starting numbers" banner.
-   *
-   * Reuses `meta.onboarded`, which the removal of the starting-point sheet left
-   * in the state shape doing nothing. A second flag for the same idea — "this
-   * user has been told where the numbers come from" — would be a migration and
-   * a name to keep in step, for no gain.
-   */
-  function acknowledgeStart() {
-    state.meta.onboarded = true;
-    commit({ type: 'startingAck' });
-  }
-
-  function restoreExercises(dateKey, exMap) {
+  function restoreExercises(dateKey, snapshot) {
     const l = state.logs[dateKey];
-    if (!l || !exMap || typeof exMap !== 'object') return null;
+    if (!l || !snapshot || typeof snapshot !== 'object') return null;
+    const exMap = snapshot.ex || snapshot;   // the old shape was the map alone
     l.ex = {};
     Object.keys(exMap).forEach((id) => { if (exMap[id]) l.ex[id] = true; });
+    if (snapshot.perf) l.perf = JSON.parse(JSON.stringify(snapshot.perf));
     commit({ type: 'restoreExercises', dateKey });
     return l.ex;
   }
@@ -2153,12 +1304,21 @@
     return l.extra;
   }
 
+  /**
+   * Everything logged on a day, taken back off — the ticks AND the sets.
+   *
+   * Both, because clearing the ticks alone would leave a day holding three sets
+   * of bench press that it also says were never done. The undo hands the whole
+   * snapshot back, which is why `restoreExercises` takes both halves.
+   */
   function clearDay(dateKey) {
     const l = state.logs[dateKey];
-    if (!l) return;
+    if (!l) return null;
+    const before = { ex: Object.assign({}, l.ex), perf: JSON.parse(JSON.stringify(l.perf || {})) };
     l.ex = {};
-    l.hb = {};
+    l.perf = {};
     commit({ type: 'clearDay', dateKey });
+    return before;
   }
 
   function addExtra(dateKey, name) {
@@ -2288,212 +1448,6 @@
    * weekday goal is not a zero, and plotting it as one would draw a fortnightly
    * sawtooth that means nothing.
    */
-  function goalSeries(goalId, days) {
-    const g = goalById(goalId);
-    if (!g) return [];
-    const n = Math.max(1, days || 42);
-    const end = today();
-    const out = [];
-    for (let i = n - 1; i >= 0; i--) {
-      const k = A.addDays(end, -i);
-      if (A.daysBetween(historyStart(), k) < 0) continue;
-      const asked = G.isScheduled(g, k) && A.daysBetween(g.startDate, k) >= 0 && !isFuture(k);
-      const e = asked ? goalEntry(k, goalId) : null;
-      const v = e && e.value != null && e.value !== '' ? Number(e.value) : null;
-      out.push({
-        date: k,
-        asked: asked,
-        value: isNaN(v) ? null : v,
-        target: asked ? goalTargetOn(goalId, k) : null,
-        done: asked ? goalDone(k, goalId) : false,
-        skipped: !!(e && e.skipped)
-      });
-    }
-    return out;
-  }
-
-  /**
-   * Strip the app back to the seeded practices.
-   *
-   * A seed reaches a fresh install and nobody else, so this is how an account
-   * that already exists gets there — the same problem `reinstallProgram` solves
-   * for the training week, and the same answer: a tap the user makes, never a
-   * migration.
-   *
-   * Three rules, and the first is the one that matters.
-   *
-   *   Goals are PAUSED, never removed. `removeGoal` also deletes every entry
-   *   ever logged against that goal, so wiping five seeded goals would take
-   *   months of somebody's record with them. Archiving keeps all of it, dates
-   *   the stop in `activeHistory` so no past day is re-judged, and Plan resumes
-   *   any of them in one tap.
-   *
-   *   A practice that is ALREADY on the goal list is left exactly as it is.
-   *   Creating a second "Read" beside the one carrying a year of summaries would
-   *   move the reading gate onto an empty goal and orphan the history behind it.
-   *
-   *   Habits are removed, and that is safe in a way goals are not: `dayHabits`
-   *   returns `log.habits` for any day that has a log, so every day already
-   *   opened keeps the list it froze and is still scored out of the same total.
-   */
-  function installPractices() {
-    const wanted = (A.SEED_GOALS || []).filter((seed) => seed.enabled !== false);
-    /* Matched against EVERY goal, not only the live ones. A practice the user
-       had paused must be resumed rather than recreated: a second "Read" beside a
-       paused one carrying a year of summaries would move the reading gate onto
-       an empty goal and strand the history behind it. */
-    const byName = {};
-    goals().forEach((g) => { byName[g.name.toLowerCase()] = g; });
-
-    const kept = [];
-    const added = [];
-    const resumed = [];
-    wanted.forEach((seed) => {
-      const have = byName[String(seed.name).toLowerCase()];
-      if (have) {
-        if (have.archived) {
-          have.archived = false;
-          recordActiveChange(have, false);
-          resumed.push(have.name);
-        } else {
-          kept.push(have.name);
-        }
-        return;
-      }
-      const g = G.fromSeed(Object.assign({}, seed), today());
-      delete g.enabled;
-      state.goals.push(g);
-      added.push(g.name);
-    });
-
-    const wantedNames = wanted.map((w) => String(w.name).toLowerCase());
-    const paused = [];
-    activeGoals().forEach((g) => {
-      if (wantedNames.indexOf(g.name.toLowerCase()) >= 0) return;
-      g.archived = true;
-      recordActiveChange(g, true);
-      paused.push(g.name);
-    });
-
-    const droppedHabits = (state.habits || []).slice();
-    state.habits = [];
-
-    commit({ type: 'installPractices' });
-    return { added: added, kept: kept, resumed: resumed, paused: paused, habits: droppedHabits };
-  }
-
-  /** Undo it in one move: the paused goals come back, the ones this created go,
-      and the habits return under their own ids so their logs still match. */
-  function undoInstallPractices(result) {
-    if (!result) return;
-    (result.resumed || []).forEach((name) => {
-      const g = goals().find((x) => x.name === name && !x.archived);
-      if (!g) return;
-      g.archived = true;
-      recordActiveChange(g, true);
-    });
-    (result.paused || []).forEach((name) => {
-      const g = goals().find((x) => x.name === name && x.archived);
-      if (!g) return;
-      g.archived = false;
-      recordActiveChange(g, false);
-    });
-    const made = (result.added || []).map((n) => String(n).toLowerCase());
-    state.goals = goals().filter((g) => made.indexOf(g.name.toLowerCase()) < 0 || g.archived);
-    if (Array.isArray(result.habits) && result.habits.length) state.habits = result.habits.slice();
-    commit({ type: 'installPracticesUndo' });
-  }
-
-  /* ---------- the cookie jar ----------
-
-     From "Can't Hurt Me": a written inventory of specific hard things you have
-     already survived, kept so you can reach into it at the moment your
-     confidence is collapsing.
-
-     The mechanism is retrieval, not inspiration. Under acute stress memory
-     access narrows and negative material dominates — you lose access to your own
-     evidence exactly when you need it, which is why the list has to be written
-     while calm and read while not.
-
-     It is the user's own words and nothing else. The app has plenty of material
-     it could generate entries from — completed days, the best streak, claimed
-     milestones — and generating them would defeat the entire point: "I'm tough"
-     is not a cookie, and neither is a sentence a program wrote about you. Every
-     entry here was typed by the person it happened to. */
-
-  /* ---------- lines worth keeping ----------
-
-     One a day, on Today. Rotated by the DATE rather than at random, the same way
-     the reading prompt is: a line that changes every time the screen repaints is
-     noise, and one that changes on a schedule can be read, argued with and
-     remembered.
-
-     The app writes none of them beyond the seeded set, and every one of those
-     can be deleted. See A.SEED_LINES for why that boundary is where it is. */
-
-  const lines = () => state.lines || [];
-
-  function addLine(text, source) {
-    const t = String(text == null ? '' : text).trim().slice(0, 240);
-    if (!t) return null;
-    const l = mkLine({ text: t, source: String(source == null ? '' : source).trim().slice(0, 60) });
-    state.lines.unshift(l);
-    commit({ type: 'lineAdd', id: l.id });
-    return l;
-  }
-
-  function removeLine(id) {
-    const i = lines().findIndex((l) => l.id === id);
-    if (i < 0) return null;
-    const gone = state.lines[i];
-    state.lines.splice(i, 1);
-    commit({ type: 'lineRemove', id: id });
-    return { line: gone, index: i };
-  }
-
-  function restoreLine(line, index) {
-    if (!line || lines().some((l) => l.id === line.id)) return;
-    state.lines.splice(Math.max(0, Math.min(index == null ? 0 : index, state.lines.length)), 0, line);
-    commit({ type: 'lineRestore', id: line.id });
-  }
-
-  /** The one for this day. Deterministic, so it is the same line all day. */
-  function lineForDay(dateKey) {
-    const all = lines();
-    if (!all.length) return null;
-    const n = Math.abs(A.daysBetween('2024-01-01', dateKey || today()));
-    return all[n % all.length];
-  }
-
-  const cookies = () => state.cookies || [];
-
-  function addCookie(text) {
-    const t = String(text == null ? '' : text).trim().slice(0, 240);
-    if (!t) return null;
-    const c = { id: A.uid('ck'), text: t, at: today() };
-    state.cookies.unshift(c);
-    commit({ type: 'cookieAdd', id: c.id });
-    return c;
-  }
-
-  function removeCookie(id) {
-    const i = cookies().findIndex((c) => c.id === id);
-    if (i < 0) return null;
-    const gone = state.cookies[i];
-    state.cookies.splice(i, 1);
-    commit({ type: 'cookieRemove', id: id });
-    return { cookie: gone, index: i };
-  }
-
-  /** Undo, in the shape every other destructive verb here uses: the same object
-      back in the same place, never a fresh one built from its text. */
-  function restoreCookie(cookie, index) {
-    if (!cookie || cookies().some((c) => c.id === cookie.id)) return;
-    const at = Math.max(0, Math.min(index == null ? 0 : index, state.cookies.length));
-    state.cookies.splice(at, 0, cookie);
-    commit({ type: 'cookieRestore', id: cookie.id });
-  }
-
   /**
    * Did the previous day break, with today still open?
    *
@@ -2517,91 +1471,6 @@
     const t = dayStatus(k);
     if (t.status === 'complete' || t.status === 'rest' || !t.total) return null;
     return { date: prev, status: y.status, pct: y.pct, left: Math.max(0, t.total - t.done) };
-  }
-
-  function addHabit(name, icon) {
-    const h = { id: A.uid('hb'), name: (name || 'New habit').trim(), icon: icon || '' };
-    state.habits.push(h);
-    commit({ type: 'habitAdd', id: h.id });
-    return h;
-  }
-
-  /**
-   * A daily habit becomes a goal, in one commit.
-   *
-   * A habit is a tick that asks the same thing forever. A goal ramps from where
-   * you actually are to a target you chose and earns each step by PERFORMING —
-   * never because a week passed — which is the app's own answer to "make this
-   * progress slowly, step by step".
-   *
-   * It is a MOVE, not a copy. The habit goes, because a thing tracked in two
-   * places is a thing ticked twice on Today, and that duplication is why the
-   * run's habit catalogue was cut from twenty-five to fourteen in 2026-08. One
-   * commitment, one tick, one place.
-   *
-   * Nothing already lived changes. `dayHabits` returns `log.habits` for any day
-   * that has a log, so every day already opened keeps the habit list it froze
-   * and is still scored out of the same total; the removal reaches forward only.
-   * `addGoal` is not reused because it commits, and a conversion that committed
-   * twice would render once with the thing existing in both lists at once.
-   */
-  function habitToGoal(habitId, data) {
-    const i = (state.habits || []).findIndex((h) => h.id === habitId);
-    if (i < 0) return null;
-    const habit = state.habits[i];
-    const goal = G.fromSeed(
-      Object.assign(
-        {
-          name: habit.name, icon: habit.icon || '', section: 'custom',
-          unit: 'minutes', direction: 'up', baseline: 5, target: 30, step: 5, blurb: ''
-        },
-        data || {}
-      ),
-      (data && data.startDate) || today()
-    );
-    state.goals.push(goal);
-    state.habits.splice(i, 1);
-    commit({ type: 'habitToGoal', id: habitId, goalId: goal.id });
-    return { goal: goal, habit: habit, index: i };
-  }
-
-  /**
-   * Undo it: the habit goes back where it was, under its OWN id, and the goal
-   * that replaced it goes.
-   *
-   * Restoring through `addHabit` would mint a new id, and every day already
-   * logged against the old one would stop matching it — the streak would read
-   * zero for a habit the user never actually broke, and no error would say so.
-   */
-  function restoreHabitFromGoal(habit, index, goalId) {
-    if (!habit) return;
-    if (!state.habits.some((h) => h.id === habit.id)) {
-      const at = Math.max(0, Math.min(index == null ? state.habits.length : index, state.habits.length));
-      state.habits.splice(at, 0, habit);
-    }
-    state.goals = state.goals.filter((g) => g.id !== goalId);
-    commit({ type: 'habitToGoalUndo', id: habit.id });
-  }
-
-  function removeHabit(id) {
-    state.habits = state.habits.filter((h) => h.id !== id);
-    commit({ type: 'habitRemove', id });
-  }
-
-  function habitStreak(habitId) {
-    let cursor = today();
-    const l0 = state.logs[cursor];
-    if (!(l0 && l0.hb && l0.hb[habitId])) cursor = A.addDays(cursor, -1);
-    const floor = historyStart();
-    let n = 0;
-    let guard = 0;
-    while (guard++ < 1000 && A.daysBetween(floor, cursor) >= 0) {
-      const l = state.logs[cursor];
-      if (l && l.hb && l.hb[habitId]) n++;
-      else break;
-      cursor = A.addDays(cursor, -1);
-    }
-    return n;
   }
 
   function updateSettings(patch) {
@@ -2654,8 +1523,6 @@
     if (parsed.exercises != null && !Array.isArray(parsed.exercises)) wrong.push('exercises');
     if (parsed.habits != null && !Array.isArray(parsed.habits)) wrong.push('habits');
     if (parsed.customRewards != null && !Array.isArray(parsed.customRewards)) wrong.push('custom rewards');
-    if (parsed.challenges != null && !Array.isArray(parsed.challenges)) wrong.push('challenges');
-    if (parsed.goalLogs != null && !isObj(parsed.goalLogs)) wrong.push('goal logs');
     if (parsed.reading != null && !isObj(parsed.reading)) wrong.push('reading');
     if (parsed.journal != null && !isObj(parsed.journal)) wrong.push('journal');
     if (parsed.settings != null && !isObj(parsed.settings)) wrong.push('settings');
@@ -2698,30 +1565,20 @@
 
   root.Store = {
     load, get, settings, save, flush, commit, today, acknowledgeClock,
-    subscribe: (fn) => (listeners.add(fn), () => listeners.delete(fn)),
-    exerciseById, habitById, dayPlan, dayHabits, log, ensureLog, isFuture, historyStart, activeDays,
-    dayStatus, currentStreak, history, lifeTotals, totalXp, progress,
-    rewards, nextMilestone, claimReward, weekStats, claimWeekly,
-    challenges, activeChallenge, challengeDay, challengeProgress, startChallenge, updateChallenge, endChallenge,
+    exerciseById, dayPlan, log, ensureLog, isFuture, historyStart, activeDays,
+    dayStatus, currentStreak, history, lifeTotals, weekStats,
     customRewards, addCustomReward, updateCustomReward, removeCustomReward,
     customRewardProgress, claimCustomReward,
-    toggleExercise, toggleHabit, completeAll, toggleWorkout, muscleTally, clearDay, addExtra, removeExtra,
-    restoreExercises, restorePlanDay, restoreExtras, acknowledgeStart,
-    addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan, reinstallProgram, programContext,
-    takeRunRefusals, takeRunPaused, runCandidateGoals,
-    cookies, addCookie, removeCookie, restoreCookie, missedYesterday, deloadWeek,
-    lines, addLine, removeLine, restoreLine, lineForDay,
-    installPractices, undoInstallPractices, goalSeries,
-    addExercise, updateExercise, removeExercise, addHabit, removeHabit, habitStreak,
-    habitToGoal, restoreHabitFromGoal,
-    goals, activeGoals, goalById, goalEntry, goalTimeline, goalTarget, goalTargetOn,
-    goalDone, goalsForDay, setGoalValue, hitGoalTarget, skipGoal, clearGoalEntry,
-    addGoal, updateGoal, archiveGoal, removeGoal, restartGoal,
-    readingEntry, setReading, readingDays, journalEntry, setJournal, journalDays,
-    run, runStatus, runToday, startRun, endRun, recordRunDay, runCheckIn, runApply,
-    runAddHabit, runAddCustomHabit, runRemoveHabit,
-    toggleRunHabit, setRunValue, toggleRunItem, setRunItems, runUnknownHabits,
+    toggleExercise, completeAll, toggleWorkout, muscleTally, clearDay, addExtra, removeExtra,
+    restoreExercises, restorePlanDay, restoreExtras,
+    addToPlan, updatePlanItem, removePlanItem, movePlanItem, copyDayPlan, clearDayPlan,
+    reinstallProgram, programContext,
+    missedYesterday, deloadWeek,
+    addExercise, updateExercise, removeExercise,
+    dayEntries, dayVolume, lastPerformance, exerciseSeries, suggestSet, askedSets,
+    addSet, updateSet, removeSet, restoreSet, setAmount, setPerfNote, clearPerf, restorePerf,
     freezeStats, applyFreeze, clearFreeze,
-    updateSettings, exportJson, inspectBackup, importJson, unreadableBackup, resetAll
+    updateSettings, exportJson, inspectBackup, importJson, unreadableBackup, resetAll,
+    subscribe: (fn) => (listeners.add(fn), () => listeners.delete(fn))
   };
 })(window);

@@ -27,8 +27,9 @@ consequence.
 Never comment to narrate what the next line does, or to record that a change was
 made. That is a note to the reviewer, and it is noise once merged.
 
-The comments worth writing here explain *why a rule exists* — why a target is
-frozen, why a cache is cleared, why a heuristic only runs for new goals.
+The comments worth writing here explain *why a rule exists* — why a set carries
+its own unit, why a cache is cleared, why logging can tick a row but never
+un-tick one.
 
 ---
 
@@ -51,10 +52,10 @@ off `window`: `Arise`, `Store`, `UI`.
 
 Load order is fixed and load order is a dependency graph:
 
-`data.js` → `program.js` → `goals.js` → `store.js` → `ui.js` → `app.js`
+`data.js` → `program.js` → `photos.js` → `store.js` → `ui.js` → `app.js`
 
-Never reach backwards in that order. `goals.js` must not know about storage;
-`data.js` and `program.js` must stay pure data and pure helpers.
+Never reach backwards in that order. `data.js` and `program.js` must stay pure
+data and pure helpers.
 
 Adding a file means updating four places: `index.html`, `sw.js` ASSETS, and the
 load lists in `tools/smoke.js` and `tools/render.js`.
@@ -68,15 +69,18 @@ IIFE.
 
 | File | Responsibility | Must not |
 |---|---|---|
-| `data.js` | dates, clock maths, constants, seeds | touch storage or the DOM |
-| `program.js` | the built-in training program, as data | contain logic |
-| `goals.js` | the progression engine, pure functions | touch storage or the DOM |
-| `store.js` | state, persistence, streaks, XP | touch the DOM |
+| `data.js` | dates, the set vocabulary, constants, seeds | touch storage or the DOM |
+| `program.js` | the built-in training programmes, as data | contain logic |
+| `photos.js` | the exercise picture store (IndexedDB) | touch app state |
+| `store.js` | state, persistence, the set log, streaks | touch the DOM |
 | `ui.js` | rendering, sheets, toasts | write state directly |
 | `app.js` | event wiring, celebrations, service worker | render HTML |
 
-`goals.js` being storage-free is not style. It is what lets `tools/smoke.js` test
-the whole engine under plain Node.
+`data.js` holding the whole set vocabulary — `fmtLoad`, `setVolume`,
+`describeEntry`, `targetPhrase`, `convertWeight` — is not style. It is what lets
+both `tools/smoke.js` and `tools/render.js` reason about a set without loading
+storage or a DOM, and it is why the same sentence renders identically wherever it
+appears.
 
 ---
 
@@ -97,34 +101,39 @@ mask the real value.
 
 ---
 
-## Dated History
+## Frozen History
 
-Resolve a past day from a dated history, never from a goal's current value.
+Resolve a past day from what that day recorded, never from what the library or
+the plan says now.
 
-Anything that decides what a day *asked of the user* — its schedule, whether the
-goal was active, which baseline it ran from — must be answered for the date being
-scored, not read off the goal as it stands today. A goal attribute read directly
-while scoring a past day is the bug, every time: pausing a goal used to drop it
-from every day already lived, turning a half-kept day complete and inflating a
-best streak that can never be revoked.
+Two mechanisms carry this, and every new one must follow them:
 
-`scheduleHistory` is the pattern. `activeHistory` and `baselineHistory` follow it,
-and so must the next attribute: a list of `{ from, … }` in ascending date order,
-resolved by walking to the last entry on or before the date. Goals written before
-the history existed have none and fall back to their current value, which is the
-old behaviour exactly.
+- `ensureLog` freezes the day's exercise list into `log.plan` the first time the
+  day is opened, and `dayPlan` answers from that copy. Editing the weekly
+  template afterwards changes tomorrow and nothing already lived.
+- A set stores its own `w`, `u` and `r`. Nothing about the exercise it belongs to
+  is needed to read it back, so a rename, a re-prescription, a change of unit or
+  a change of measurement shape leaves it exactly as it was.
 
-Migrating an attribute into a dated history must never guess a date it does not
-have. Grandfather it to whatever reproduces the history that account already
-computes, so the fix itself moves nobody's past.
+`describeEntry` is the rule in miniature: it reads the ENTRY and not the
+exercise. Asking the exercise's *current* shape for `perf.min` on a day that
+recorded rep sets printed `NaN min`, and the fix was to describe what is
+actually stored.
+
+Anything new that decides what a day *asked of the user* must be answered from
+the day's own record. Reading it off the live object is the bug, every time.
 
 ---
 
 ## Rendering
 
-Escape every piece of user text with `esc()` before it reaches `innerHTML`. Goal
-names, exercise names, habit names and journal text are all user-controlled — and
-that includes toasts, not just views.
+Escape every piece of user text with `esc()` before it reaches `innerHTML`.
+Exercise names, plan notes, per-exercise notes and reward names are all
+user-controlled — and that includes toasts, not just views.
+
+A view reads and returns a string. It never writes. Anything that mutates is an
+event owned by `app.js`; a write inside a render is also a hang, because the
+commit notifies the view that re-renders that writes again.
 
 Derive, do not store. If a number can be computed from the logs, compute it.
 
@@ -146,15 +155,17 @@ must all land somewhere sane.
 
 ## Tests
 
-Two suites, run from `arise/`:
+Three suites, run from `arise/`:
 
 ```bash
-node tools/smoke.js     # data layer + progression engine, fake localStorage
+node tools/smoke.js     # data layer + the set log, fake localStorage
 node tools/render.js    # every view, sheet and programmed day, stub DOM
+node tools/wire.js      # js/app.js through its real click router
 ```
 
-Cover the logic where a mistake is silent: ladder maths, earned advancement,
-step-back, frozen history, streaks and freezes, migrations.
+Cover the logic where a mistake is silent: volume and unit conversion, the
+prefill from the last session, frozen history, streaks and freezes, migrations,
+and that nothing a removed feature stored has been thrown away.
 
 A test asserts behaviour a user depends on. Name it after that behaviour, not
 after the function.

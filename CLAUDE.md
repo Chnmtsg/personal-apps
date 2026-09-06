@@ -2,9 +2,16 @@
 
 ## Purpose
 
-This repository holds **Discipline** — an offline-first personal-development
-tracker. Goal progression, streaks, a weekly training program, reading and
-journal. Vanilla HTML/CSS/JS, no build step, no server, no account.
+This repository holds **Discipline** — an offline-first training log. A weekly
+training plan, and a record of every set you actually did: the exercise, the
+weight, the reps, and what it was last time. Vanilla HTML/CSS/JS, no build step,
+no server, no account.
+
+It was a personal-development tracker until 2026-09 — goals, reading, a journal,
+a 66-day habit run, XP and a rank ladder. All of that was removed at the user's
+request in favour of one subject done properly. **Nothing was deleted from
+anybody's stored data**: the app stopped reading those keys, it did not drop
+them. See the invariants in `arise/CLAUDE.md`.
 
 The goal is long-term maintainability, reliability, and clean architecture.
 
@@ -27,8 +34,8 @@ read before changing anything. This file exists only to point at them.
 
 **The app is called Discipline; the folder is called `arise`.** So are the
 `window.Arise` globals and the `arise.state.v1` storage key. That is deliberate
-and permanent — renaming the storage key would orphan every user's goals, logs,
-streaks and journal, with no recovery. See `arise/CLAUDE.md`.
+and permanent — renaming the storage key would orphan every user's plan, logs,
+sets and streaks, with no recovery. See `arise/CLAUDE.md`.
 
 ## What used to be here
 
@@ -58,9 +65,8 @@ git log --oneline --diff-filter=D -- english-feedback-app | head -1
 git checkout <that-commit>~1 -- english-feedback-app
 ```
 
-`arise/js/run.js` is a port of the `life-reset` engine and its comments still
-refer to it. That history is why the code is shaped as it is, so the references
-were left in place rather than scrubbed.
+`arise/js/run.js` was a port of the `life-reset` engine. It was deleted in
+2026-09 with the 66-day run, and is recoverable from history the same way.
 
 ---
 
@@ -98,7 +104,7 @@ Every significant change should follow this order.
 All of it lives under `arise/`:
 
 - `arise/CLAUDE.md` — the working guide, and the invariants
-- `arise/knowledge/project.md` — what the app is for, the three rules, hard constraints
+- `arise/knowledge/project.md` — what the app is for, and its hard constraints
 - `arise/knowledge/coding-standards.md` — vanilla JS, layers, migrations, tests
 - `arise/knowledge/ui-guidelines.md`
 - `arise/knowledge/colour-direction-plumage.md` — the palette decision record
@@ -129,8 +135,8 @@ npm run package   # → dist/, exits non-zero if the package is unshippable
 ```
 
 `smoke.js` loads `js/` into a sandbox with a fake `localStorage` and asserts the
-data layer and progression engine. `render.js` renders every view and sheet
-against a stub DOM, failing on anything that renders `undefined`, `NaN` or
+data layer and the set log. `render.js` renders every view and sheet against a
+stub DOM, failing on anything that renders `undefined`, `NaN` or
 `[object Object]`. `wire.js` drives `js/app.js` through its real click router,
 because neither of the others loads that file at all.
 

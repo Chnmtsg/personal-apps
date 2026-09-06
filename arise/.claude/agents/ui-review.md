@@ -56,8 +56,8 @@ Name the screen or file for every finding.
 
 1. Inventory the screens and states that actually exist.
 
-2. Walk the primary journey first. Open Today, complete a goal, log a workout
-   exercise, write a reading summary, then read Stats.
+2. Walk the primary journey first. Open Today, log a set on an exercise, correct
+   one, finish the session, then read Stats.
 
 3. Work through the review areas below.
 
