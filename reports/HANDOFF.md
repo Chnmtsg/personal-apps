@@ -53,12 +53,12 @@ move. The only bridge is More → Export on the old origin, Import on the new on
 
 ```bash
 cd arise
-npm test          # smoke 233, render 118, wire 64 — all green
+npm test          # smoke 254, render 132, wire 64 — all green
 npm run package   # → dist/, exits non-zero if the package is unshippable
 serve.cmd         # http://localhost:8123
 ```
 
-- `sw.js` VERSION → **`discipline-v74`**
+- `sw.js` VERSION → **`discipline-v75`**
 - `js/` is **six** files, loaded in this order:
   `data.js` → `program.js` → `photos.js` → `store.js` → `ui.js` → `app.js`
   (`goals.js` and `run.js` were deleted this session — see §2)
@@ -167,6 +167,37 @@ How it works, and each of these is a rule rather than a detail:
 - `More → Training → Rest timer` switches the whole thing off. On by default,
   which is safe here in a way the other switches are not: it re-scores nothing.
 
+### The programme was replaced with the athlete's real one
+
+`js/program.js` was rewritten in 2026-09 from a full training document the
+athlete supplied: push / pull / legs run twice, in both contexts, every exercise
+and set count named. It replaces the old Upper/Lower split entirely.
+
+- **Nothing is drafted any more.** Saturday's accessory session and the whole
+  home context had been written for this app because the source named one and
+  never described the other. Both arrived. The labels are gone and a test
+  asserts they stay gone.
+- **The volume is deliberately lopsided** — upper body at the top of the range,
+  legs in the middle — because the athlete squats 1.67x bodyweight and benches
+  0.92x. Spreading it evenly would preserve that gap. If a later edit "balances"
+  the week it has undone the point of it.
+- **`DOC_SETS` in `tools/smoke.js` is the source document's own set counts**, and
+  every session is asserted against it. Two failure modes are otherwise
+  completely silent: `programPlan` resolves by NAME and drops what it cannot
+  find, so a typo removes a lift with no error; and a mistyped `sets:` just asks
+  for one set fewer, forever. Both were reproduced on purpose to confirm the test
+  catches them. **When the programme changes, that table changes with it.**
+- The rest intervals in the notes are parsed by the timer, so a test walks every
+  item in both contexts and fails if one prescribes a rest the parser cannot read.
+- `tools/render.js` now sweeps **both** contexts' seven days. It only ever swept
+  the site week before, so the six home sessions — the half with the cables and
+  machines in them — had never been rendered by anything.
+
+The one thing that did not fit is in §4: the site block is a rolling
+3-on/1-off cycle and this app stores a plan per weekday, which cannot express
+one. The closest weekly version ships, and every place the user might read it
+says so.
+
 ### Three bugs found while building this, and how
 
 Two by the new tests, one only by the browser — which is the argument for
@@ -232,13 +263,12 @@ git checkout <that-commit>~1 -- life-reset
    and the rest countdown makes it literal. If the timer is ever removed, ember
    has no subject left and the strip should go charcoal rather than keep a hue
    that means nothing.
-4. **The drafted training content is mine, not the owner's document.** Saturday's
-   accessory session in both contexts, and the whole HOME context, were written
-   for this app because the source material was asked for twice and never
-   supplied. Both are labelled "drafted, not from the programme" in the day
-   title, the context blurb and the code, and a smoke test asserts that wording
-   survives. The HOME context assumes barbell + rack + bench + pull-up bar; if
-   that is wrong, the week table is the only thing to change.
+4. ~~**The drafted training content is mine, not the owner's document.**~~
+   **Resolved.** The athlete supplied the full programme in 2026-09 — both
+   contexts, six sessions each, every exercise named — and `js/program.js` is a
+   transcription of it now. Nothing is drafted, and a smoke test asserts no day
+   title or blurb still claims to be. What replaced that risk is a different
+   one: see §4.9 on the volume table.
 5. ~~**A rest timer between sets is the obvious next feature.**~~ **Built** —
    see §2. The one thing it deliberately does NOT do is fire when the app is
    not in front of you: a PWA cannot, and `knowledge/project.md` forbids
@@ -252,7 +282,15 @@ git checkout <that-commit>~1 -- life-reset
    inside a source comment (`.gatecard`, `.minifield`, `.archive` and a handful
    more). Under 2KB. The sweep is conservative on purpose: a false positive
    leaves one dead rule, a false negative deletes a rule a live screen needs.
-8. **Flattening `arise/` to the repo root.** With one project left, the nesting
+8. **The source document's volume table does not match its own sessions, for
+   back.** Section B states 14 sets/week for upper back and lats rising to 18 at
+   peak. Its own Pull A and Pull B tables prescribe 4+4+3 and 4+3+3, which is 21
+   — over the peak before the set-addition schedule adds any. Everything else
+   lands inside its stated ranges once carryover is read the way the table
+   describes. **The sessions are what was implemented**, because the sessions are
+   what somebody actually does and re-balancing another coach's programme is not
+   this app's job. Worth putting to whoever wrote it.
+9. **Flattening `arise/` to the repo root.** With one project left, the nesting
    is arguably pointless — but the Pages workflow uploads `arise/dist` and the
    folder name is deliberate (see `arise/CLAUDE.md` on the rename). Not done,
    and not obviously worth doing.

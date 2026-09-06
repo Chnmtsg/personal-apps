@@ -387,41 +387,62 @@ silence — no error, no empty row, just a session one exercise shorter than the
 programme says. `tools/smoke.js` asserts every name resolves and that each day's
 item count survives into the plan; nothing else in the app can see it.
 
-**There are two contexts, and one of them plus one day of the other is DRAFTED
-rather than supplied.** `A.PROGRAM_CONTEXTS` is a list of `{id, name, blurb,
-week}`; `programPlan(exercises, contextId)` picks one and `S.reinstallProgram(id)`
-lays it down. The app stores ONE weekly plan, which is the right shape — you are
-on site or you are at home, never both — so a context is an alternative, not a
+**There are two contexts, and nothing in either is drafted any more.**
+`A.PROGRAM_CONTEXTS` is a list of `{id, name, blurb, week}`;
+`programPlan(exercises, contextId)` picks one and `S.reinstallProgram(id)` lays
+it down. The app stores ONE weekly plan, which is the right shape — you are on
+site or you are at home, never both — so a context is an alternative, not a
 second plan. `meta.programContext` records which is on and Plan marks it.
 `A.PROGRAM_WEEK` still exports the site week under its old name so nothing
 downstream had to change.
 
-What is drafted, and it says so where the user reads it rather than only here:
+The programme was rewritten in 2026-09 from a full document the athlete
+supplied: push / pull / legs, twice over, in both contexts. Saturday's accessory
+session and the whole home context had been DRAFTED for this app because the
+source named one and never described the other; both arrived, so both labels are
+gone and `tools/smoke.js` asserts they stay gone — a label saying a session was
+invented is a lie once the real one is in the file.
 
-- **Saturday, in both contexts.** The source document lists an accessory session
-  and points at a section that never arrived. It was built from what the other
-  four days LEAVE OUT — arms and rear delts get one exposure each per week, grip
-  and forearms none. It is the lightest training day on purpose, because it sits
-  between Lower B and a rest day and a fifth hard session there would eat the
-  recovery that makes the other four work. There is a test asserting it stays the
-  lightest.
-- **The whole HOME context.** The document named "Context 1" and never described
-  a second. This one assumes a barbell, a rack with pins, a bench and a bar to
-  hang from — an ASSUMPTION, stated in its blurb, and the rows to swap if the
-  real setup differs. The pattern survives any equipment.
+**Volume follows the lagging quality, and the lagging quality is upper body.**
+The athlete squats 1.67x bodyweight and benches 0.92x, which is legs well ahead
+of everything else. So chest, back, side delts and arms sit at the top of the
+volume range and quads and hamstrings sit in the middle — enough to regain what
+was already held, which retraining makes cheap, without widening a gap that is
+already there. Distributing volume evenly would preserve the imbalance. If a
+future edit "balances" the week, it is undoing the whole point of it.
 
-Both day titles read "drafted, not from the programme", and `tools/smoke.js`
-asserts that wording is still there. Replace either the moment the real thing
-turns up; nothing depends on these names but the week tables.
+**The set counts are asserted against the source document, session by session.**
+`programPlan` resolves week entries BY NAME and `.filter(Boolean)`s what it
+cannot find, so one typo drops a lift out of a day in silence — no error, no
+empty row, just a session one exercise shorter than the coach wrote. A mistyped
+`sets:` is worse: nothing anywhere reports it and the screen simply asks for one
+set fewer, forever. `DOC_SETS` in `tools/smoke.js` is the document's own numbers,
+and it is the only thing in the tree that can see either failure. **When the
+programme changes, that table changes with it** — it is not scaffolding, it is
+the transcription being checked against its source.
 
-The programme itself is Context 1 (SITE, dumbbells only): Mon Upper A, Tue
-Lower A, Wed rest, Thu Upper B, Fri Lower B, Sat accessory, Sun rest. Day 1 is
-read as Monday — nothing in the programme names a weekday and the app stores a
-plan per weekday, so the two had to be pinned together somewhere. A plan item's
-`note` carries the **prescription** (reps per side, the RIR target, the rest
-interval, any tempo); the exercise's `how` carries the **technique**. A cue is
-true every time you do the lift, an RIR target is true on this day of this
-programme, so they do not live in the same field.
+**A prescribed rest interval must stay machine-readable.** The notes carry
+`rest 90 s` and `rest 2–3 min`, and `A.restFromNote` parses them to run the timer
+between sets. Keep the number immediately after the word "rest". A smoke test
+walks every item in both contexts and fails if one prescribes a rest the parser
+cannot read, because the failure mode is silent: the timer just counts up
+instead.
+
+**What the weekday grid cannot hold, and it says so.** The site block is written
+as a ROLLING cycle — push, pull, legs, rest, repeat — and the source says in as
+many words "do not use a fixed weekly calendar on site". A four-day cycle does
+not tile a seven-day week; drifting is the point of it. This app stores a plan
+per WEEKDAY, so it cannot express one at all.
+
+What ships is the closest weekly expression: the six sessions in order with
+Thursday as the rest day. That is one rest day rather than two per eight, and it
+runs Friday through Wednesday unbroken where the rolling version would stop —
+which on camp food and camp sleep is the exact failure the rolling cycle exists
+to prevent. The context blurb says so, the week comment says so, and the user is
+told to move days by hand as the cycle drifts. **Do not quietly "fix" this by
+inventing a seventh rest day the document does not have.** A real fix is a plan
+indexed by cycle-day rather than weekday, which is a change to the frozen-history
+rules and needs raising first.
 
 **Charts are inline SVG drawn from the record, and the mark colour is a
 VALIDATED step rather than a UI token.** `--chart-did` and `--chart-ask` exist
@@ -598,7 +619,7 @@ constraint is that it makes no network calls. If a tool offers to inline the app
 into one file, say no.
 
 **Bump `sw.js` VERSION** after changing `styles.css`, anything in `js/`, or
-anything in `fonts/`. Currently `discipline-v74`. Without it an installed copy
+anything in `fonts/`. Currently `discipline-v75`. Without it an installed copy
 keeps serving the old shell.
 
 **`fonts/` ships with the app.** Three Archivo `.woff2` cuts, split by

@@ -197,27 +197,27 @@ photo library. Pictures live in IndexedDB and travel in the backup.
 
 ## The built-in training programme
 
-Two contexts. The app stores **one** weekly plan, so these are alternatives
-rather than a pair — you are on site or you are at home, never both.
+Push / pull / legs, twice over. Two contexts — the app stores **one** weekly plan,
+so they are alternatives rather than a pair: you are on site or you are at home,
+never both.
 
-**Context 1 — site (dumbbells only).** Mon Upper A, Tue Lower A, Wed rest,
-Thu Upper B, Fri Lower B, Sat accessory, Sun rest.
+**On site (dumbbells only).** Mon Push A, Tue Pull A, Wed Legs A, Thu rest,
+Fri Push B, Sat Pull B, Sun Legs B.
 
-**Context 2 — home (barbell).** The same pattern, assuming a barbell, a rack with
-pins, a bench and a bar to hang from. That assumption is stated in the app, along
-with the rows to swap if your setup differs.
+**At home (full gym).** Mon Push A, Tue Pull A, Wed Legs A, Thu Push B,
+Fri Pull B, Sat Legs B, Sunday full rest — exactly as the programme is written.
 
-Two things are **drafted rather than supplied**, and the app says so where you
-read it:
+Volume is deliberately lopsided: chest, back, side delts and arms sit at the top
+of the range and quads and hamstrings in the middle. That follows the lift
+numbers — a 1.67x bodyweight squat against a 0.92x bench is legs well ahead of
+everything else, and spreading volume evenly would just preserve the gap.
 
-- **Saturday, in both contexts.** The source document lists an accessory session
-  and points at a section that never arrived. It was built from what the other
-  four days leave out — arms and rear delts get one exposure each per week, grip
-  and forearms none. It is the lightest day on purpose: it sits between Lower B
-  and a rest day, and a fifth hard session there would eat the recovery that makes
-  the other four work.
-- **The whole home context.** The document described one context and never a
-  second.
+**One thing the app cannot hold.** The site block is written as a rolling
+3-on/1-off cycle, and a four-day cycle does not tile a seven-day week — drifting
+is the point of it. This app stores a plan per weekday. What ships is the closest
+weekly version, with Thursday as the rest day; on site, **move the days by hand
+in Plan as the cycle drifts**, or just take the rest day when you need it. A day
+with nothing scheduled keeps the streak.
 
 Installing a programme **replaces the weekly plan and never touches a logged
 day**. The library is additive: an exercise you already have keeps your name,

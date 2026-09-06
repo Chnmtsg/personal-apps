@@ -375,12 +375,16 @@ ok('and nothing was silently dropped on the way into the plan',
    [0, 1, 2, 3, 4, 5, 6].every((d) => S.get().plan[d].length === ((A.PROGRAM_WEEK[d] || {}).items || []).length),
    [0, 1, 2, 3, 4, 5, 6].map((d) => S.get().plan[d].length + '/' + ((A.PROGRAM_WEEK[d] || {}).items || []).length).join(' '));
 
-/* The SITE programme: Mon Upper A, Tue Lower A, Wed rest, Thu Upper B,
-   Fri Lower B, Sat accessory, Sun rest. */
-ok('Monday is the press day', S.get().plan[1].some((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Floor Press'));
-ok('Thursday is the pull day', S.get().plan[4].some((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Bent-Over Row'));
-ok('Wednesday and Sunday carry no lifting',
-   [3, 0].every((d) => S.get().plan[d].every((i) => S.exerciseById(i.exerciseId).category !== 'Strength')));
+/* The SITE week: Mon Push A, Tue Pull A, Wed Legs A, Thu rest, Fri Push B,
+   Sat Pull B, Sun Legs B. Push / pull / legs, twice over, with the one rest day
+   a seven-day grid can hold. */
+ok('Monday is the chest day', S.get().plan[1].some((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Floor Press'));
+ok('Tuesday is the pull day', S.get().plan[2].some((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Pullover'));
+ok('Wednesday is the squat day', S.get().plan[3].some((i) => S.exerciseById(i.exerciseId).name === 'Goblet Squat'));
+ok('Friday is the shoulder day', S.get().plan[5].some((i) => S.exerciseById(i.exerciseId).name === 'Arnold Press'));
+ok('Sunday is the hinge day', S.get().plan[0].some((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Romanian Deadlift'));
+ok('Thursday carries no lifting',
+   S.get().plan[4].every((i) => S.exerciseById(i.exerciseId).category !== 'Strength'));
 ok('a training day opens with a warm-up', S.exerciseById(S.get().plan[1][0].exerciseId).category === 'Warm-up');
 ok('and closes with its stretch', (() => {
   const items = S.get().plan[1];
@@ -397,38 +401,112 @@ ok('the daily mobility is on every day of the week',
 
 ok('rep ranges survive into the plan', S.get().plan[1].some((i) => i.repsMax > i.reps));
 ok('a day overrides the exercise default', (() => {
-  const a = S.get().plan[2].find((i) => S.exerciseById(i.exerciseId).name === 'Goblet Squat');
-  const b = S.get().plan[5].find((i) => S.exerciseById(i.exerciseId).name === 'Goblet Squat');
-  return a && b && a.reps === 8 && b.reps === 12; // Lower A asks 8–12, Lower B 12–15 at tempo
+  const a = S.get().plan[3].find((i) => S.exerciseById(i.exerciseId).name === 'Goblet Squat');
+  const b = S.get().plan[0].find((i) => S.exerciseById(i.exerciseId).name === 'Goblet Squat');
+  return a && b && a.reps === 8 && b.reps === 12; // Legs A asks 8–12, Legs B 12–15 at tempo
 })());
 ok('the prescription rides the plan item, not the exercise', (() => {
   const row = S.get().plan[1].find((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Lateral Raise');
   return row && /RIR/.test(row.note || '');
 })(), (S.get().plan[1].find((i) => S.exerciseById(i.exerciseId).name === 'Dumbbell Lateral Raise') || {}).note);
 
-/* Saturday used to carry the daily mobility and nothing else, because the
-   programme document pointed at a section that never arrived. It is drafted now,
-   and the app says so where the user reads it rather than only in a comment. */
-ok('Saturday is a real session in both contexts', A.PROGRAM_CONTEXTS.every(
-   (c) => (c.week[6].items || []).length >= 8), A.PROGRAM_CONTEXTS.map((c) => c.id + ':' + c.week[6].items.length));
-ok('and it says it was drafted rather than supplied', A.PROGRAM_CONTEXTS.every(
-   (c) => /drafted/i.test(c.week[6].title)), A.PROGRAM_CONTEXTS.map((c) => c.week[6].title));
-/* It sits between Lower B and a rest day. A fifth hard session there would eat
-   the recovery that makes the other four work, so it must stay the LIGHTEST
-   training day of the week. */
-const dayWeight = (day) => (day.items || []).reduce((n, i) => n + (i.sets || 0), 0);
-ok('and it is the lightest training day of the week', A.PROGRAM_CONTEXTS.every((c) => {
-  const sat = dayWeight(c.week[6]);
-  return [1, 2, 4, 5].every((d) => dayWeight(c.week[d]) >= sat);
-}), A.PROGRAM_CONTEXTS.map((c) => c.id + ' sat=' + dayWeight(c.week[6]) + ' vs ' +
-    [1, 2, 4, 5].map((d) => dayWeight(c.week[d])).join('/')));
+/* Saturday's accessory session and the whole home context used to be DRAFTED
+   for this app, because the source document listed one and never supplied the
+   other. Both arrived in 2026-09 with the full push/pull/legs rewrite, so the
+   "drafted, not from the programme" labels are gone — and this asserts they
+   stay gone, because a label that says a session was invented is a lie once the
+   real one is in the file. */
+ok('nothing in either week still claims to be drafted', A.PROGRAM_CONTEXTS.every(
+   (c) => [0, 1, 2, 3, 4, 5, 6].every((d) => !/drafted/i.test(c.week[d].title || ''))),
+   A.PROGRAM_CONTEXTS.map((c) => c.id));
+ok('and neither does a context blurb', A.PROGRAM_CONTEXTS.every((c) => !/drafted/i.test(c.blurb)),
+   A.PROGRAM_CONTEXTS.map((c) => c.blurb));
+
+/* ------------------------------------------------------------------ */
+section('the programme is transcribed exactly, session by session');
+
+/* The sets each session prescribes, in order, straight off the source document.
+   `programPlan` resolves week entries BY NAME and silently drops what it cannot
+   find, and a mistyped set count is invisible everywhere else in the app — the
+   screen just asks for one set fewer than the coach wrote. This is the only
+   place that can see either.
+
+   Timed holds are excluded: the Copenhagen and side planks are "2 x 20 s per
+   side", which the app stores as one timed item with the prescription in its
+   note rather than as two sets of nothing. */
+const DOC_SETS = {
+  site: { 1: [4, 3, 3, 3, 3, 2, 2], 2: [4, 4, 3, 3, 3, 3, 2], 3: [4, 3, 3, 2, 4, 2, 2],
+          4: [], 5: [4, 3, 3, 4, 3, 3, 3], 6: [4, 3, 3, 3, 3, 2, 2, 3], 0: [4, 3, 3, 2, 4, 2, 3] },
+  home: { 1: [4, 3, 3, 3, 3, 2, 2], 2: [4, 3, 3, 3, 3, 3, 2], 3: [4, 3, 3, 4, 2, 2],
+          4: [4, 3, 3, 4, 3, 3, 3], 5: [4, 3, 3, 3, 3, 2, 2, 3], 6: [4, 3, 3, 2, 4, 2, 2, 3], 0: [] }
+};
+const exByName = {};
+A.PROGRAM_EXERCISES.forEach((e) => { exByName[e.name] = e; });
+A.PROGRAM_CONTEXTS.forEach((c) => {
+  [1, 2, 3, 4, 5, 6, 0].forEach((d) => {
+    const lifts = (c.week[d].items || []).filter((it) => {
+      const ex = exByName[it.name];
+      return ex && ex.unit === 'reps';
+    });
+    const got = lifts.map((it) => (it.sets != null ? it.sets : exByName[it.name].sets || 0));
+    const want = DOC_SETS[c.id][d];
+    ok(c.id + ' day ' + d + ' matches the document',
+       got.length === want.length && got.every((n, i) => n === want[i]),
+       'got ' + got.join(',') + ' want ' + want.join(','));
+  });
+});
+
+/* Both planks are timed holds, and the reps they are actually done for live in
+   the note. If either ever becomes a rep exercise, the set counts above change
+   and the assertion has to be told. */
+['Copenhagen Plank', 'Side Plank'].forEach((n) => {
+  ok(n + ' is a timed hold carrying its own prescription', (() => {
+    const ex = exByName[n];
+    if (!ex || ex.unit !== 'time') return false;
+    const row = (A.PROGRAM_WEEK[3].items || []).concat(A.PROGRAM_WEEK[0].items || [])
+      .find((it) => it.name === n);
+    return !!row && /\d+\s*[x\u00d7]\s*\d+\s*s/.test(row.note || '');
+  })(), (exByName[n] || {}).unit);
+});
+
+/* Every prescribed rest interval has to be readable by the timer, or a lift
+   that names one silently counts up instead. */
+{
+  let named = 0;
+  const unread = [];
+  A.PROGRAM_CONTEXTS.forEach((c) => {
+    [0, 1, 2, 3, 4, 5, 6].forEach((d) => {
+      (c.week[d].items || []).forEach((it) => {
+        if (!/\brest\s+\d/.test(String(it.note || ''))) return;
+        named++;
+        if (!A.restFromNote(it.note)) unread.push(c.id + ' ' + it.name);
+      });
+    });
+  });
+  ok('the rewritten programme still prescribes rests', named > 40, named);
+  ok('and every one of them still parses', unread.length === 0, unread);
+}
+
+/* ------------------------------------------------------------------ */
+section('the week, as a shape');
 
 /* Both contexts run the same pattern — that is what makes them contexts of one
    programme rather than two programmes. */
-ok('both weeks keep the same shape', A.PROGRAM_CONTEXTS.every((c) =>
-   [3, 0].every((d) => (c.week[d].items || []).length === 1) &&
-   [1, 2, 4, 5, 6].every((d) => (c.week[d].items || []).length > 1)),
+/* Each context rests on the day its own source says it does — Thursday on site,
+   Sunday at home — and trains on the other six. They are not the same shape any
+   more, and that is the source document rather than a slip: the home block is a
+   fixed six-day week and the site block is a rolling cycle this grid can only
+   approximate. */
+const REST_DAY = { site: 4, home: 0 };
+ok('each week rests exactly once, on the day its source names', A.PROGRAM_CONTEXTS.every((c) =>
+   (c.week[REST_DAY[c.id]].items || []).length === 1 &&
+   [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== REST_DAY[c.id])
+     .every((d) => (c.week[d].items || []).length > 1)),
    A.PROGRAM_CONTEXTS.map((c) => c.id + ':' + [1, 2, 3, 4, 5, 6, 0].map((d) => c.week[d].items.length).join(',')));
+ok('and both run six sessions of push, pull and legs', A.PROGRAM_CONTEXTS.every((c) => {
+  const titles = [0, 1, 2, 3, 4, 5, 6].map((d) => c.week[d].title).join(' | ');
+  return ['Push A', 'Push B', 'Pull A', 'Pull B', 'Legs A', 'Legs B'].every((t) => titles.indexOf(t) >= 0);
+}), A.PROGRAM_CONTEXTS.map((c) => [0, 1, 2, 3, 4, 5, 6].map((d) => c.week[d].title).join('/')));
 ok('every day of both ends with the daily mobility', A.PROGRAM_CONTEXTS.every((c) =>
    [0, 1, 2, 3, 4, 5, 6].every((d) => c.week[d].items.slice(-1)[0].name === 'Daily Shift Mobility')));
 /* The home context is the one with a barbell in it; that is the whole point of

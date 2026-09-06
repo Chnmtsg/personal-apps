@@ -93,9 +93,13 @@ A core module is one the application ships today and can be reached by name.
 | More | Tab bar — units, streak rules, exercise library, rewards, backup |
 
 **The training programme** is content under Plan, not its own screen: two
-contexts (site, dumbbells only; home, barbell) each laying down a six-day split.
-Every exercise carries how-to notes and optional pictures, reachable from any
-row on Today.
+contexts (site, dumbbells only; home, full gym) each laying down a push/pull/legs
+week run twice. Every exercise carries how-to notes and optional pictures,
+reachable from any row on Today.
+
+It is a transcription of a document somebody else wrote, and it is treated as
+one: `tools/smoke.js` holds the source's own set counts and fails if the file
+drifts from them. The app does not get to quietly re-balance somebody's coach.
 
 **Your own rewards** live behind More. A reward is a promise the user makes to
 themselves — "fourteen sessions, then the shoes" — tied to the training streak.

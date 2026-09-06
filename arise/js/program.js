@@ -22,49 +22,135 @@
 
   const WARMUPS = [
     {
-      name: 'Warm-up — Push Day',
+      name: 'Warm-up — Push',
       muscles: ['chest','front_delts','side_delts'],
-      category: 'Warm-up', unit: 'time', minutes: 9, icon: '🔥',
+      category: 'Warm-up', unit: 'time', minutes: 8, icon: '',
       how: [
-        'Run straight through, no rest. 8–10 minutes total.',
-        '1. Jumping jacks — 1 min',
-        '2. Arm circles — 15 forward + 15 backward',
-        '3. Shoulder rolls — 15',
-        '4. Arm swings — 15',
-        '5. Push-ups — 10',
-        '6. Light dumbbell shoulder press — 15',
-        '7. Light floor press — 10',
-        'Use a weight you could lift 30 times. This is blood flow, not training.'
+        'Run straight through, no rest. About 8 minutes.',
+        '1. Jumping jacks — 60 s',
+        '2. Arm circles — 15 each way',
+        '3. Band pull-apart, or arm swings — 20',
+        '4. Scapular push-ups — 12',
+        '5. Push-up plus — 10',
+        '6. Push-ups — 10',
+        '7. Light dumbbell press — 15 at about 40%',
+        '8. Working weight — 50% × 8',
+        'This is blood flow and rehearsal, not training.'
       ].join('\n')
     },
     {
-      name: 'Warm-up — Pull Day',
+      name: 'Warm-up — Pull',
       muscles: ['lats','rear_delts','biceps'],
-      category: 'Warm-up', unit: 'time', minutes: 9, icon: '🔥',
+      category: 'Warm-up', unit: 'time', minutes: 8, icon: '',
       how: [
-        'Run straight through, no rest. 8–10 minutes total.',
-        '1. March or jog in place — 2 min',
-        '2. Arm circles — 15 each direction',
-        '3. Shoulder rolls — 15',
-        '4. Cat-cow — 10',
-        '5. Light dumbbell rows — 15',
-        '6. Light curls — 15',
-        'Cat-cow: on all fours, arch and round the spine slowly with the breath.'
+        'Run straight through, no rest. About 8 minutes.',
+        '1. March on the spot — 2 min',
+        '2. Cat-cow — 10',
+        '3. Arm circles — 15 each way',
+        '4. Band pull-apart — 20',
+        '5. Scapular retraction — 15',
+        '6. Light dumbbell row — 15 per side',
+        '7. Light curl — 15'
       ].join('\n')
     },
     {
-      name: 'Warm-up — Leg Day',
+      name: 'Warm-up — Legs A',
       muscles: ['quads','glutes','hamstrings'],
-      category: 'Warm-up', unit: 'time', minutes: 9, icon: '🔥',
+      category: 'Warm-up', unit: 'time', minutes: 9, icon: '',
       how: [
-        'Run straight through, no rest. 8–10 minutes total.',
-        '1. Jumping jacks — 1 min (or light jogging — 2 min)',
+        'The squat-day warm-up. About 9 minutes, no rest between.',
+        '1. March on the spot — 2 min',
         '2. Bodyweight squats — 15',
-        '3. Walking lunges — 10 per leg',
+        '3. Leg swings — 12 per leg, both directions',
+        '4. Hip circles — 15 each way',
+        '5. Glute bridge — 20',
+        '6. Side-lying hip abduction — 15 per side',
+        '7. Walking lunge — 8 per leg',
+        '8. Light goblet squat — 10',
+        'The abduction and the bridge are the ones to not skip: twelve hours in a',
+        'seat leaves the glutes underused, and this is where you wake them up.'
+      ].join('\n')
+    },
+    {
+      name: 'Warm-up — Legs B',
+      muscles: ['hamstrings','glutes','lower_back'],
+      category: 'Warm-up', unit: 'time', minutes: 9, icon: '',
+      how: [
+        'The hinge-day warm-up. About 9 minutes, no rest between.',
+        '1. March on the spot — 2 min',
+        '2. Glute bridge — 20',
+        '3. Side-lying hip abduction — 15 per side',
+        '4. Bird dog — 10 per side',
+        '5. Leg swings — 12 per leg, both directions',
+        '6. Reverse lunge — 8 per leg',
+        '7. Bodyweight good morning — 12'
+      ].join('\n')
+    },
+    {
+      name: 'Warm-up — Push (gym)',
+      muscles: ['chest','front_delts','side_delts'],
+      category: 'Warm-up', unit: 'time', minutes: 10, icon: '',
+      how: [
+        'About 10 minutes. The last three entries are the barbell ramp.',
+        '1. Bike or rower — 4 min',
+        '2. Arm circles — 15 each way',
+        '3. Band pull-apart — 20',
+        '4. Band external rotation — 15 per side',
+        '5. Scapular push-ups — 12',
+        '6. Banded wall slide — 10',
+        '7. Empty bar bench — 12',
+        '8. 50% × 8',
+        '9. 70% × 4',
+        'Ramp every session. Do not walk up to a working set cold.'
+      ].join('\n')
+    },
+    {
+      name: 'Warm-up — Pull (gym)',
+      muscles: ['lats','rear_delts','biceps'],
+      category: 'Warm-up', unit: 'time', minutes: 10, icon: '',
+      how: [
+        'About 10 minutes.',
+        '1. Rower — 4 min',
+        '2. Cat-cow — 10',
+        '3. Band pull-apart — 20',
+        '4. Dead hang — 2 × 15 s',
+        '5. Light face pull — 15',
+        '6. Light pulldown — 15'
+      ].join('\n')
+    },
+    {
+      name: 'Warm-up — Legs A (gym)',
+      muscles: ['quads','glutes','hamstrings'],
+      category: 'Warm-up', unit: 'time', minutes: 11, icon: '',
+      how: [
+        'The squat-day warm-up. About 11 minutes, ending in the bar ramp.',
+        '1. Bike — 4 min',
+        '2. Bodyweight squats — 15',
+        '3. Leg swings — 12 per leg',
         '4. Hip circles — 15',
-        '5. Leg swings — 10 per leg',
-        '6. Glute bridges — 15',
-        'Knees track over the toes on every squat and lunge.'
+        '5. Glute bridge — 20',
+        '6. Banded lateral walk — 15 steps each way',
+        '7. Walking lunge — 8 per leg',
+        '8. Empty bar squat — 10',
+        '9. 40% × 8',
+        '10. 60% × 5'
+      ].join('\n')
+    },
+    {
+      name: 'Warm-up — Legs B (gym)',
+      muscles: ['hamstrings','glutes','lower_back'],
+      category: 'Warm-up', unit: 'time', minutes: 11, icon: '',
+      how: [
+        'The deadlift-day warm-up. About 11 minutes, ending in the bar ramp.',
+        '1. Bike — 4 min',
+        '2. Glute bridge — 20',
+        '3. Banded lateral walk — 15 steps each way',
+        '4. Bird dog — 10 per side',
+        '5. Leg swings — 12 per leg',
+        '6. Reverse lunge — 8 per leg',
+        '7. Empty bar good morning — 12',
+        '8. Deadlift 40% × 8',
+        '9. 60% × 5'
       ].join('\n')
     }
   ];
@@ -443,40 +529,55 @@
     {
       name: 'Stretch — Push Day',
       muscles: ['chest','front_delts','triceps'],
-      category: 'Stretch', unit: 'time', minutes: 6, icon: '🧘',
+      category: 'Stretch', unit: 'time', minutes: 6, icon: '',
       how: [
-        'Hold each, breathe, never bounce. 5–8 minutes total.',
-        '1. Chest doorway stretch — 30 sec × 2',
-        '2. Cross-body shoulder stretch — 30 sec per side',
-        '3. Overhead triceps stretch — 30 sec per side',
-        '4. Shoulder stretch — 30 sec per side',
-        'Stretch to mild tension, not pain.'
+        'After training, never before. Hold 30–45 s, breathe, never bounce.',
+        'Mild tension — a 4 to 6 out of 10. Pain means you are at the joint.',
+        '1. Doorway chest stretch, elbow at shoulder height — 30 s × 2',
+        '   Step through until you feel the pec, not the shoulder joint.',
+        '2. Cross-body shoulder — 30 s per side',
+        '   Keep the shoulder pressed down, not shrugged.',
+        '3. Overhead triceps — 30 s per side',
+        '   Hand down the spine, press the elbow gently back.',
+        '4. Child’s pose, arms extended — 45 s',
+        '5. Thoracic extension over a chair back — 10 reps',
+        '   Reps, not a hold.'
       ].join('\n')
     },
     {
       name: 'Stretch — Pull Day',
-      muscles: ['lats','biceps'],
-      category: 'Stretch', unit: 'time', minutes: 6, icon: '🧘',
+      muscles: ['lats','biceps','forearms'],
+      category: 'Stretch', unit: 'time', minutes: 6, icon: '',
       how: [
-        'Hold each, breathe, never bounce. 5–8 minutes total.',
-        '1. Lat stretch — 30 sec per side',
-        '2. Cross-body shoulder stretch — 30 sec per side',
-        '3. Biceps wall stretch — 30 sec per side',
-        '4. Upper-back stretch — 30 sec',
-        '5. Forearm stretch — 20–30 sec per side'
+        'After training, never before. Hold 30–45 s, breathe, never bounce.',
+        '1. Lat stretch on a doorframe or bar — 30 s per side',
+        '   Sit the hips back and away. Feel it along the ribs, not the shoulder.',
+        '2. Thread-the-needle — 30 s per side',
+        '   Thoracic rotation.',
+        '3. Biceps wall stretch — 30 s per side',
+        '   Palm on the wall behind you, rotate the chest away.',
+        '4. Upper-back rounding — 30 s',
+        '5. Forearm flexor and extensor — 25 s each, per side'
       ].join('\n')
     },
     {
       name: 'Stretch — Leg Day',
-      muscles: ['quads','hamstrings','glutes'],
-      category: 'Stretch', unit: 'time', minutes: 6, icon: '🧘',
+      muscles: ['quads','hamstrings','glutes','calves','adductors'],
+      category: 'Stretch', unit: 'time', minutes: 7, icon: '',
       how: [
-        'Hold each, breathe, never bounce. 5–8 minutes total.',
-        '1. Quad stretch — 30 sec per leg',
-        '2. Hamstring stretch — 30 sec per leg',
-        '3. Hip-flexor stretch — 30 sec per leg',
-        '4. Calf stretch — 30 sec per leg',
-        '5. Glute stretch — 30 sec per leg'
+        'After training, never before. Hold 30–45 s, breathe, never bounce.',
+        '1. Quad stretch, standing — 30 s per leg',
+        '   Knees together, hips pushed slightly forward.',
+        '2. Hamstring stretch — 30 s per leg',
+        '   Hinge from the hip with a FLAT back. Rounding stretches the back.',
+        '3. Couch stretch / kneeling hip flexor — 45 s per leg',
+        '   SQUEEZE THE GLUTE on the kneeling side. Without that you are just',
+        '   leaning forward and stretching nothing. The most important one for you.',
+        '4. Calf stretch, straight knee — 30 s per leg (gastrocnemius)',
+        '5. Calf stretch, bent knee — 30 s per leg (soleus)',
+        '   You need both. The soleus is the half most people never stretch.',
+        '6. Figure-4 glute — 30 s per leg',
+        '7. Butterfly adductor — 45 s. Do not press the knees down.'
       ].join('\n')
     },
     {
@@ -542,73 +643,42 @@
 
   const SITE = [
     {
-      name: 'Warm-up — Upper A',
-      muscles: ['chest','front_delts','side_delts'],
-      category: 'Warm-up', unit: 'time', minutes: 8, icon: '🔥',
+      name: 'Reverse Nordic',
+      muscles: ['quads'],
+      category: 'Strength', unit: 'reps', sets: 2, reps: 8, icon: '',
       how: [
-        'Run straight through, no rest. 8 minutes.',
-        '1. Jumping jacks — 60 s',
-        '2. Arm circles — 15 each way',
-        '3. Band pull-apart, or arm swings — 20',
-        '4. Scapular push-ups — 12',
-        '5. Push-ups — 10',
-        '6. Light dumbbell press — 15 at about 40%',
-        '7. The first working exercise at 50% — 8',
-        '',
-        RIR_NOTE
+        'Kneel upright, knees hip-width, feet behind you. Squeeze the glutes.',
+        'Lean backwards slowly, keeping a straight line from knee to shoulder.',
+        'Go only as far as you can control, then pull yourself back up.',
+        'This trains the rectus femoris, which crosses the hip as well as the',
+        'knee — a squat does not fully cover it.',
+        'Start with a very small range. This one produces real soreness.'
       ].join('\n')
     },
     {
-      name: 'Warm-up — Lower A',
-      muscles: ['quads','glutes','hamstrings'],
-      category: 'Warm-up', unit: 'time', minutes: 8, icon: '🔥',
+      name: 'Tibialis Raise',
+      muscles: ['calves'],
+      category: 'Strength', unit: 'reps', sets: 2, reps: 15, repsMax: 20, icon: '',
       how: [
-        'Run straight through, no rest. 8 minutes.',
-        '1. March in place — 2 min',
-        '2. Bodyweight squats — 15',
-        '3. Leg swings — 12 per leg, both directions',
-        '4. Hip circles — 15 each way',
-        '5. Glute bridge — 20',
-        '6. Walking lunge — 8 per leg',
-        '7. Light goblet squat — 10',
-        '',
-        RIR_NOTE
+        'Stand with your back against a wall, heels 20–30 cm out from it.',
+        'Keeping the heels down, pull the toes up towards the shins.',
+        'Lower slowly. Add a tib bar or a light plate over the toes when it is easy.',
+        'The tibialis anterior decelerates the foot on landing and protects the',
+        'ankle. Almost nobody trains it.'
       ].join('\n')
     },
     {
-      name: 'Warm-up — Upper B',
-      muscles: ['lats','rear_delts','biceps'],
-      category: 'Warm-up', unit: 'time', minutes: 8, icon: '🔥',
+      name: 'Wrist Curl',
+      muscles: ['forearms'],
+      category: 'Strength', unit: 'reps', sets: 2, reps: 15, icon: '',
       how: [
-        'Run straight through, no rest. 8 minutes.',
-        '1. March — 2 min',
-        '2. Cat-cow — 10',
-        '3. Arm circles — 15 each way',
-        '4. Band pull-apart — 20',
-        '5. Scapular retraction — 15',
-        '6. Light dumbbell row — 15 per side',
-        '7. Light curl — 15',
-        '',
-        RIR_NOTE
+        'Forearms resting on your thighs or a bench, wrists past the edge.',
+        'Palms up: let the weight roll to the fingers, then curl it back up.',
+        'Palms down: lift the back of the hand towards you. Do both directions.',
+        'A wrist roller does the same job if you have one.',
+        'Grip feeds the deadlift, which is the lift currently lagging.'
       ].join('\n')
     },
-    {
-      name: 'Warm-up — Lower B',
-      muscles: ['hamstrings','glutes','quads'],
-      category: 'Warm-up', unit: 'time', minutes: 8, icon: '🔥',
-      how: [
-        'Run straight through, no rest. 8 minutes.',
-        '1. March — 2 min',
-        '2. Glute bridge — 20',
-        '3. Bird dog — 10 per side',
-        '4. Leg swings — 12 per leg, both directions',
-        '5. Reverse lunge — 8 per leg',
-        '6. Bodyweight good morning — 12',
-        '',
-        RIR_NOTE
-      ].join('\n')
-    },
-
     {
       name: 'Side-Lying Dumbbell External Rotation',
       muscles: ['rear_delts'],
@@ -683,65 +753,6 @@
     },
 
     {
-      name: 'Stretch — Upper A',
-      muscles: ['chest','front_delts','triceps'],
-      category: 'Stretch', unit: 'time', minutes: 6, icon: '🧘',
-      how: [
-        'After the session, while you are still warm. 6 minutes.',
-        '1. Doorway chest stretch — 30 s × 2',
-        '2. Cross-body shoulder — 30 s per side',
-        '3. Overhead triceps — 30 s per side',
-        '4. Child’s pose with arms extended — 45 s',
-        '5. Thoracic extension over a chair — 10 reps',
-        'Never stretch into pain. Tension, then breathe out into it.'
-      ].join('\n')
-    },
-    {
-      name: 'Stretch — Lower A',
-      muscles: ['quads','hamstrings','glutes','calves'],
-      category: 'Stretch', unit: 'time', minutes: 7, icon: '🧘',
-      how: [
-        'After the session, while you are still warm. 7 minutes.',
-        '1. Quad — 30 s per leg',
-        '2. Hamstring — 30 s per leg',
-        '3. Couch stretch — 45 s per leg',
-        '4. Calf, straight knee 30 s then bent knee 30 s, per leg',
-        '5. Figure-4 glute — 30 s per leg',
-        '6. Butterfly adductor — 45 s',
-        'The calf gets both knee positions because they are two different muscles.'
-      ].join('\n')
-    },
-    {
-      name: 'Stretch — Upper B',
-      muscles: ['lats','rear_delts','biceps','forearms'],
-      category: 'Stretch', unit: 'time', minutes: 6, icon: '🧘',
-      how: [
-        'After the session, while you are still warm. 6 minutes.',
-        '1. Lat stretch on a doorframe — 30 s per side',
-        '2. Thread-the-needle — 30 s per side',
-        '3. Biceps wall stretch — 30 s per side',
-        '4. Upper-back rounding — 30 s',
-        '5. Forearm flexors and extensors — 25 s each, per side',
-        'The forearm work is what keeps a grip-heavy pull day from becoming elbow pain.'
-      ].join('\n')
-    },
-    {
-      name: 'Stretch — Lower B',
-      muscles: ['hamstrings','quads','glutes','calves'],
-      category: 'Stretch', unit: 'time', minutes: 7, icon: '🧘',
-      how: [
-        'After the session, while you are still warm. 7 minutes.',
-        '1. Hamstring — 45 s per leg',
-        '2. Quad — 30 s per leg',
-        '3. Couch stretch — 45 s per leg',
-        '4. Calf, both knee positions — 30 s each, per leg',
-        '5. Glute — 30 s per leg',
-        '6. Cobra — 30 s',
-        'The hamstring gets longest here because this is the day that loaded it most.'
-      ].join('\n')
-    },
-
-    {
       name: 'Daily Shift Mobility',
       muscles: ['quads','glutes','chest','full'],
       category: 'Mobility', unit: 'time', minutes: 6, icon: '🪑',
@@ -761,43 +772,19 @@
     }
   ];
 
-  /* ---------- drafted here, not supplied ----------
+  /* ---------- Context 2: HOME (full gym) ----------
 
-     Everything in this block was written for this app rather than taken from the
-     owner's programme document. The document lists an accessory session on its
-     sixth day and points at a section that never arrived, and it names itself
-     "Context 1", implying a second that never arrived either. Both were left
-     empty for a long time on the principle that nothing gets invented.
+     No longer drafted. The athlete supplied the full home programme in
+     2026-09 — six sessions, every exercise named — so what was an assumption
+     about barbells and a rack is now the document. The exercises below are what
+     it asks for.
 
-     Asked directly to fill them, this is the fill — and it says so where the user
-     will see it, in the day titles and the context blurb, so it can never be
-     mistaken for the document's own words. Replace any of it the moment the real
-     thing turns up; nothing else depends on these names.
-
-     The accessory session was built from what the other four days LEAVE OUT, not
-     from taste. Across Upper A, Lower A, Upper B and Lower B: biceps and triceps
-     get one exposure each per week, rear delts one, grip and forearms none at
-     all, and the neck nothing. It also sits between Lower B and a rest day, so it
-     has to be light — a fifth hard session there would eat the rest day that
-     makes the other four work. */
-
-  const DRAFTED = [
-    {
-      name: 'Warm-up — Accessory',
-      muscles: ['side_delts','rear_delts','biceps'],
-      category: 'Warm-up', unit: 'time', minutes: 6, icon: '',
-      how: [
-        'Short, because the session behind it is light. 6 minutes.',
-        '1. March or easy walk — 2 min',
-        '2. Arm circles — 15 each way',
-        '3. Band pull-apart, or arm swings — 20',
-        '4. Scapular retraction — 15',
-        '5. Light lateral raise — 15',
-        '',
-        'This is an accessory day. If anything here feels heavy, the week before',
-        'it was too heavy — that is information, not a reason to push.'
-      ].join('\n')
-    },
+     The substitution map the programme gives, site to home, is the reason the
+     two contexts are interchangeable: floor press becomes bench, goblet squat
+     becomes back squat, pullover becomes a pulldown or a pull-up, and the
+     volume per muscle is matched across both. Two weeks on either side of a
+     rotation trains the same things with different tools. ---- */
+  const GYM = [
     {
       name: 'Farmer Carry',
       muscles: ['forearms','traps','abs','obliques'],
@@ -811,28 +798,6 @@
         'Put them down before your form goes, not after.'
       ].join('\n')
     },
-    {
-      name: 'Stretch — Accessory',
-      muscles: ['full'],
-      category: 'Stretch', unit: 'time', minutes: 8, icon: '',
-      how: [
-        'The long one, because there is no session to rush away from. 8 minutes.',
-        '1. Doorway chest stretch — 30 s × 2',
-        '2. Lat stretch on a doorframe — 30 s per side',
-        '3. Overhead triceps — 30 s per side',
-        '4. Forearm flexors and extensors — 25 s each, per side',
-        '5. Couch stretch — 45 s per leg',
-        '6. Hamstring — 30 s per leg',
-        '7. Figure-4 glute — 30 s per leg',
-        '8. Neck side stretch — 20 s per side',
-        'Slowest of the four. This is the one that makes the rest day work.'
-      ].join('\n')
-    },
-
-    /* ---- Context 2: HOME. Assumes a barbell, a rack, a bench and a bar to
-       hang from — the usual "full access" counterpart to dumbbells-only. If the
-       real setup is different, these are the rows to swap; the pattern (press,
-       squat, pull, hinge) survives any equipment. ---- */
     {
       name: 'Barbell Back Squat',
       muscles: ['quads','glutes','hamstrings','lower_back'],
@@ -915,226 +880,495 @@
         'Lighter than your ego suggests. This one is easy to cheat and pointless cheated.'
       ].join('\n')
     }
+,
+    {
+      name: 'Barbell Romanian Deadlift',
+      muscles: ['hamstrings','glutes','lower_back','forearms'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 8, repsMax: 12, icon: '',
+      how: [
+        'Bar at the hips, standing tall, a slight bend in the knees.',
+        'Push the hips backwards and let the bar travel down the thighs.',
+        'Stop when the hamstring stretch stops increasing — usually mid-shin.',
+        'Drive the hips forward to stand. The back stays flat throughout.',
+        'Straps are fine here. The hamstrings should fail, not the grip.'
+      ].join('\n')
+    },
+    {
+      name: 'Incline Dumbbell Press',
+      muscles: ['upper_chest','chest','front_delts','triceps'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '',
+      how: [
+        'Bench at about 30 degrees. Steeper turns it into a shoulder press.',
+        'Dumbbells at the outside of the chest, elbows about 45 degrees from the body.',
+        'Press up and slightly together. Lower under control to a full stretch.',
+        'This is the upper-chest exposure the flat press does not give you.'
+      ].join('\n')
+    },
+    {
+      name: 'Cable Fly',
+      muscles: ['chest','upper_chest','front_delts'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 12, repsMax: 15, icon: '',
+      how: [
+        'Cables set at chest height or above, a soft bend in the elbows held fixed.',
+        'Bring the hands together in front of the chest, then let them travel back',
+        'until you feel a full stretch across the chest.',
+        'The stretch at the outside is the part that matters. Do not cut it short.',
+        'A pec deck does the same job.'
+      ].join('\n')
+    },
+    {
+      name: 'Close-Grip Bench Press',
+      muscles: ['triceps','chest','front_delts'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 8, repsMax: 12, icon: '',
+      how: [
+        'Hands about shoulder-width — not narrower, which only hurts the wrists.',
+        'Elbows tucked closer to the body than on a normal bench.',
+        'Lower to the lower chest, press back up.',
+        'The heaviest triceps work you can do, and it feeds the bench directly.',
+        'A dip is the alternative if the shoulder is happy with it.'
+      ].join('\n')
+    },
+    {
+      name: 'Cable Lateral Raise',
+      muscles: ['side_delts'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 12, repsMax: 20, icon: '',
+      how: [
+        'Cable at the lowest setting, running behind you, handle in the far hand.',
+        'Raise out to the side, leading with the elbow, to shoulder height.',
+        'Lower slowly against the pull.',
+        'Better than the dumbbell version because there is tension at the bottom,',
+        'where a dumbbell has none.'
+      ].join('\n')
+    },
+    {
+      name: 'Rope Triceps Pushdown',
+      muscles: ['triceps'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 15, icon: '',
+      how: [
+        'Rope on a high pulley, elbows pinned to your sides.',
+        'Push down and spread the rope apart at the bottom.',
+        'Let it return until you feel the triceps stretch, without the elbows drifting.'
+      ].join('\n')
+    },
+    {
+      name: 'Overhead Cable Extension',
+      muscles: ['triceps'],
+      category: 'Strength', unit: 'reps', sets: 2, reps: 12, repsMax: 15, icon: '',
+      how: [
+        'Face away from a low or mid pulley, rope overhead, elbows beside the ears.',
+        'Extend to straight, then let the hands travel down behind the head.',
+        'The long head of the triceps only gets loaded with the arm overhead —',
+        'this is the version a pushdown cannot replace.'
+      ].join('\n')
+    },
+    {
+      name: 'Cable Face Pull',
+      muscles: ['rear_delts','traps'],
+      category: 'Strength', unit: 'reps', sets: 2, reps: 15, icon: '',
+      how: [
+        'Rope at about face height. Pull towards your forehead, not your chest.',
+        'Finish with the hands beside the ears and the elbows high.',
+        'Light. This is rotator cuff and scapular work, not a back exercise.'
+      ].join('\n')
+    },
+    {
+      name: 'Lat Pulldown',
+      muscles: ['lats','biceps','rear_delts'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '',
+      how: [
+        'Grip slightly wider than the shoulders, chest up, a small lean back.',
+        'Drive the ELBOWS down towards the hips, not the hands towards the chin.',
+        'Let the shoulder blades travel up at the top for a full stretch.',
+        'The vertical pull is the one thing dumbbells cannot replicate.'
+      ].join('\n')
+    },
+    {
+      name: 'Chest-Supported Row',
+      muscles: ['lats','traps','rear_delts','biceps'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '',
+      how: [
+        'Chest against an incline bench or the pad of a machine.',
+        'Row to the lower ribs, pause 1 s with the shoulder blades pulled together.',
+        'Because the bench holds you, the lower back cannot cheat and the set',
+        'ends when the back muscles are finished rather than when you start swinging.'
+      ].join('\n')
+    },
+    {
+      name: 'Seated Cable Row',
+      muscles: ['lats','traps','rear_delts','biceps'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '',
+      how: [
+        'Sit tall, a small forward lean at the front of the rep.',
+        'Pull to the navel, elbows past the ribs.',
+        'Let the shoulder blades travel forward at the front — that stretch is',
+        'half of the exercise. Do not hold the torso rigid.'
+      ].join('\n')
+    },
+    {
+      name: 'Straight-Arm Pulldown',
+      muscles: ['lats'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 12, repsMax: 15, icon: '',
+      how: [
+        'High pulley, arms straight with a fixed soft bend, a hinge at the hips.',
+        'Pull the bar to the thighs in an arc, keeping the elbows locked.',
+        'The one exercise that loads the lats without the biceps taking a share.'
+      ].join('\n')
+    },
+    {
+      name: 'Incline Dumbbell Curl',
+      muscles: ['biceps'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '',
+      how: [
+        'Bench at 45–60 degrees, arms hanging straight down behind the body.',
+        'Curl without letting the elbows travel forward.',
+        'The arm behind the torso puts the biceps in a stretched position, which',
+        'is where it grows. Lighter than a standing curl, and it should be.'
+      ].join('\n')
+    },
+    {
+      name: 'Cable Curl',
+      muscles: ['biceps','forearms'],
+      category: 'Strength', unit: 'reps', sets: 2, reps: 12, repsMax: 15, icon: '',
+      how: [
+        'Low pulley, elbows at your sides and staying there.',
+        'Curl up, lower slowly against the cable.',
+        'Constant tension top to bottom, which a dumbbell loses at the top.'
+      ].join('\n')
+    },
+    {
+      name: 'Leg Press',
+      muscles: ['quads','glutes','hamstrings'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '',
+      how: [
+        'Feet mid-platform, shoulder-width. Lower until the knees reach the chest',
+        'without the lower back rounding off the pad.',
+        'Press back without locking the knees hard at the top.',
+        'Quad volume that costs the spine nothing, which is the point of it here.'
+      ].join('\n')
+    },
+    {
+      name: 'Lying Leg Curl',
+      muscles: ['hamstrings','calves'],
+      category: 'Strength', unit: 'reps', sets: 3, reps: 10, repsMax: 12, icon: '',
+      how: [
+        'Pad just above the heels, hips pressed into the bench.',
+        'Curl the heels to the glutes, then lower over a full 3 seconds.',
+        'The hamstrings bend the knee as well as extend the hip; a Romanian',
+        'deadlift only trains the second job.'
+      ].join('\n')
+    },
+    {
+      name: 'Leg Extension',
+      muscles: ['quads'],
+      category: 'Strength', unit: 'reps', sets: 2, reps: 12, repsMax: 15, icon: '',
+      how: [
+        'Pad on the lower shin, back against the seat.',
+        'Extend to straight, pause briefly, lower under control.',
+        'Trains the rectus femoris, which a squat does not fully cover.'
+      ].join('\n')
+    },
+    {
+      name: 'Seated Calf Raise',
+      muscles: ['calves'],
+      category: 'Strength', unit: 'reps', sets: 4, reps: 12, repsMax: 20, icon: '',
+      how: [
+        'Knees bent under the pad, balls of the feet on the platform.',
+        'Drop the heels for a full stretch, pause 2 s there, then press up tall.',
+        'The bent knee takes the gastrocnemius out and leaves the SOLEUS working —',
+        'the half of the calf nearly everyone skips.'
+      ].join('\n')
+    },
+    {
+      name: 'Cable Hip Abduction',
+      muscles: ['glutes'],
+      category: 'Strength', unit: 'reps', sets: 2, reps: 15, icon: '',
+      how: [
+        'Cuff on the outside ankle, low pulley, standing tall and holding something.',
+        'Take the leg out to the side without leaning away from it.',
+        'Gluteus medius. Weakness here shows up as the knee caving in on landing.'
+      ].join('\n')
+    },
+    {
+      name: 'Cable Pallof Press',
+      muscles: ['abs','obliques'],
+      category: 'Core', unit: 'reps', sets: 2, reps: 10, icon: '',
+      how: [
+        'Stand side-on to a cable at chest height, hands at the sternum.',
+        'Press straight out and hold while the cable tries to rotate you.',
+        'Return, repeat. The work is in NOT turning.',
+        'Anti-rotation. Better trunk training than any number of crunches.'
+      ].join('\n')
+    },
+    {
+      name: 'Hanging Leg Raise',
+      muscles: ['abs','obliques'],
+      category: 'Core', unit: 'reps', sets: 3, reps: 10, repsMax: 15, icon: '',
+      how: [
+        'Hang from a bar, shoulders active rather than fully relaxed.',
+        'Raise the legs with the pelvis tucking under at the top — that tuck is',
+        'what makes it abdominal work rather than hip flexor work.',
+        'Lower slowly and do not swing. Bend the knees if straight legs pull you into a swing.'
+      ].join('\n')
+    }
   ];
 
-  const PROGRAM_EXERCISES = WARMUPS.concat(PUSH, PULL, LEGS, CORE, STRETCH, SITE, DRAFTED);
+  const PROGRAM_EXERCISES = WARMUPS.concat(PUSH, PULL, LEGS, CORE, STRETCH, SITE, GYM);
 
   /* ---------- the week, per context ----------
 
-     The programme names itself "Context 1: SITE (dumbbells only)", so there was
-     always meant to be more than one. The app stores ONE weekly plan, which is
-     the right shape — you are on site or you are at home, not both — so contexts
-     are two templates and installing one replaces the plan.
+     Push / Pull / Legs, twice over, in both contexts. The programme was rewritten
+     in 2026-09 around the athlete's actual lift numbers: a 1.67x bodyweight squat
+     against a 0.92x bench, which is upper body trailing legs badly. So chest,
+     back, side delts and arms sit at the top of the volume range and quads and
+     hamstrings sit in the middle — enough to regain what was already held, which
+     retraining makes cheap, without widening the gap that is already there.
 
-     Four training days in a seven-day pattern, which repeats, so "run twice per
-     14-day rotation, 8 sessions" needs nothing special here. The pattern IS the
-     week, and the week is what this app stores.
+     The app stores ONE weekly plan, so contexts are two templates and installing
+     one replaces the plan.
 
-       Mon  Upper A     Tue  Lower A     Wed  rest
-       Thu  Upper B     Fri  Lower B     Sat  accessory & mobility
-       Sun  rest
+     WHAT THIS CANNOT EXPRESS, AND YOU SHOULD KNOW IT. The site block is written
+     as a ROLLING cycle — push, pull, legs, rest, repeat — and says in as many
+     words "do not use a fixed weekly calendar on site". A four-day cycle does not
+     tile a seven-day week: it drifts, which is the whole point of it. This app
+     stores a plan per WEEKDAY, so it cannot hold a rolling cycle at all.
 
-     Day 1 is read as Monday. Nothing in the programme names a weekday, and the
-     app stores a plan per weekday rather than a rolling counter, so the two had
-     to be pinned together somewhere; Monday-first is what every other screen
-     already assumes. Drag it in Plan if your rotation starts elsewhere.
+     What is laid down below is the closest weekly expression: the six sessions in
+     order with Thursday as the rest day. It gives one rest day rather than two
+     per eight, and it runs Friday through Wednesday without a break where the
+     rolling version would stop. On camp food and camp sleep that is the exact
+     failure the rolling cycle exists to prevent, so on site, MOVE THE DAYS BY
+     HAND in Plan as the cycle drifts, or take an unscheduled rest day when you
+     need it — a day with nothing scheduled keeps the streak.
+
+     The home block is a fixed six-day week in the source, so it lands exactly.
 
      `reps`/`repsMax` and `minutes` override the exercise defaults per day, so
-     Lower B can ask for a different rep range than Lower A on the same lift.
+     Pull B can ask for a different rep range than Pull A on the same lift.
 
      `note` carries the PRESCRIPTION — reps per side, the RIR target, the rest
      interval, and any tempo the day asks for. The durable technique lives in the
      exercise's own `how`. A cue is true every time you do the lift; an RIR target
      is true on this day of this programme.
 
+     THE REST INTERVAL IN THE NOTE IS READ BY THE APP. `A.restFromNote` parses
+     "rest 90 s" and "rest 2–3 min" out of these strings to run the timer between
+     sets, so the wording matters: keep the number immediately after the word
+     "rest". A range counts down to its lower bound. See js/data.js.
+
      Daily Shift Mobility is on all seven days of both contexts, including the
      rest days, because the programme says so in as many words: "Training day or
-     not." */
+     not." It is six minutes against twelve hours in an operator's seat, and the
+     source calls it the highest-value six minutes in the document. */
 
   const SITE_WEEK = {
     1: {
-      title: 'Upper A — press emphasis',
+      title: 'Push A — chest emphasis',
       items: [
-        { name: 'Warm-up — Upper A' },
-        { name: 'Dumbbell Floor Press', sets: 3, reps: 8, repsMax: 12, note: '2 RIR · rest 2–3 min · pause 1 s on the floor' },
+        { name: 'Warm-up — Push' },
+        { name: 'Dumbbell Floor Press', sets: 4, reps: 6, repsMax: 10, note: '2 RIR · rest 2–3 min · pause 1 s on the floor' },
         { name: 'Dumbbell Shoulder Press', sets: 3, reps: 8, repsMax: 12, note: 'seated, upright · 2 RIR · rest 2–3 min' },
-        { name: 'One-Arm Dumbbell Row', sets: 3, reps: 10, repsMax: 12, note: 'per side · 2 RIR · rest 90 s' },
-        { name: 'Dumbbell Lateral Raise', sets: 3, reps: 12, repsMax: 20, note: '1 RIR · rest 75 s' },
-        { name: 'Overhead Dumbbell Triceps Extension', sets: 2, reps: 10, repsMax: 12, note: '1–2 RIR · rest 90 s' },
-        { name: 'Side-Lying Dumbbell External Rotation', sets: 2, reps: 15, note: 'per side · 4 RIR · rest 45 s' },
-        { name: 'Stretch — Upper A' },
+        { name: 'Dumbbell Squeeze Press', sets: 3, reps: 12, repsMax: 15, note: '1 RIR · rest 90 s · squeeze the bells together throughout' },
+        { name: 'Dumbbell Lateral Raise', sets: 3, reps: 12, repsMax: 20, note: '1 RIR · rest 75 s · lead with the elbow' },
+        { name: 'Overhead Dumbbell Triceps Extension', sets: 3, reps: 10, repsMax: 12, note: '1–2 RIR · rest 90 s · full stretch at the bottom' },
+        { name: 'Dumbbell Skull Crusher', sets: 2, reps: 10, repsMax: 12, note: '1 RIR · rest 90 s' },
+        { name: 'Side-Lying Dumbbell External Rotation', sets: 2, reps: 15, note: 'per side · 4 RIR · rest 45 s · light, joint insurance' },
+        { name: 'Stretch — Push Day' },
         { name: 'Daily Shift Mobility' }
       ]
     },
     2: {
-      title: 'Lower A — squat emphasis',
+      title: 'Pull A — vertical and lat emphasis',
       items: [
-        { name: 'Warm-up — Lower A' },
-        { name: 'Goblet Squat', sets: 3, reps: 8, repsMax: 12, note: '3 s lowering · 2 RIR · rest 2–3 min' },
+        { name: 'Warm-up — Pull' },
+        { name: 'Dumbbell Pullover', sets: 4, reps: 10, repsMax: 12, note: '2 RIR · rest 2 min · slow into the stretch' },
+        { name: 'One-Arm Dumbbell Row', sets: 4, reps: 8, repsMax: 12, note: 'per side · 2 RIR · rest 90 s · 2 s lowering' },
+        { name: 'Dumbbell Bent-Over Row', sets: 3, reps: 10, repsMax: 12, note: 'torso ~45° · 2 RIR · rest 2 min' },
+        { name: 'Rear Delt Fly', sets: 3, reps: 15, repsMax: 20, note: 'thumbs down · 1 RIR · rest 60 s' },
+        { name: 'Dumbbell Curl', sets: 3, reps: 8, repsMax: 12, note: '1–2 RIR · rest 90 s · 2 s lowering, no swing' },
+        { name: 'Hammer Curl', sets: 3, reps: 10, repsMax: 12, note: '1–2 RIR · rest 60 s' },
+        { name: 'Dumbbell Shrug', sets: 2, reps: 12, repsMax: 15, note: '1 RIR · rest 60 s · 1 s pause, no rolling' },
+        { name: 'Stretch — Pull Day' },
+        { name: 'Daily Shift Mobility' }
+      ]
+    },
+    3: {
+      title: 'Legs A — squat emphasis',
+      items: [
+        { name: 'Warm-up — Legs A' },
+        { name: 'Goblet Squat', sets: 4, reps: 8, repsMax: 12, note: '3 s lowering · 2 RIR · rest 2–3 min · depth first, load second' },
         { name: 'Dumbbell Romanian Deadlift', sets: 3, reps: 8, repsMax: 12, note: '2–3 RIR · rest 2–3 min' },
-        { name: 'Bulgarian Split Squat', sets: 2, reps: 10, repsMax: 12, note: 'per leg · 2 RIR · rest 90 s' },
-        { name: 'Single-Leg Calf Raise', sets: 4, reps: 12, repsMax: 20, note: 'per leg · 0–1 RIR · rest 60 s' },
-        { name: 'Dead Bug', sets: 2, reps: 10, note: 'per side · rest 45 s' },
+        { name: 'Bulgarian Split Squat', sets: 3, reps: 10, repsMax: 12, note: 'per leg · 2 RIR · rest 90 s · front shin near vertical' },
+        { name: 'Reverse Nordic', sets: 2, reps: 8, note: '3 RIR · rest 60 s · small range at first' },
+        { name: 'Single-Leg Calf Raise', sets: 4, reps: 12, repsMax: 20, note: 'per leg · 0–1 RIR · rest 60 s · 2 s pause at the stretch' },
+        { name: 'Tibialis Raise', sets: 2, reps: 15, repsMax: 20, note: '1 RIR · rest 45 s' },
+        { name: 'Dead Bug', sets: 2, reps: 10, note: 'per side · rest 45 s · low back flat throughout' },
         { name: 'Copenhagen Plank', minutes: 1, note: '2 × 20 s per side, knee on the bench · rest 45 s' },
-        { name: 'Stretch — Lower A' },
+        { name: 'Stretch — Leg Day' },
         { name: 'Daily Shift Mobility' }
       ]
     },
-    3: { title: 'Rest', items: [{ name: 'Daily Shift Mobility' }] },
-    4: {
-      title: 'Upper B — pull emphasis',
-      items: [
-        { name: 'Warm-up — Upper B' },
-        { name: 'Dumbbell Bent-Over Row', sets: 3, reps: 8, repsMax: 12, note: 'both arms, torso ~45° · 2 RIR · rest 2–3 min' },
-        { name: 'Dumbbell Pullover', sets: 3, reps: 10, repsMax: 12, note: '2 RIR · rest 90 s' },
-        { name: 'Dumbbell Fly', sets: 2, reps: 12, repsMax: 15, note: 'on the floor · 1–2 RIR · rest 90 s' },
-        { name: 'Rear Delt Fly', sets: 3, reps: 15, repsMax: 20, note: 'chest-supported or bent · 1 RIR · rest 60 s' },
-        { name: 'Dumbbell Curl', sets: 3, reps: 8, repsMax: 12, note: '1–2 RIR · rest 90 s' },
-        { name: 'Hammer Curl', sets: 2, reps: 10, repsMax: 12, note: '1–2 RIR · rest 60 s' },
-        { name: 'Dumbbell Lateral Raise', sets: 2, reps: 15, repsMax: 20, note: 'second side-delt exposure · 1 RIR · rest 60 s' },
-        { name: 'Stretch — Upper B' },
-        { name: 'Daily Shift Mobility' }
-      ]
-    },
+    4: { title: 'Rest', items: [{ name: 'Daily Shift Mobility' }] },
     5: {
-      title: 'Lower B — hinge and unilateral emphasis',
+      title: 'Push B — shoulder emphasis',
       items: [
-        { name: 'Warm-up — Lower B' },
-        { name: 'Dumbbell Romanian Deadlift', sets: 3, reps: 10, repsMax: 12, note: 'heavier than Lower A if grip allows · 2 RIR · rest 2–3 min' },
-        { name: 'Dumbbell Reverse Lunge', sets: 3, reps: 10, note: 'per leg · 2 RIR · rest 2 min' },
-        { name: 'Goblet Squat', sets: 2, reps: 12, repsMax: 15, note: 'tempo: 4 s down, 1 s pause · light · 2 RIR · rest 90 s' },
-        { name: 'Standing Calf Raise', sets: 4, reps: 15, repsMax: 20, note: 'both legs, loaded · 0–1 RIR · rest 60 s' },
-        { name: 'Hamstring Slider Curl', sets: 2, reps: 6, repsMax: 10, note: 'or Nordic negative · 2 RIR · rest 90 s' },
-        { name: 'Lying Leg Raise', sets: 3, reps: 10, repsMax: 15, note: '1 RIR · rest 60 s' },
-        { name: 'Side Plank', minutes: 1, note: '2 × 30 s per side · rest 45 s' },
-        { name: 'Stretch — Lower B' },
+        { name: 'Warm-up — Push' },
+        { name: 'Dumbbell Shoulder Press', sets: 4, reps: 6, repsMax: 10, note: 'heaviest pressing of the cycle · 2 RIR · rest 2–3 min' },
+        { name: 'Dumbbell Floor Press', sets: 3, reps: 8, repsMax: 12, note: '2 RIR · rest 2–3 min' },
+        { name: 'Arnold Press', sets: 3, reps: 10, repsMax: 12, note: '1–2 RIR · rest 90 s · rotate palms in to out' },
+        { name: 'Dumbbell Lateral Raise', sets: 4, reps: 12, repsMax: 20, note: 'highest side-delt volume of the week · 1 RIR · rest 75 s' },
+        { name: 'Rear Delt Fly', sets: 3, reps: 15, repsMax: 20, note: 'thumbs down, strict · 1 RIR · rest 60 s' },
+        { name: 'Single-Arm Overhead Triceps Extension', sets: 3, reps: 12, repsMax: 15, note: '1–2 RIR · rest 60 s' },
+        { name: 'Standing Calf Raise', sets: 3, reps: 15, repsMax: 20, note: 'third calf exposure · 0–1 RIR · rest 60 s' },
+        { name: 'Stretch — Push Day' },
         { name: 'Daily Shift Mobility' }
       ]
     },
     6: {
-      /* DRAFTED — not from the programme document, which pointed at a section
-         that never arrived. Built from what the other four days leave out: arms
-         and rear delts get one exposure each per week, grip and forearms none.
-         Light on purpose — Lower B is the day before and Sunday is a rest day,
-         and a fifth hard session here would eat the recovery that makes the
-         other four work. */
-      title: 'Accessory & mobility (drafted, not from the programme)',
+      title: 'Pull B — horizontal emphasis',
       items: [
-        { name: 'Warm-up — Accessory' },
-        { name: 'Dumbbell Lateral Raise', sets: 3, reps: 15, repsMax: 20, note: 'third side-delt exposure · 1 RIR · rest 60 s' },
-        { name: 'Rear Delt Fly', sets: 3, reps: 15, repsMax: 20, note: 'second rear-delt exposure · 1 RIR · rest 60 s' },
-        { name: 'Dumbbell Curl', sets: 2, reps: 12, repsMax: 15, note: 'second biceps exposure · 1 RIR · rest 60 s' },
-        { name: 'Overhead Dumbbell Triceps Extension', sets: 2, reps: 12, repsMax: 15, note: 'second triceps exposure · 1 RIR · rest 60 s' },
-        { name: 'Farmer Carry', minutes: 2, note: '3 × 40 s · grip and upper back · rest 60 s' },
-        { name: 'Side-Lying Dumbbell External Rotation', sets: 2, reps: 15, note: 'per side · 4 RIR · rest 45 s' },
-        { name: 'Dead Bug', sets: 2, reps: 10, note: 'per side · rest 45 s' },
-        { name: 'Stretch — Accessory' },
+        { name: 'Warm-up — Pull' },
+        { name: 'Dumbbell Bent-Over Row', sets: 4, reps: 8, repsMax: 12, note: 'heaviest rowing of the cycle · 2 RIR · rest 2–3 min' },
+        { name: 'One-Arm Dumbbell Row', sets: 3, reps: 10, repsMax: 12, note: 'per side · 2 RIR · rest 90 s' },
+        { name: 'Dumbbell Pullover', sets: 3, reps: 12, repsMax: 15, note: '1–2 RIR · rest 90 s' },
+        { name: 'Rear Delt Fly', sets: 3, reps: 15, repsMax: 20, note: 'chest-supported · 1 RIR · rest 60 s' },
+        { name: 'Alternating Dumbbell Curl', sets: 3, reps: 10, repsMax: 12, note: '1–2 RIR · rest 90 s' },
+        { name: 'Cross-Body Hammer Curl', sets: 2, reps: 12, repsMax: 15, note: '1–2 RIR · rest 60 s' },
+        { name: 'Wrist Curl', sets: 2, reps: 15, note: '15 each direction · 1 RIR · rest 45 s · grip feeds the deadlift' },
+        { name: 'Single-Leg Calf Raise', sets: 3, reps: 12, repsMax: 20, note: 'per leg · fourth calf exposure · 0–1 RIR · rest 60 s' },
+        { name: 'Stretch — Pull Day' },
         { name: 'Daily Shift Mobility' }
       ]
     },
-    0: { title: 'Rest', items: [{ name: 'Daily Shift Mobility' }] }
+    0: {
+      title: 'Legs B — hinge emphasis',
+      items: [
+        { name: 'Warm-up — Legs B' },
+        { name: 'Dumbbell Romanian Deadlift', sets: 4, reps: 8, repsMax: 12, note: 'heaviest hinge of the cycle · 2 RIR · rest 2–3 min · straps if grip limits you' },
+        { name: 'Dumbbell Reverse Lunge', sets: 3, reps: 10, note: 'per leg · 2 RIR · rest 2 min · step back, not forward' },
+        { name: 'Goblet Squat', sets: 3, reps: 12, repsMax: 15, note: '4 s down, 1 s pause · 2 RIR · rest 90 s · light load, high difficulty' },
+        { name: 'Hamstring Slider Curl', sets: 2, reps: 6, repsMax: 10, note: 'or Nordic negative · 2 RIR · rest 90 s · progress slowly' },
+        { name: 'Standing Calf Raise', sets: 4, reps: 15, repsMax: 20, note: 'loaded, straight knee · 0–1 RIR · rest 60 s' },
+        { name: 'Tibialis Raise', sets: 2, reps: 15, repsMax: 20, note: '1 RIR · rest 45 s' },
+        { name: 'Lying Leg Raise', sets: 3, reps: 10, repsMax: 15, note: '1 RIR · rest 60 s · lower back pressed down' },
+        { name: 'Side Plank', minutes: 1, note: '2 × 30 s per side · rest 45 s' },
+        { name: 'Stretch — Leg Day' },
+        { name: 'Daily Shift Mobility' }
+      ]
+    }
   };
 
-  /* Context 2 — HOME. DRAFTED IN FULL: the document named a second context and
-     never described one. Same four-session pattern, same RIR and rest
-     conventions, barbell where the site context uses dumbbells.
+  /* The home week is the source document's own calendar: Mon push, Tue pull,
+     Wed legs, Thu push, Fri pull, Sat legs, Sunday full rest. Six consecutive
+     days is demanding, and the programme says so — if loads stall or sleep
+     degrades, move Thursday to a rest day and run the same rolling cycle the
+     site block uses. That is the correct adjustment, not a failure. */
 
-     It assumes a barbell, a rack with pins, a bench and something to hang from.
-     That is the usual "full access" counterpart to dumbbells-only, and it is an
-     ASSUMPTION — if the real setup is different these are the rows to swap, and
-     the pattern (press, squat, pull, hinge) survives any equipment.
-
-     The warm-ups and stretches are the site ones. They are marches, leg swings,
-     cat-cows and doorway stretches; none of them was ever dumbbell-specific. */
   const HOME_WEEK = {
     1: {
-      title: 'Upper A — press emphasis',
+      title: 'Push A — chest emphasis',
       items: [
-        { name: 'Warm-up — Upper A' },
-        { name: 'Barbell Bench Press', sets: 3, reps: 5, repsMax: 8, note: '2 RIR · rest 3 min · pins or a spotter, always' },
-        { name: 'Barbell Overhead Press', sets: 3, reps: 5, repsMax: 8, note: '2 RIR · rest 3 min · glutes and abs braced' },
-        { name: 'Barbell Row', sets: 3, reps: 8, repsMax: 12, note: '2 RIR · rest 2 min · torso stays at 45°' },
-        { name: 'Dumbbell Lateral Raise', sets: 3, reps: 12, repsMax: 20, note: '1 RIR · rest 75 s' },
-        { name: 'Overhead Dumbbell Triceps Extension', sets: 2, reps: 10, repsMax: 12, note: '1–2 RIR · rest 90 s' },
-        { name: 'Side-Lying Dumbbell External Rotation', sets: 2, reps: 15, note: 'per side · 4 RIR · rest 45 s' },
-        { name: 'Stretch — Upper A' },
+        { name: 'Warm-up — Push (gym)' },
+        { name: 'Barbell Bench Press', sets: 4, reps: 6, repsMax: 10, note: 'priority lift · 2 RIR · rest 3 min · spotter or safety pins, every set' },
+        { name: 'Dumbbell Shoulder Press', sets: 3, reps: 8, repsMax: 12, note: 'seated, or a machine · 2 RIR · rest 2–3 min' },
+        { name: 'Incline Dumbbell Press', sets: 3, reps: 10, repsMax: 12, note: '30° bench · 2 RIR · rest 2 min' },
+        { name: 'Cable Lateral Raise', sets: 3, reps: 12, repsMax: 20, note: '1 RIR · rest 75 s' },
+        { name: 'Rope Triceps Pushdown', sets: 3, reps: 10, repsMax: 15, note: '1 RIR · rest 75 s' },
+        { name: 'Overhead Cable Extension', sets: 2, reps: 12, repsMax: 15, note: 'long head · 1 RIR · rest 60 s' },
+        { name: 'Cable Face Pull', sets: 2, reps: 15, note: '4 RIR · rest 45 s · cuff and scapular work' },
+        { name: 'Stretch — Push Day' },
         { name: 'Daily Shift Mobility' }
       ]
     },
     2: {
-      title: 'Lower A — squat emphasis',
+      title: 'Pull A — vertical emphasis',
       items: [
-        { name: 'Warm-up — Lower A' },
-        { name: 'Barbell Back Squat', sets: 3, reps: 5, repsMax: 8, note: '2 RIR · rest 3 min · depth first, load second' },
-        { name: 'Dumbbell Romanian Deadlift', sets: 3, reps: 8, repsMax: 12, note: '2–3 RIR · rest 2–3 min' },
-        { name: 'Bulgarian Split Squat', sets: 2, reps: 10, repsMax: 12, note: 'per leg · 2 RIR · rest 90 s' },
-        { name: 'Standing Calf Raise', sets: 4, reps: 12, repsMax: 20, note: '0–1 RIR · rest 60 s' },
-        { name: 'Dead Bug', sets: 2, reps: 10, note: 'per side · rest 45 s' },
-        { name: 'Copenhagen Plank', minutes: 1, note: '2 × 20 s per side, knee on the bench · rest 45 s' },
-        { name: 'Stretch — Lower A' },
+        { name: 'Warm-up — Pull (gym)' },
+        { name: 'Pull-up', sets: 4, reps: 8, repsMax: 12, note: 'weighted when you can, or a pulldown · 2 RIR · rest 2–3 min · drive the elbows down' },
+        { name: 'Chest-Supported Row', sets: 3, reps: 10, repsMax: 12, note: '2 RIR · rest 2 min · pause 1 s at the top' },
+        { name: 'Straight-Arm Pulldown', sets: 3, reps: 12, repsMax: 15, note: 'lat isolation · 1 RIR · rest 90 s' },
+        { name: 'Cable Face Pull', sets: 3, reps: 15, repsMax: 20, note: 'rear delt fly on the cable · 1 RIR · rest 60 s' },
+        { name: 'Barbell Curl', sets: 3, reps: 8, repsMax: 12, note: 'EZ-bar if you have one · 1–2 RIR · rest 90 s' },
+        { name: 'Hammer Curl', sets: 3, reps: 10, repsMax: 12, note: '1–2 RIR · rest 60 s' },
+        { name: 'Dumbbell Shrug', sets: 2, reps: 12, repsMax: 15, note: 'barbell or dumbbell · 1 RIR · rest 60 s · 1 s pause at the top' },
+        { name: 'Stretch — Pull Day' },
         { name: 'Daily Shift Mobility' }
       ]
     },
-    3: { title: 'Rest', items: [{ name: 'Daily Shift Mobility' }] },
-    4: {
-      title: 'Upper B — pull emphasis',
+    3: {
+      title: 'Legs A — squat emphasis',
       items: [
-        { name: 'Warm-up — Upper B' },
-        { name: 'Pull-up', sets: 3, reps: 4, repsMax: 10, note: '2 RIR · rest 2–3 min · full hang, slow negatives if you have none yet' },
-        { name: 'Barbell Row', sets: 3, reps: 8, repsMax: 12, note: '2 RIR · rest 2 min' },
-        { name: 'Dumbbell Pullover', sets: 3, reps: 10, repsMax: 12, note: '2 RIR · rest 90 s' },
-        { name: 'Rear Delt Fly', sets: 3, reps: 15, repsMax: 20, note: 'chest-supported or bent · 1 RIR · rest 60 s' },
-        { name: 'Barbell Curl', sets: 3, reps: 8, repsMax: 12, note: '1–2 RIR · rest 90 s · elbows still' },
-        { name: 'Hammer Curl', sets: 2, reps: 10, repsMax: 12, note: '1–2 RIR · rest 60 s' },
-        { name: 'Dumbbell Lateral Raise', sets: 2, reps: 15, repsMax: 20, note: 'second side-delt exposure · 1 RIR · rest 60 s' },
-        { name: 'Stretch — Upper B' },
+        { name: 'Warm-up — Legs A (gym)' },
+        { name: 'Barbell Back Squat', sets: 4, reps: 6, repsMax: 10, note: '2–3 RIR · rest 3 min · follow the re-entry ramp for the first block' },
+        { name: 'Barbell Romanian Deadlift', sets: 3, reps: 8, repsMax: 12, note: '2 RIR · rest 2–3 min · straps fine, the hamstrings should fail not the grip' },
+        { name: 'Leg Press', sets: 3, reps: 10, repsMax: 12, note: '2 RIR · rest 2 min' },
+        { name: 'Seated Calf Raise', sets: 4, reps: 12, repsMax: 20, note: 'bent knee, soleus · 0–1 RIR · rest 60 s' },
+        { name: 'Tibialis Raise', sets: 2, reps: 15, repsMax: 20, note: '1 RIR · rest 45 s · weighted if you have a tib bar' },
+        { name: 'Cable Pallof Press', sets: 2, reps: 10, note: 'per side · anti-rotation · rest 60 s' },
+        { name: 'Stretch — Leg Day' },
+        { name: 'Daily Shift Mobility' }
+      ]
+    },
+    4: {
+      title: 'Push B — shoulder emphasis',
+      items: [
+        { name: 'Warm-up — Push (gym)' },
+        { name: 'Dumbbell Shoulder Press', sets: 4, reps: 6, repsMax: 10, note: 'seated, or a machine · heaviest pressing of the week · 2 RIR · rest 3 min' },
+        { name: 'Incline Dumbbell Press', sets: 3, reps: 8, repsMax: 12, note: 'barbell if you prefer · 2 RIR · rest 2–3 min' },
+        { name: 'Cable Fly', sets: 3, reps: 12, repsMax: 15, note: 'or a pec deck · 1 RIR · rest 90 s · full stretch at the outside' },
+        { name: 'Cable Lateral Raise', sets: 4, reps: 12, repsMax: 20, note: '1 RIR · rest 75 s' },
+        { name: 'Cable Face Pull', sets: 3, reps: 15, repsMax: 20, note: 'rear delt fly on the cable · 1 RIR · rest 60 s' },
+        { name: 'Close-Grip Bench Press', sets: 3, reps: 8, repsMax: 12, note: 'or a dip · 1–2 RIR · rest 90 s · feeds the bench directly' },
+        { name: 'Standing Calf Raise', sets: 3, reps: 15, repsMax: 20, note: 'third calf exposure · 0–1 RIR · rest 60 s' },
+        { name: 'Stretch — Push Day' },
         { name: 'Daily Shift Mobility' }
       ]
     },
     5: {
-      title: 'Lower B — hinge and unilateral emphasis',
+      title: 'Pull B — horizontal emphasis',
       items: [
-        { name: 'Warm-up — Lower B' },
-        { name: 'Barbell Deadlift', sets: 3, reps: 3, repsMax: 5, note: '2–3 RIR · rest 3 min · the set ends when the back rounds' },
-        { name: 'Dumbbell Reverse Lunge', sets: 3, reps: 10, note: 'per leg · 2 RIR · rest 2 min' },
-        { name: 'Goblet Squat', sets: 2, reps: 12, repsMax: 15, note: 'tempo: 4 s down, 1 s pause · light · 2 RIR · rest 90 s' },
-        { name: 'Single-Leg Calf Raise', sets: 4, reps: 12, repsMax: 20, note: 'per leg · 0–1 RIR · rest 60 s' },
-        { name: 'Hamstring Slider Curl', sets: 2, reps: 6, repsMax: 10, note: 'or Nordic negative · 2 RIR · rest 90 s' },
-        { name: 'Lying Leg Raise', sets: 3, reps: 10, repsMax: 15, note: '1 RIR · rest 60 s' },
-        { name: 'Side Plank', minutes: 1, note: '2 × 30 s per side · rest 45 s' },
-        { name: 'Stretch — Lower B' },
+        { name: 'Warm-up — Pull (gym)' },
+        { name: 'Barbell Row', sets: 4, reps: 8, repsMax: 12, note: 'torso ~45°, strict · 2 RIR · rest 3 min' },
+        { name: 'Lat Pulldown', sets: 3, reps: 10, repsMax: 12, note: '2 RIR · rest 2 min' },
+        { name: 'Seated Cable Row', sets: 3, reps: 10, repsMax: 12, note: '2 RIR · rest 90 s · let the shoulder blades travel forward at the front' },
+        { name: 'Cable Face Pull', sets: 3, reps: 15, note: '1 RIR · rest 60 s' },
+        { name: 'Incline Dumbbell Curl', sets: 3, reps: 10, repsMax: 12, note: 'biceps in the stretched position · 1–2 RIR · rest 90 s' },
+        { name: 'Cable Curl', sets: 2, reps: 12, repsMax: 15, note: '1 RIR · rest 60 s' },
+        { name: 'Wrist Curl', sets: 2, reps: 15, note: 'or a wrist roller · 1 RIR · rest 45 s · grip work for the deadlift' },
+        { name: 'Seated Calf Raise', sets: 3, reps: 15, repsMax: 20, note: 'fourth calf exposure, bent knee · 0–1 RIR · rest 60 s' },
+        { name: 'Stretch — Pull Day' },
         { name: 'Daily Shift Mobility' }
       ]
     },
     6: {
-      title: 'Accessory & mobility (drafted, not from the programme)',
+      title: 'Legs B — deadlift emphasis',
       items: [
-        { name: 'Warm-up — Accessory' },
-        { name: 'Dumbbell Lateral Raise', sets: 3, reps: 15, repsMax: 20, note: 'third side-delt exposure · 1 RIR · rest 60 s' },
-        { name: 'Rear Delt Fly', sets: 3, reps: 15, repsMax: 20, note: 'second rear-delt exposure · 1 RIR · rest 60 s' },
-        { name: 'Barbell Curl', sets: 2, reps: 12, repsMax: 15, note: 'second biceps exposure · 1 RIR · rest 60 s' },
-        { name: 'Overhead Dumbbell Triceps Extension', sets: 2, reps: 12, repsMax: 15, note: 'second triceps exposure · 1 RIR · rest 60 s' },
-        { name: 'Farmer Carry', minutes: 2, note: '3 × 40 s · grip and upper back · rest 60 s' },
-        { name: 'Side-Lying Dumbbell External Rotation', sets: 2, reps: 15, note: 'per side · 4 RIR · rest 45 s' },
-        { name: 'Dead Bug', sets: 2, reps: 10, note: 'per side · rest 45 s' },
-        { name: 'Stretch — Accessory' },
+        { name: 'Warm-up — Legs B (gym)' },
+        { name: 'Barbell Deadlift', sets: 4, reps: 5, repsMax: 8, note: 'the lagging lift · 2–3 RIR · rest 3 min · USE STRAPS and find out whether grip or hamstrings is the limit' },
+        { name: 'Bulgarian Split Squat', sets: 3, reps: 10, repsMax: 12, note: 'per leg · 2 RIR · rest 2 min' },
+        { name: 'Lying Leg Curl', sets: 3, reps: 10, repsMax: 12, note: '2 RIR · rest 90 s · 3 s lowering' },
+        { name: 'Leg Extension', sets: 2, reps: 12, repsMax: 15, note: 'rectus femoris · 1 RIR · rest 90 s' },
+        { name: 'Standing Calf Raise', sets: 4, reps: 12, repsMax: 20, note: 'straight knee, gastrocnemius · 0–1 RIR · rest 60 s' },
+        { name: 'Tibialis Raise', sets: 2, reps: 15, repsMax: 20, note: '1 RIR · rest 45 s' },
+        { name: 'Cable Hip Abduction', sets: 2, reps: 15, note: 'per side · gluteus medius · 1 RIR · rest 45 s · stand tall, no leaning' },
+        { name: 'Hanging Leg Raise', sets: 3, reps: 10, repsMax: 15, note: '1 RIR · rest 90 s' },
+        { name: 'Stretch — Leg Day' },
         { name: 'Daily Shift Mobility' }
       ]
     },
-    0: { title: 'Rest', items: [{ name: 'Daily Shift Mobility' }] }
+    0: { title: 'Full rest', items: [{ name: 'Daily Shift Mobility' }] }
   };
 
   const PROGRAM_CONTEXTS = [
     {
       id: 'site',
       name: 'On site',
-      blurb: 'Dumbbells only, limited time. The programme as written.',
+      blurb: 'Dumbbells only. Push, pull, legs, twice over — but the source runs it as a rolling 3-on/1-off cycle, so move the days by hand as it drifts.',
       week: SITE_WEEK
     },
     {
       id: 'home',
       name: 'At home',
-      blurb: 'Barbell, rack, bench and a bar to hang from. Drafted for this app, not supplied.',
+      blurb: 'Full gym: barbell, rack, cables and machines. Mon to Sat, Sunday off, exactly as the programme is written.',
       week: HOME_WEEK
     }
   ];

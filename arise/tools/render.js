@@ -268,6 +268,20 @@ S.resetAll();
 });
 UI.setViewDate(t);
 
+/* And every day of the OTHER context. The sweep above only ever saw the site
+   week, because that is what a fresh install lays down — so the six home
+   sessions, which are the half with the cables and machines in them, had never
+   been rendered by anything. */
+S.reinstallProgram('home');
+[1, 2, 3, 4, 5, 6, 0].forEach((d) => {
+  let k = t;
+  for (let i = 0; i < 7 && A.weekday(k) !== d; i++) k = A.addDays(k, 1);
+  UI.setViewDate(k);
+  check('home · ' + A.DAY_NAMES[d], () => renderRoute('today'));
+});
+UI.setViewDate(t);
+S.resetAll();
+
 console.log('\nthe logical day, not the calendar date');
 
 /* A 24h grace window puts S.today() exactly one calendar day behind A.key() —
